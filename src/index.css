@@ -1,9 +1,35 @@
 @import "tailwindcss";
 
-.btn {
-  @apply px-4 py-2 rounded-xl bg-emerald-600 text-white shadow hover:bg-emerald-500;
+body {
+  font-family: "Merriweather", serif;
+  font-weight: 300;
 }
 
-.btn-secondary {
-  @apply px-4 py-2 rounded-xl bg-slate-800 text-slate-200;
+@layer components {
+  .btn-home {
+    @apply relative mx-auto px-4 py-3 rounded-lg 
+           font-semibold text-white text-lg
+           transition duration-200
+           shadow-sm hover:shadow-md
+           hover:-translate-y-0.5 active:translate-y-0
+           text-center;
+    width: 270px;
+  }
+
+  @media (max-width: 768px) {
+    .btn-home {
+      width: 220px;
+    }
+  }
+
+  @media (max-width: 480px) {
+    .btn-home {
+      width: 200px;
+    }
+  }
+  
+  .btn-icon-left {
+    @apply w-7 h-7 absolute left-8 top-1/2 -translate-y-1/2;
+  }
 }
+

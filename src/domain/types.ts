@@ -18,6 +18,7 @@ export interface Node {
     id: ID;
     title: string;
     text: string;
+    image?: string;
     hotspots: Hotspot[];
     isStart?: boolean;
     isFinal?: boolean;

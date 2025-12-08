@@ -1,4 +1,4 @@
-import type { Project } from "@/domain/types";
+ /*import type { Project } from "@/domain/types";
 
 export const mockProject: Project = {
     id: "demo-forest",
@@ -52,4 +52,4 @@ export const mockProject: Project = {
             isFinal: true,
         },
     ],
-};
+};*/

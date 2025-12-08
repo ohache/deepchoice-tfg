@@ -1,81 +1,111 @@
 import { useState, useRef, type ChangeEvent } from "react";
-import { useGameStore } from "@/store/gameStore";
 import { useNavigate } from "react-router-dom";
-import { PlusCircleIcon, PencilSquareIcon, PlayCircleIcon } from '@heroicons/react/24/outline';
-import { loadProjectFromFile } from "@/services/projectLoader";
 import { useEditorStore } from "@/store/editorStore";
-import { UserManualModal } from "./components/UserManualModal";
-import { CreateAdventureModal } from "./components/CreateAdventureModal";
+import { useGameStore } from "@/store/gameStore";
+import { UserManualModal } from "@/features/home/components/UserManualModal";
+import { CreateAdventureModal } from "@/features/home/components/CreateAdventureModal";
+import { PlusCircleIcon, PencilSquareIcon, PlayCircleIcon } from '@heroicons/react/24/outline';
+import { loadProjectFromDirectory } from "@/services/projectDirectoryLoader";
+
+type LoadMode = "edit" | "play" | null;
+
+function validateProjectTitle(value: string): string | null {
+  const trimmed = value.trim();
+
+  if (!trimmed) return "El título no puede estar vacío.";
+  
+  if (trimmed.length > 100) return "El título no puede tener más de 100 caracteres.";
+
+  return null;
+}
 
 
 export function HomePage() {
     const navigate = useNavigate();
+
     const [isManualOpen, setIsManualOpen] = useState(false);
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [newTitle, setNewTitle] = useState("");
-    const fileInputRef = useRef<HTMLInputElement | null>(null);
+    const [loadMode, setLoadMode] = useState<LoadMode>(null);
+
+    const [titleError, setTitleError] = useState<string | null>(null);
+    
+    const folderInputRef = useRef<HTMLInputElement | null>(null);
     const startGame = useGameStore((state) => state.startGame);
 
-    const handleFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        if (!file) return;
-
-        if (!file.name.toLowerCase().endsWith(".json")) {
-            alert("Por favor, selecciona un archivo .json");
-            event.target.value = "";
-            return;
-        }
-
-        try {
-            const project = await loadProjectFromFile(file);
-            startGame(project)
-            navigate("/play", { state: { project } });
-        } catch (error: any) {
-            alert(error.message ?? "No se ha podido cargar el proyecto.");
-        } finally {
-            event.target.value = "";
-        }
-    };
-
+    /* Crear */
     const handleCreate = () => {
         setNewTitle("");
+        setTitleError(null); 
         setIsCreateModalOpen(true);
     };
 
     const handleConfirmCreate = () => {
-        const trimmed = newTitle.trim();
-        if (!trimmed) {
-            alert("Introduce un título para la aventura.");
+        const error = validateProjectTitle(newTitle);
+        if (error) {
+            setTitleError(error);
             return;
         }
 
+        setTitleError(null);
+
+        const trimmed = newTitle.trim();
         useEditorStore.getState().resetEditor();
+        useEditorStore.getState().initNewProject(trimmed);
 
         setIsCreateModalOpen(false);
-        navigate("/editor", { state: { title: trimmed } });
+        setNewTitle("");
+        navigate("/editor");
     };
 
     const handleCancelCreate = () => {
         setIsCreateModalOpen(false);
         setNewTitle("");
+        setTitleError(null);   
     };
 
+    /* Editar */
     const handleEdit = () => {
-        navigate("/editor");
+        setLoadMode("edit");
+        folderInputRef.current?.click();
     };
 
+    /* Jugar */
     const handlePlay = () => {
-        fileInputRef.current?.click();
+        setLoadMode("play");
+        folderInputRef.current?.click();
+    };
+
+    const handleFolderChange = async (event: ChangeEvent<HTMLInputElement>) => {
+        const files = event.target.files;
+        if (!files || files.length === 0) return;
+
+        try {
+            const { project, files: allFiles } = await loadProjectFromDirectory(files);
+
+            if (loadMode === "edit") {
+                useEditorStore.getState().loadProjectFromDirectory(project, allFiles);
+                navigate("/editor");
+            } else if (loadMode === "play") {
+                startGame(project, allFiles);
+                navigate("/play");
+            }
+        } catch (error: any) {
+            alert(error.message ?? "No se ha podido cargar el proyecto.");
+        } finally {
+            event.target.value = "";
+            setLoadMode(null);
+        }
     };
 
     return (
         <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center">
-            <div className="max-w-xl w-full px-6 py-10 rounded-2xl bg-slate-800 border-4 border-slate-700">
+            <div className="home-card">
                 <div className="flex items-center justify-center mb-6">
                     <img
                         src="/logo.png"
                         alt="Logo"
-                        className="h-30 w-30 rounded-2xl border-4 border-black object-contain"
+                        className="h-32 w-32 rounded-2xl border-4 border-black object-contain"
                     />
                 </div>
 
@@ -97,7 +127,8 @@ export function HomePage() {
                         className="btn-home bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700"
                     >
                         <PlusCircleIcon className="btn-icon-left" />
-                    Crear</button>
+                        Crear
+                    </button>
 
                     <button
                         type="button"
@@ -105,7 +136,8 @@ export function HomePage() {
                         className="btn-home bg-sky-600 hover:bg-sky-500 active:bg-sky-700"
                     >
                         <PencilSquareIcon className="btn-icon-left" />
-                    Editar</button>
+                        Editar
+                    </button>
 
                     <button
                         type="button"
@@ -113,39 +145,49 @@ export function HomePage() {
                         className="btn-home bg-amber-600 hover:bg-amber-500 active:bg-amber-700"
                     >
                         <PlayCircleIcon className="btn-icon-left" />
-                    Jugar</button>
+                        Jugar
+                    </button>
                 </div>
 
                 <div className="flex justify-center">
                     <button
                         type="button"
                         onClick={() => setIsManualOpen(true)}
-                        className="inline-flex items-center gap-2 text-slate-200 hover:text-slate-100 underline underline-offset-4"
+                        className="link-underline"
                     >
                         <span>Manual de usuario</span>
                     </button>
                 </div>
             </div>
 
-            <input
-                ref={fileInputRef}
-                type="file"
-                accept=".json,application/json"
-                className="hidden"
-                onChange={handleFileChange}
-            />
-
-            <UserManualModal
-                open={isManualOpen}
-                onClose={() => setIsManualOpen(false)}
-            />
-
+            {/* Modal: crear nueva aventura */}
             <CreateAdventureModal
                 open={isCreateModalOpen}
                 title={newTitle}
-                onTitleChange={setNewTitle}
+                onTitleChange={(value) => {
+                    setNewTitle(value);
+                    setTitleError(validateProjectTitle(value));
+                }}
                 onConfirm={handleConfirmCreate}
                 onCancel={handleCancelCreate}
+                titleError={titleError}
+            />
+
+            {/* Input de carpeta del proyecto */}
+            <input
+                ref={folderInputRef}
+                type="file"
+                //@ts-expect-error webkitdirectory no está en el tipo estándar
+                webkitdirectory="true"
+                multiple
+                className="hidden"
+                onChange={handleFolderChange}
+            />
+
+            {/* Modal: manual de usuario */}
+            <UserManualModal
+                open={isManualOpen}
+                onClose={() => setIsManualOpen(false)}
             />
         </div>
     );

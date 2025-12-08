@@ -1,15 +1,24 @@
 import { useEditorStore } from "@/store/editorStore";
 import type { EditorSecondaryMode } from "@/features/editor/core/editorModes";
 
+type SecondaryTab = {
+  id: EditorSecondaryMode;
+  label: string;
+  title?: string;
+};
+
 export function BottomBar() {
   const project = useEditorStore((s) => s.project);
   const primaryMode = useEditorStore((s) => s.primaryMode);
   const secondaryMode = useEditorStore((s) => s.secondaryMode);
   const setSecondaryMode = useEditorStore((s) => s.setSecondaryMode);
+  const sceneMode = useEditorStore((s) => s.sceneMode);
 
-  const nodeCount = project!.nodes.length;
+  if (!project) return null;
 
-  let tabs: { id: EditorSecondaryMode; label: string; title?: string }[] = [];
+  const nodeCount = project.nodes.length;
+
+  let tabs: SecondaryTab[] = [];
 
   switch (primaryMode) {
     case "historia":
@@ -26,8 +35,9 @@ export function BottomBar() {
       break;
 
     case "escena":
+      const crearLabel = sceneMode === "editing" ? "Editar" : "Crear";
       tabs = [
-        { id: "crear", label: "Crear" },
+        { id: "crear", label: crearLabel },
         { id: "buscar", label: "Buscar" },
         { id: "listar", label: "Listar" },
       ];
@@ -41,18 +51,15 @@ export function BottomBar() {
       break;
   }
 
+  if (tabs.length === 0) return null;
+
   const handleTabClick = (id: EditorSecondaryMode) => {
     if (id === secondaryMode) return;
     setSecondaryMode(id);
   };
-
-  if (!tabs.length) return null;
-
+  
   return (
-    <nav 
-        className="h-12 bg-slate-900 border-t border-slate-800 flex items-center px-4"
-         aria-label="Navegación secundaria del editor"
-    >
+    <nav className="h-12 bg-slate-900 border-t border-slate-800 flex items-center px-4">
       <div className="flex items-center gap-2 text-sm">
         {tabs.map((tab) => {
           const isActive = tab.id === secondaryMode;

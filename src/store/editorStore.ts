@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import type { Project, ID } from "@/domain/types";
+import type { Project } from "@/domain/types";
+import { generateProjectId } from "@/utils/id";
 import { type EditorPrimaryMode, type EditorSecondaryMode, getDefaultSecondaryMode } from "@/features/editor/core/editorModes";
 import { type EditorSceneSlice, createEditorSceneSlice } from "@/features/editor/core/editorSceneSlice";
 
@@ -13,20 +14,19 @@ interface EditorStoreState extends EditorSceneSlice {
     validationStatus: ValidationStatus;
     errorCount: number;
 
+    assetFiles: Record<string, File>;
+
     initNewProject: (title: string) => void;
-    loadProject: (project: Project) => void;
+    loadProjectFromDirectory: (project: Project, files: File[]) => void;
     updateProjectTitle: (title: string) => void;
     setPrimaryMode: (mode: EditorPrimaryMode) => void;
     setSecondaryMode: (mode: EditorSecondaryMode) => void;
     markSaved: () => void;
     setValidationResult: (status: ValidationStatus, errorCount: number) => void;
     resetEditor: () => void;
-}
 
-function generateProjectId(title: string): ID {
-    const slug = title.trim().toLowerCase().replace(/\s+/g, "-");
-    const suffix = Date.now().toString(36);
-    return `${slug || "aventura"}-${suffix}`;
+    registerAssetFile: (path: string, file: File) => void;
+     clearStartFlagFromAllNodes: () => void;
 }
 
 const initialUIState = {
@@ -37,33 +37,78 @@ const initialUIState = {
     errorCount: 0,
 };
 
+type EditorStore = EditorStoreState;
 
-export const useEditorStore = create<EditorStoreState>()((set, get) => ({
+function normalizeAssetPath(rawPath: string): string {
+  const unix = rawPath.replace(/\\/g, "/");
+  const parts = unix.split("/");
+
+  if (parts.length > 1) return parts.slice(1).join("/"); 
+
+  return unix;
+}
+
+export const useEditorStore = create<EditorStore>()((set, get) => ({
     project: null,
+    assetFiles: {},   
     ...initialUIState,
 
     ...createEditorSceneSlice(set, get),
 
+    /* Crear un proyecto vacío */
     initNewProject: (title: string) => {
         const id = generateProjectId(title);
-        const newProject: Project = {id, title: title.trim(), nodes: []};
+
+        const newProject: Project = {
+            id,
+            title: title.trim(),
+            description: "",
+            nodes: [],
+            items: [],
+            npcs: [],
+            musicTracks: [],
+            maps: [],
+            meta: {},
+        };
 
         set({
             project: newProject,
+            assetFiles: {},
             ...initialUIState,
             isDirty: true,
             selectedNodeId: null,
+            sceneMode: "creating",
         });
     },
 
-    loadProject: (project: Project) => {
+    /* Cargar directorio completo */
+    loadProjectFromDirectory: (project: Project, files: File[]) => {
+        const assetFiles: Record<string, File> = {};
+
+        for (const raw of files) {
+            const anyFile = raw as any;
+
+            const relPath: string = typeof anyFile.webkitRelativePath === "string" &&
+                    anyFile.webkitRelativePath.length > 0
+                    ? anyFile.webkitRelativePath
+                    : raw.name;
+
+            const normalized = normalizeAssetPath(relPath);
+
+            if (normalized.toLowerCase().endsWith(".json")) continue;
+
+            assetFiles[normalized] = raw;
+        }
+
         set({
             project,
+            assetFiles,
             ...initialUIState,
             selectedNodeId: null,
+            sceneMode: "creating",
         });
     },
-
+    /* Cambiar título del proyecto */
     updateProjectTitle: (title: string) => {
         set((state) => {
             if (!state.project) return state;
@@ -79,6 +124,7 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
         });
     },
 
+    /* Seleccionar modo principal */
     setPrimaryMode: (mode: EditorPrimaryMode) => {
         set((state) => ({
             ...state,
@@ -87,6 +133,7 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
         }));
     },
 
+    /* Seleccionar modo secundario */
     setSecondaryMode: (mode: EditorSecondaryMode) => {
         set((state) => ({
             ...state,
@@ -94,6 +141,7 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
         }));
     },
 
+    /* Marcar como guardado */
     markSaved: () => {
         set((state) => ({
             ...state,
@@ -101,6 +149,7 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
         }));
     },
 
+    /* Estado de validación */
     setValidationResult: (status: ValidationStatus, errorCount: number) => {
         set((state) => ({
             ...state,
@@ -109,10 +158,43 @@ export const useEditorStore = create<EditorStoreState>()((set, get) => ({
         }));
     },
 
+    /* Reset completo */
     resetEditor: () => {
         set({
             project: null,
             ...initialUIState,
+            selectedNodeId: null,
+            sceneMode: "creating",
         });
     },
+
+    /* Guardar un fichero */
+    registerAssetFile: (path: string, file: File) => {
+        set((state) => ({
+            ...state,
+            assetFiles: {
+                ...state.assetFiles,
+                [path]: file,
+            },
+            isDirty: true,
+        }));
+    },
+
+    /* Quitar la bandera de nodo inicial de todos los nodos */
+    clearStartFlagFromAllNodes: () => {
+    set((state) => {
+      if (!state.project) return state;
+
+      return {
+        ...state,
+        project: {
+          ...state.project,
+          nodes: state.project.nodes.map((node) =>
+            node.isStart ? { ...node, isStart: false } : node
+          ),
+        },
+        isDirty: true,
+      };
+    });
+  },
 }));

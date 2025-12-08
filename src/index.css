@@ -1,45 +1,260 @@
 @import "tailwindcss";
 
+/* =========================
+           BASE GLOBAL
+   ========================= */
+
 body {
   font-family: "Merriweather", serif;
   font-weight: 300;
 }
 
+/* =========================
+   COMPONENTES / UTILIDADES
+   ========================= */
+
 @layer components {
+  /* Errores de validación */
+  .form-field-error {
+    @apply mt-1 text-xs text-red-400 flex items-center gap-1 justify-center;
+  }
+  /* ---- Layout genérico ---- */
+
+  /* Página a pantalla completa centrada (pantallas de error / sin partida) */
+  .page-fullscreen-center {
+    @apply min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center gap-4 px-4;
+  }
+
+  /* Tarjeta principal de la Home */
+  .home-card {
+    @apply max-w-xl w-full px-6 py-10 rounded-2xl bg-slate-800 border-4 border-slate-700;
+  }
+
+  /* Overlay oscuro centrado para modales */
+  .modal-overlay {
+    @apply fixed inset-0 bg-black/60 flex items-center justify-center z-50;
+  }
+
+  /* Contenedor base de los modales (Create, Manual, etc.) */
+  .modal-card {
+    @apply max-w-md w-full mx-4 bg-slate-900 rounded-2xl shadow-xl border-4 border-slate-700 p-6;
+  }
+
+  /* Botón de cierre "X" en la cabecera de los modales */
+  .modal-close-btn {
+    @apply text-slate-300 hover:text-slate-100 text-sm;
+  }
+
+  /* ---- Botones genéricos ---- */
+
+  /* Base para botones pequeños (modales, acciones secundarias, etc.) */
+  .btn {
+    @apply px-3 py-1.5 rounded-lg text-sm transition-colors;
+  }
+
+  /* Botón primario genérico (por ejemplo, "Volver al inicio" en PlayerShell) */
+  .btn-primary {
+    @apply px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm font-semibold;
+  }
+
+  /* Botón secundario genérico (por ejemplo, "Cancelar" en modales) */
+  .btn-secondary {
+    @apply bg-slate-800 hover:bg-slate-700 text-slate-200;
+  }
+
+  /* Botón primario específico para la aventura (por ejemplo, "Crear aventura" en el modal) */
+  .btn-primary-adventure {
+    @apply bg-fuchsia-700 hover:bg-fuchsia-600 text-slate-100 font-semibold;
+  }
+
+  /* Botón danger */
+  .btn-danger {
+    @apply bg-red-700 hover:bg-red-600 text-white;
+  }
+
+  /* ---- Botones específicos de la Home ---- */
+
+  /* Botón grande de la Home (Crear / Editar / Jugar) */
   .btn-home {
-    @apply relative mx-auto px-4 py-3 rounded-lg 
-           font-semibold text-white text-lg
-           transition duration-200
-           shadow-sm hover:shadow-md
-           hover:-translate-y-0.5 active:translate-y-0
-           text-center;
+    @apply relative mx-auto px-4 py-3 rounded-lg font-semibold text-white text-lg transition duration-200 shadow-sm hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 text-center;
     width: 270px;
   }
 
-  @media (max-width: 768px) {
-    .btn-home {
-      width: 220px;
-    }
-  }
-
-  @media (max-width: 480px) {
-    .btn-home {
-      width: 200px;
-    }
-  }
-  
+  /* Icono alineado a la izquierda dentro de los .btn-home */
   .btn-icon-left {
     @apply w-7 h-7 absolute left-8 top-1/2 -translate-y-1/2;
   }
+
+  /* ---- Enlaces / textos clicables ---- */
+
+  /* Enlace subrayado (por ejemplo, "Manual de usuario") */
+  .link-underline {
+    @apply inline-flex items-center gap-2 text-slate-200 hover:text-slate-100 underline underline-offset-4 text-sm;
+  }
+
+  /* ---- Lista de proyectos guardados (modal ProjectPicker) ---- */
+
+  .project-list-container {
+    @apply mb-4 max-h-64 overflow-y-auto border border-slate-800 rounded-lg;
+  }
+
+  .project-list-message {
+    @apply p-3 text-sm text-slate-400;
+  }
+
+  .project-list-item-btn {
+    @apply w-full text-left px-3 py-2 hover:bg-slate-800 focus:bg-slate-800 text-sm;
+  }
+
+  /* =========================
+       EDITOR: SCENE CREATE
+     ========================= */
+
+  /* Contenedor principal izquierda/derecha */
+  .scene-editor-layout {
+    @apply flex flex-col md:flex-row gap-3 min-h-[420px] md:min-h-[600px];
+  }
+
+  /* Panel izquierdo: formulario escena */
+  .scene-editor-panel-left {
+    @apply w-full md:max-w-md bg-slate-800 border border-slate-700 rounded-lg md:h-full md:overflow-y-auto p-3 space-y-3 text-center;
+  }
+
+  /* Panel derecho: previsualización */
+  .scene-editor-panel-right {
+    @apply flex-1 bg-slate-800 border border-slate-700 rounded-lg p-3;
+  }
+
+  /* Tarjeta de previsualización completa */
+  .scene-preview-card {
+    @apply w-full rounded-md border border-slate-700 bg-slate-950/60 overflow-hidden flex flex-col gap-2;
+  }
+
+  /* Contenedor de la imagen (aspect ratio video) */
+  .scene-preview-image-wrapper {
+    @apply relative w-full aspect-video bg-slate-900 overflow-hidden;
+  }
+
+  /* Caja de texto de la escena en la preview */
+  .scene-preview-text-box {
+    @apply w-full bg-slate-950/85 border-t border-slate-700 px-4 py-3 h-20 md:h-20 overflow-y-auto;
+  }
+
+  /* Fila de hotspot en el editor */
+  .scene-hotspot-row {
+    @apply flex items-center gap-2 rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5;
+  }
+
+  /* Botón para añadir hotspot */
+  .scene-hotspot-add-btn {
+    @apply mt-1 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-100;
+  }
+
+  /* Contenedor para Inicio / Final */
+  .scene-type-toggle-container {
+    @apply mt-2 border border-slate-800 rounded-md bg-slate-950/60 px-3 py-2;
+  }
+
+  /* =========================
+       PLAYER: GAME SHELL
+     ========================= */
+
+  .game-root {
+    @apply min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center;
+  }
+
+  .game-frame {
+    @apply relative w-screen h-screen rounded-2xl border border-slate-800 bg-slate-900/80 shadow-2xl overflow-hidden flex flex-col;
+  }
+
+  .game-main {
+    @apply flex-1 flex flex-col px-4 py-4 gap-4 overflow-hidden;
+  }
+
+  .game-scene-panel {
+    @apply flex-1 rounded-xl border border-slate-800 bg-slate-900/70 overflow-hidden flex flex-col;
+  }
+
+  /* Parte superior: imagen de la escena */
+  .game-scene-image {
+    @apply relative w-full bg-slate-900 overflow-hidden;
+  }
+
+  /* Parte inferior: texto narrativo */
+  .game-scene-text {
+    @apply border-t border-slate-800 bg-slate-950/85 px-4 py-3 flex-1 overflow-y-auto;
+  }
+
+  /* Botones HUD redondos con iconos */
+  .game-hud-icon {
+    @apply inline-flex items-center justify-center rounded-full border border-slate-700 bg-slate-900/80 p-2 hover:bg-slate-800;
+  }
+
+  .game-hud-icon-img {
+    @apply w-10 h-10 object-contain;
+  }
+
+  /* Barra inferior de hotspots / mensajes sobre la imagen */
+  .game-hotspot-layer {
+    @apply absolute bottom-3 inset-x-4 z-20 flex flex-col gap-3;
+  }
+
+  .game-hotspot-buttons {
+    @apply flex flex-wrap justify-center gap-3 w-full;
+  }
+
+  .game-hotspot-btn {
+    @apply px-4 py-2 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 text-xs sm:text-sm min-w-32 text-center;
+  }
+
+  /* Título sobre la imagen */
+  .game-title-overlay {
+    @apply absolute top-3 inset-x-4 overflow-hidden text-center z-20 pointer-events-none opacity-50;
+  }
+
+  .game-title-text {
+    @apply inline-block whitespace-nowrap text-xl font-semibold text-white/80 drop-shadow;
+  }
+
+  /* Placeholder cuando no hay imagen */
+  .game-no-image {
+    @apply w-full h-full flex items-center justify-center px-4;
+  }
+
+  .game-no-image-text {
+    @apply text-xs text-slate-500 text-center;
+  }
+
 }
 
+/* =========================
+   MEDIA QUERIES ESPECÍFICAS
+   ========================= */
+
+/* Ajustes de ancho para los botones grandes de la Home en pantallas pequeñas */
+@media (max-width: 768px) {
+  .btn-home {
+    width: 220px;
+  }
+}
+
+@media (max-width: 480px) {
+  .btn-home {
+    width: 200px;
+  }
+}
+
+/* =========================
+         ANIMACIONES
+   ========================= */
+
+/* Animación para títulos de escena en modo "marquee" */
 @keyframes scene-title-marquee {
   0% {
     transform: translateX(0);
   }
+
   100% {
     transform: translateX(-50%);
   }
 }
-
-

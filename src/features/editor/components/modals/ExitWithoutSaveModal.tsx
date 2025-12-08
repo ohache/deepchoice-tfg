@@ -9,8 +9,8 @@ export function ExitWithoutSaveModal({ open, onCancel, onExitWithoutSave, onExit
     if (!open) return null;
 
     return (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-            <div className="text-center max-w-md w-full mx-4 bg-slate-900 rounded-2xl shadow-xl border border-slate-700 p-6">
+        <div className="modal-overlay">
+            <div className="modal-card text-center">
                 <h2 className="text-lg font-semibold mb-3">
                     Cambios sin guardar
                 </h2>
@@ -22,21 +22,21 @@ export function ExitWithoutSaveModal({ open, onCancel, onExitWithoutSave, onExit
                     <button
                         type="button"
                         onClick={onCancel}
-                        className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700"
+                        className="btn btn-secondary"
                     >
                         Cancelar
                     </button>
                     <button
                         type="button"
                         onClick={onExitWithoutSave}
-                        className="px-3 py-1.5 rounded-lg bg-red-700 hover:bg-red-600 text-white"
+                        className="btn btn-danger"
                     >
                         Salir sin guardar
                     </button>
                     <button
                         type="button"
                         onClick={onExitSaveAndGo}
-                        className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold"
+                        className="btn btn-primary-adventure"
                     >
                         Guardar y salir
                     </button>

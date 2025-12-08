@@ -7,8 +7,8 @@ export function UserManualModal({ open, onClose }: UserManualModalProps) {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
-      <div className="max-w-lg w-full mx-4 bg-slate-900 rounded-2xl shadow-xl border border-slate-700 p-6">
+    <div className="modal-overlay">
+      <div className="modal-card max-w-lg">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-semibold">
             Manual de usuario (versión inicial)
@@ -16,7 +16,7 @@ export function UserManualModal({ open, onClose }: UserManualModalProps) {
           <button
             type="button"
             onClick={onClose}
-            className="text-slate-300 hover:text-slate-100 text-sm"
+            className="modal-close-btn"
           >
             ✕
           </button>
@@ -45,16 +45,6 @@ export function UserManualModal({ open, onClose }: UserManualModalProps) {
             capturas, o incluso enlazar a una versión más completa del
             manual.
           </p>
-        </div>
-
-        <div className="mt-6 flex justify-end">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm font-semibold"
-          >
-            Cerrar
-          </button>
         </div>
       </div>
     </div>

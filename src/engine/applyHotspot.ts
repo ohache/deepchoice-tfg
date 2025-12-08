@@ -15,8 +15,11 @@ export function applyAction(state: GameState, action: Action): GameState {
                 currentNodeId: targetId,
             };
         }
-
-        default: { return state; }
+        case "addItem":
+        case "startDialogue":
+        case "giveItemToNpc": {
+            throw new Error(`Acción "${action.type}" aún no soportada todavía.`);
+        }
     }
 }
 
@@ -24,9 +27,7 @@ export function applyAction(state: GameState, action: Action): GameState {
 export function applyHotspot(state: GameState, hotspot: Hotspot): GameState {
     let newState = state;
 
-    for (const action of hotspot.actions) {
-        newState = applyAction(newState, action);
-    }
+    for (const action of hotspot.actions) newState = applyAction(newState, action);
 
     return newState;
 }

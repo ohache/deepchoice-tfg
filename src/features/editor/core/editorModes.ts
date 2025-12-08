@@ -29,5 +29,9 @@ export function getDefaultSecondaryMode(
             return "crear";
         case "test":
             return "historia";
+
+        default:
+            const _exhaustiveCheck: never = primary;
+            return _exhaustiveCheck;
     }
 }

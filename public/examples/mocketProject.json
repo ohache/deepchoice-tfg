@@ -9,6 +9,7 @@
       "hotspots": [
         {
           "id": "hs_n1_go_left",
+          "label": "Avanzar la trama",
           "actions": [{ "type": "goToNode", "targetNodeId": "n2" }]
         }
       ],
@@ -33,12 +34,7 @@
       "id": "n3",
       "title": "Claro iluminado",
       "text": "El bosque se abre en un pequeño claro iluminado por la luz suave del atardecer.\nSientes que, de algún modo, has encontrado un lugar importante.",
-      "hotspots": [
-        {
-          "id": "hs_n3_back_entry",
-          "actions": [{ "type": "goToNode", "targetNodeId": "n1" }]
-        }
-      ],
+      "hotspots": [],
       "isFinal": true
     }
   ]

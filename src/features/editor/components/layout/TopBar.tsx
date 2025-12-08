@@ -3,8 +3,9 @@ import { useNavigate } from "react-router-dom";
 import { ArrowUturnLeftIcon, ArrowUturnRightIcon, ArrowDownTrayIcon, ArrowUpTrayIcon } from "@heroicons/react/24/outline";
 import { useEditorStore } from "@/store/editorStore";
 import type { EditorPrimaryMode } from "@/features/editor/core/editorModes";
-import { saveProjectToLocalStorage, exportProjectAsFile } from "@/features/editor/utils/editorPersistence";
+import { downloadProjectJson, exportProjectAsZip } from "@/features/editor/utils/editorPersistence";
 import { ExitWithoutSaveModal } from "@/features/editor/components/modals/ExitWithoutSaveModal";
+import { createCommitCancelKeyHandler } from "@/utils/keyboard";
 
 interface TopBarProps {
     onPlayRequested: () => void;
@@ -16,9 +17,32 @@ const PRIMARY_TABS: { id: EditorPrimaryMode; label: string }[] = [
     { id: "test", label: "Test" },
 ];
 
+function getValidationIndicator( validationStatus: "idle" | "ok" | "warning" | "error",
+        errorCount: number,isDirty: boolean ): { statusColor: string; statusText: string } {
+    let statusColor = "bg-slate-500";
+    let statusText = "Sin validar";
+  
+    if (validationStatus === "error" || errorCount > 0) {
+      statusColor = "bg-red-500";
+      statusText = `Errores (${errorCount})`;
+    } else if (isDirty) {
+      statusColor = "bg-amber-400";
+      statusText = "Cambios sin guardar";
+    } else if (validationStatus === "ok") {
+      statusColor = "bg-emerald-400";
+      statusText = "Validado";
+    } else if (validationStatus === "warning") {
+      statusColor = "bg-amber-500";
+      statusText = `Avisos (${errorCount})`;
+    }
+  
+    return { statusColor, statusText };
+  }
+
 export function TopBar({ onPlayRequested }: TopBarProps) {
     const navigate = useNavigate();
 
+    const assetFiles = useEditorStore((s) => s.assetFiles);
     const project = useEditorStore((s) => s.project);
     const primaryMode = useEditorStore((s) => s.primaryMode);
     const setPrimaryMode = useEditorStore((s) => s.setPrimaryMode);
@@ -28,11 +52,19 @@ export function TopBar({ onPlayRequested }: TopBarProps) {
     const errorCount = useEditorStore((s) => s.errorCount);
     const markSaved = useEditorStore((s) => s.markSaved);
 
-    if (!project) return null; 
-
-    const projectTitle = project!.title;
     const [isEditingTitle, setIsEditingTitle] = useState(false);
-    const [tempTitle, setTempTitle] = useState(projectTitle);
+    const [tempTitle, setTempTitle] = useState(project!.title);
+
+    const [zoom, setZoom] = useState(100);
+    const minZoom = 50;
+    const maxZoom = 200;
+    const stepZoom = 25;
+
+    const [isExitModalOpen, setIsExitModalOpen] = useState(false);
+
+    if (!project) return null;
+
+    const projectTitle = project.title;
 
     useEffect(() => {
         if (!isEditingTitle) {
@@ -40,11 +72,6 @@ export function TopBar({ onPlayRequested }: TopBarProps) {
             document.title = projectTitle;
         }
     }, [projectTitle, isEditingTitle]);
-
-    const [zoom, setZoom] = useState(100);
-    const minZoom = 50;
-    const maxZoom = 200;
-    const stepZoom = 25;
 
     const handleZoomOut = () => setZoom((z) => Math.max(minZoom, z - stepZoom));
     const handleZoomIn = () => setZoom((z) => Math.min(maxZoom, z + stepZoom));
@@ -64,52 +91,35 @@ export function TopBar({ onPlayRequested }: TopBarProps) {
         setIsEditingTitle(false);
     };
 
-    const handleTitleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-        if (event.key === "Enter") {
-            event.preventDefault();
-            commitTitle();
-        } else if (event.key === "Escape") {
-            setIsEditingTitle(false);
-            setTempTitle(projectTitle);
-        }
-    };
+    const handleTitleKeyDown = createCommitCancelKeyHandler(commitTitle, () => {
+        setIsEditingTitle(false);
+        setTempTitle(projectTitle);
+    });
 
-    let statusColor = "bg-slate-500";
-    let statusText = "Sin validar";
-
-    if (validationStatus === "error" || errorCount > 0) {
-        statusColor = "bg-red-500";
-        statusText = `Errores (${errorCount})`;
-    } else if (isDirty) {
-        statusColor = "bg-amber-400";
-        statusText = "Cambios sin guardar";
-    } else if (validationStatus === "ok") {
-        statusColor = "bg-emerald-400";
-        statusText = "Validado";
-    } else if (validationStatus === "warning") {
-        statusColor = "bg-amber-500";
-        statusText = `Avisos (${errorCount})`;
-    }
+    const { statusColor, statusText } = getValidationIndicator(
+        validationStatus,
+        errorCount,
+        isDirty
+      );
 
     const handleSaveClick = () => {
         try {
-            saveProjectToLocalStorage(project);
+            downloadProjectJson(project);
             markSaved();
             console.log("Aventura guardada en este navegador."); // toast
         } catch (error: any) {
-            alert(error.message ?? "No se ha podido guardar la aventura.");
+            alert(error.message ?? "No se ha podido guardar el project.json.");
         }
     };
 
-    const handleExportClick = () => {
+    const handleExportClick = async () => {
         try {
-            exportProjectAsFile(project);
+            await exportProjectAsZip(project, assetFiles);
         } catch (error: any) {
-            alert(error.message ?? "No se ha podido exportar la aventura.");
+            alert(error.message ?? "No se ha podido exportar el proyecto a ZIP.");
         }
   };
 
-    const [isExitModalOpen, setIsExitModalOpen] = useState(false);
     const resetDocumentTitle = () => document.title = "Crea tu propia aventura";
 
     const handleLogoClick = () => {
@@ -136,8 +146,9 @@ export function TopBar({ onPlayRequested }: TopBarProps) {
 
     return (
         <header className="h-14 bg-slate-900 border-b border-slate-800 flex items-center justify-between px-4 gap-10">
+            {/* Tabs + Jugar */}
             <div className="flex items-center gap-3">
-                <nav className="flex items-center gap-">
+                <nav className="flex items-center gap-2">
                     {PRIMARY_TABS.map((tab) => {
                         const isActive = primaryMode === tab.id;
                         return (
@@ -161,12 +172,13 @@ export function TopBar({ onPlayRequested }: TopBarProps) {
                 <button
                     type="button"
                     onClick={handlePlayClick}
-                    className="ml-2 px-3 py-1.5 rounded-lg text-base font-semibold bg-fuchsia-800 hover:bg-fuchsia-600 text-white"
+                    className="ml-2 px-3 py-1.5 rounded-lg text-base btn-primary-adventure"
                 >
                     Jugar
                 </button>
             </div>
-
+            
+            {/* Controles de guardado / zoom / estado / título / logo */}
             <div className="flex items-center gap-4">
                 <div className="flex items-center gap-1">
                     <button

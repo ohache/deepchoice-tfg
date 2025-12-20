@@ -1,4 +1,3 @@
-// inputShortcuts.ts
 export function createCommitCancelKeyHandler(
     onCommit: () => void,
     onCancel: () => void

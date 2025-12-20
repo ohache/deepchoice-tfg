@@ -5,28 +5,34 @@ import type { SceneValidationIssue } from "@/features/editor/validation/sceneVal
 export type SceneToggleFieldId = "title" | "text" | "image" | "hotspots" | "tags";
 
 export const buildBackgroundPath = (fileName: string): string => `assets/backgrounds/${fileName}`;
+export const buildMusicPath = (fileName: string): string => `assets/music/${fileName}`;
+export const buildItemImagePath = (fileName: string): string => `assets/items/${fileName}`;
 
-/*Qué nloque de la escena está activo */
+/* Parte activa de la escena */
 export function useSceneFieldState(deps: any[] = []) {
   const [activeField, setActiveField] = useState<SceneToggleFieldId | null>("title");
 
   const titleInputRef = useRef<HTMLInputElement | null>(null);
   const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
 
-  useEffect(() => {if (activeField === "title" && titleInputRef.current) {
+  useEffect(() => {
+    if (activeField === "title" && titleInputRef.current) {
       titleInputRef.current.focus();
       titleInputRef.current.select();
-    }}, [activeField, ...deps]);
+    }
+  }, [activeField, ...deps]);
 
-  useEffect(() => {if (activeField === "text" && textAreaRef.current) {
+  useEffect(() => {
+    if (activeField === "text" && textAreaRef.current) {
       textAreaRef.current.focus();
       textAreaRef.current.select();
-    }}, [activeField, ...deps]);
+    }
+  }, [activeField, ...deps]);
 
   const toggleField = (field: SceneToggleFieldId) =>
     setActiveField((current) => (current === field ? null : field));
 
-  return {activeField, setActiveField, toggleField, titleInputRef, textAreaRef };
+  return { activeField, setActiveField, toggleField, titleInputRef, textAreaRef };
 }
 
 /* Navegación hacia Historia/Vista */
@@ -49,7 +55,8 @@ export function useResolvedSceneImage(logicalPath?: string) {
   const assetFiles = useEditorStore((s) => s.assetFiles);
   const [resolvedImageUrl, setResolvedImageUrl] = useState<string | undefined>(undefined);
 
-  useEffect(() => {if (!logicalPath) {
+  useEffect(() => {
+    if (!logicalPath) {
       setResolvedImageUrl(undefined);
       return;
     }
@@ -70,12 +77,15 @@ export function useResolvedSceneImage(logicalPath?: string) {
 }
 
 /* Errores de validación por campo */
-
 export interface SceneFieldErrors {
   titleError?: SceneValidationIssue;
   textError?: SceneValidationIssue;
   imageError?: SceneValidationIssue;
   hotspotErrors: SceneValidationIssue[];
+  musicError?: SceneValidationIssue;
+  mapError?: SceneValidationIssue;
+  npcErrors?: SceneValidationIssue[];
+  itemError?: SceneValidationIssue;
 }
 
 export function useSceneFieldErrors(issues: SceneValidationIssue[]): SceneFieldErrors {
@@ -87,7 +97,13 @@ export function useSceneFieldErrors(issues: SceneValidationIssue[]): SceneFieldE
       (i.field === "hotspots" || i.field.startsWith("hotspots["))
     );
 
-    return { titleError, textError, imageError, hotspotErrors };
+    const musicError = issues.find((i) => i.field === "musicId" && i.severity === "error");
+    const mapError = issues.find((i) => i.field === "mapId" && i.severity === "error");
+    const npcErrors = issues.filter((i) => i.field === "npcIds" && i.severity === "error");
+    const itemError = issues.find((i) => i.field === "placedItems" && i.severity === "error");
+
+
+    return { titleError, textError, imageError, hotspotErrors, musicError, mapError, npcErrors, itemError };
   }, [issues]);
 }
 
@@ -97,16 +113,13 @@ interface HandleSceneImageOptions {
   onValidImagePath: (relativePath: string, file: File) => void;
 }
 
-export function handleSceneImageFileChange(event: ChangeEvent<HTMLInputElement>,options: HandleSceneImageOptions) {
-  const file = event.target.files?.[0];
-  if (!file) return;
-
+/** Lógica común para procesar un File de imagen */
+export function processSceneImageFile(file: File, options: HandleSceneImageOptions) {
   const lowerName = file.name.toLowerCase();
   const isValidExt = lowerName.endsWith(".png") || lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg");
 
   if (!isValidExt) {
     options.setImageLocalError("La imagen debe ser .png, .jpg o .jpeg.");
-    event.target.value = "";
     return;
   }
 
@@ -114,4 +127,14 @@ export function handleSceneImageFileChange(event: ChangeEvent<HTMLInputElement>,
 
   const relativePath = buildBackgroundPath(file.name);
   options.onValidImagePath(relativePath, file);
+}
+
+/** Versión para usar directamente como onChange del input file */
+export function handleSceneImageFileChange(event: ChangeEvent<HTMLInputElement>, options: HandleSceneImageOptions) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+
+  processSceneImageFile(file, options);
+
+  event.target.value = "";
 }

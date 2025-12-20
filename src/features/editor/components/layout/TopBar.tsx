@@ -55,12 +55,12 @@ export function TopBar({ onPlayRequested }: TopBarProps) {
     const [isEditingTitle, setIsEditingTitle] = useState(false);
     const [tempTitle, setTempTitle] = useState(project!.title);
 
-    const [zoom, setZoom] = useState(100);
-    const minZoom = 50;
-    const maxZoom = 200;
-    const stepZoom = 25;
-
     const [isExitModalOpen, setIsExitModalOpen] = useState(false);
+
+    const zoom = useEditorStore((s) => s.zoom);
+    const zoomIn = useEditorStore((s) => s.zoomIn);
+    const zoomOut = useEditorStore((s) => s.zoomOut);
+    const zoomReset = useEditorStore((s) => s.zoomReset);
 
     if (!project) return null;
 
@@ -72,10 +72,6 @@ export function TopBar({ onPlayRequested }: TopBarProps) {
             document.title = projectTitle;
         }
     }, [projectTitle, isEditingTitle]);
-
-    const handleZoomOut = () => setZoom((z) => Math.max(minZoom, z - stepZoom));
-    const handleZoomIn = () => setZoom((z) => Math.min(maxZoom, z + stepZoom));
-    const handleZoomReset = () => setZoom(100);
 
     const handleModeClick = (mode: EditorPrimaryMode) => {
         if (mode === primaryMode) return;
@@ -202,21 +198,21 @@ export function TopBar({ onPlayRequested }: TopBarProps) {
                 <div className="flex items-center gap-1 text-sm text-white">
                     <button
                         type="button"
-                        onClick={handleZoomOut}
+                        onClick={zoomOut}
                         className="px-2 py-1 rounded-md bg-slate-700 hover:bg-slate-600"
                     >
                         -
                     </button>
                     <button
                         type="button"
-                        onClick={handleZoomReset}
+                        onClick={zoomReset}
                         className="px-2 py-1 rounded-md bg-slate-700 hover:bg-slate-600 min-w-12 text-center"
                     >
                         {zoom}%
                     </button>
                     <button
                         type="button"
-                        onClick={handleZoomIn}
+                        onClick={zoomIn}
                         className="px-2 py-1 rounded-md bg-slate-700 hover:bg-slate-600"
                     >
                         +

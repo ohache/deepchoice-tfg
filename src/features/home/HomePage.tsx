@@ -6,19 +6,16 @@ import { UserManualModal } from "@/features/home/components/UserManualModal";
 import { CreateAdventureModal } from "@/features/home/components/CreateAdventureModal";
 import { PlusCircleIcon, PencilSquareIcon, PlayCircleIcon } from '@heroicons/react/24/outline';
 import { loadProjectFromDirectory } from "@/services/projectDirectoryLoader";
+import { normalizeProject } from "@/domain/normalize/normalizeProject";
 
 type LoadMode = "edit" | "play" | null;
 
 function validateProjectTitle(value: string): string | null {
   const trimmed = value.trim();
-
   if (!trimmed) return "El título no puede estar vacío.";
-  
   if (trimmed.length > 100) return "El título no puede tener más de 100 caracteres.";
-
   return null;
 }
-
 
 export function HomePage() {
     const navigate = useNavigate();
@@ -81,7 +78,8 @@ export function HomePage() {
         if (!files || files.length === 0) return;
 
         try {
-            const { project, files: allFiles } = await loadProjectFromDirectory(files);
+            const { project: rawProject, files: allFiles } = await loadProjectFromDirectory(files);
+            const project = normalizeProject(rawProject);
 
             if (loadMode === "edit") {
                 useEditorStore.getState().loadProjectFromDirectory(project, allFiles);

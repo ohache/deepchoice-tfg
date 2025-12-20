@@ -11,6 +11,11 @@ export const generateId = (prefix: string): ID => {
 
 export const generateNodeId = (): ID => generateId("node");
 export const generateHotspotId = (): ID => generateId("hs");
+export const generateHotspotInteraction = (): ID => generateId("int");
+export const generateTagMusicId = (): ID => generateId("music");
+export const generateTagItemId = (): ID => generateId("item");
+export const generateTagMapId = (): ID => generateId("map");
+export const generateTagPnjId = (): ID => generateId("pnj");
 
 /** ID para proyectos (slug + timestamp) */
 export const generateProjectId = (title: string): ID => {

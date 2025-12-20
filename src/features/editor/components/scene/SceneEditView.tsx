@@ -1,19 +1,17 @@
-import type React from "react";
-import { useState, useRef } from "react";
-import type { ID, Hotspot } from "@/domain/types";
+import { useState } from "react";
+import type { Hotspot } from "@/domain/types";
 import { useEditorStore } from "@/store/editorStore";
-import { DeleteSceneModal } from "@/features/editor/components/modals/DeleteSceneModal";
-import { ScenePreviewCard } from "@/features/editor/components/scene/ScenePreviewCard";
-import { ToggleFieldBlock, SceneTypeButton } from "@/features/editor/components/scene/SceneFieldBlocks";
-import { useSceneFieldState, useSceneNavigation, useResolvedSceneImage,
-  handleSceneImageFileChange, useSceneFieldErrors } from "@/features/editor/components/scene/SceneCommon";
-import { CheckCircleIcon, FlagIcon, StopCircleIcon, PlusCircleIcon, TrashIcon } from "@heroicons/react/24/outline";
-import { getUsedTargetNodeIds, getAvailableTargetNodes } from "@/features/editor/utils/hotspotUtils";
-import { useSceneValidation } from "@/features/editor/hooks/useSceneValidation";
-import { isGoToNodeAction } from "@/shared/actionGuards";
-import { StartConflictModal } from "../modals/StartConflictModal";
+
+import { ScenePreviewCard, SceneTitleField, SceneTextField, SceneImageField, SceneHotspotField, SceneTagField,
+  SceneTypeField, SceneFooter, SceneFooterButton, useSceneFieldState, useSceneNavigation, useResolvedSceneImage,
+  useSceneFieldErrors } from "@/features/editor/components/scene";
+
+import { StartConflictModal, DeleteSceneModal } from "@/features/editor/components/modals";
+import { useSceneValidation, useSceneImageUpload, useSceneTagsLogic, useSceneHotspotsLogic } from "@/features/editor/hooks";
+import { buildScenePreviewMeta } from "@/features/editor/utils";
 
 export function SceneEditView() {
+  /* Estado global del editor */
   const project = useEditorStore((s) => s.project);
   const selectedNodeId = useEditorStore((s) => s.selectedNodeId);
   const sceneMode = useEditorStore((s) => s.sceneMode);
@@ -23,27 +21,31 @@ export function SceneEditView() {
   const updateHotspotTargetForActiveScene = useEditorStore((s) => s.updateHotspotTargetForActiveScene);
   const removeHotspotFromActiveScene = useEditorStore((s) => s.removeHotspotFromActiveScene);
   const deleteSelectedNode = useEditorStore((s) => s.deleteSelectedNode);
-  const registerAssetFile = useEditorStore.getState().registerAssetFile;
 
+  const activeHotspotDrawingId = useEditorStore((s) => s.activeHotspotDrawingId);
+  const setActiveHotspotDrawingId = useEditorStore((s) => s.setActiveHotspotDrawingId);
+  const setHotspotActionForActiveScene = useEditorStore((s) => s.setHotspotActionForActiveScene);
+  const clearHotspotShapeForActiveScene = useEditorStore((s) => s.clearHotspotShapeForActiveScene);
+
+  const registerAssetFile = useEditorStore.getState().registerAssetFile;
   const { goToHistoriaVista } = useSceneNavigation();
 
+  /* Estado de campos de la escena */
   const { activeField, setActiveField, toggleField, titleInputRef, textAreaRef } = useSceneFieldState([selectedNodeId]);
-  const [imageLocalError, setImageLocalError] = useState<string | null>(null);
 
+  /* Estado local de la UI*/
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-
-  const currentNode = sceneMode === "editing" && project && selectedNodeId
-    ? project.nodes.find((n) => n.id === selectedNodeId) ?? null : null;
-
-  const { validateNow, issues } = useSceneValidation({ mode: "edit", currentNodeId: currentNode?.id });
-  const { titleError, textError, imageError, hotspotErrors } = useSceneFieldErrors(issues);
 
   const [isStartModalOpen, setStartModalOpen] = useState(false);
   const [existingStartTitle, setExistingStartTitle] = useState("");
   const clearStartFlagFromAllNodes = useEditorStore((s) => s.clearStartFlagFromAllNodes);
 
-  const isEditing = sceneMode === "editing" && !!currentNode;
+  const focusedHotspotId = useEditorStore((s) => s.focusedHotspotId);
+  const setFocusedHotspotId = useEditorStore((s) => s.setFocusedHotspotId);
+
+  /* Resolución de la escena actual */
+  const currentNode = sceneMode === "editing" && project && selectedNodeId
+    ? project.nodes.find((n) => n.id === selectedNodeId) ?? null : null;
 
   if (sceneMode === "editing" && !currentNode) {
     return (
@@ -57,9 +59,56 @@ export function SceneEditView() {
 
   if (!currentNode) return null;
 
-  const resolvedImageUrl = useResolvedSceneImage(currentNode.image);
+  /* Validación */
+  const { validateNow, issues } = useSceneValidation({ mode: "edit", currentNodeId: currentNode?.id });
+  const { titleError, textError, imageError, hotspotErrors, musicError, mapError, npcErrors, itemError } = useSceneFieldErrors(issues);
 
-    const buildDraftFromCurrentNode = () => {
+  /* Imagen resuelta, hotspots y nodos disponibles */
+  const { fileInputRef, imageLocalError, isImageDragging, handleImageChange, handleImageDragOver, handleImageDragLeave, handleImageDrop } = 
+    useSceneImageUpload({onImagePathChange: (relativePath) => updateSelectedNodeFields({ image: relativePath }),registerAssetFile });
+
+  const resolvedImageUrl = useResolvedSceneImage(currentNode.image);
+  const hotspots: Hotspot[] = currentNode.hotspots ?? [];
+
+  /* Estado local para Etiquetas */
+  const tagsLogic = useSceneTagsLogic({
+  project,
+    musicId: currentNode.musicId,
+    mapId: currentNode.mapId,
+    placedItems: currentNode.placedItems,
+    placedNpcs: currentNode.placedNpcs,
+    onUpdateTags: (update) => updateSelectedNodeFields(update),
+    onRequestPlace: (kind, resourceId) => {
+      if (kind === "item") useEditorStore.getState().beginPlaceItemForActiveScene(resourceId);
+      else useEditorStore.getState().beginPlaceNpcForActiveScene(resourceId);
+    },
+  });
+
+const {
+  sceneTags,
+  tagTypeOptions,
+  getItemsForTagType,
+  isAddingTag,
+  newTagType,
+  newTagId,
+  tagLocalError,
+  itemsForNewTagType,
+  handleStartAddTag,
+  handleCancelAddTag,
+  handleNewTagTypeChange,
+  handleNewTagValueChange,
+  handleConfirmAddTag,
+  handleExistingTagChange,
+  handleRemoveTag,
+} = tagsLogic;
+
+
+  // ==== Etiquetas para la preview ====
+  const { mapLabel, npcLabel, itemLabel, musicLabel, musicFilePath } = buildScenePreviewMeta(project, currentNode);
+  const musicUrl = useResolvedSceneImage(musicFilePath);
+
+  /* Helper (borrador) */
+  const buildDraftFromCurrentNode = () => {
     if (!currentNode) return null;
 
     return {
@@ -68,15 +117,17 @@ export function SceneEditView() {
       image: currentNode.image,
       hotspots: currentNode.hotspots ?? [],
       musicId: currentNode.musicId,
-      npcIds: currentNode.npcIds,
-      featuredItemId: currentNode.featuredItemId,
       mapId: currentNode.mapId,
+      placedItems: currentNode.placedItems ?? [],
+      placedNpcs: currentNode.placedNpcs ?? [],
       isStart: currentNode.isStart,
       isFinal: currentNode.isFinal,
       meta: currentNode.meta,
     };
   };
 
+
+  /* Handlers para guardar cambios y conflico de escena inicial */
   const handleSaveChanges = () => {
     if (!currentNode) return;
 
@@ -124,48 +175,46 @@ export function SceneEditView() {
     goToHistoriaVista();
   };
 
-  const handleTitleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      if (isEditing && currentNode) {
-        const trimmed = event.currentTarget.value.trim();
-        updateSelectedNodeFields({ title: trimmed });
-      }
-      setActiveField("text");
+  /* Handlers para hotspots */
+  const { canBindHotspotTargets, availableNodesByHotspotId, activeDrawingHotspotId, resolveNodeLabel,
+      handleAddHotspot, handleHotspotRemove, handleHotspotActionChange, handleHotspotTargetChange, handleStartDrawing } =
+      useSceneHotspotsLogic({ mode: "edit", project, hotspots, contextNodeId: currentNode.id, addHotspot: addHotspotToActiveScene,
+      removeHotspot: removeHotspotFromActiveScene, setHotspotAction: setHotspotActionForActiveScene, updateHotspotTarget: updateHotspotTargetForActiveScene,
+      activeDrawingHotspotId: activeHotspotDrawingId, setActiveHotspotDrawingId, clearHotspotShape: clearHotspotShapeForActiveScene, hasImage: !!currentNode.image });
+
+  /* Handlers para Inicio/Final */
+  const handleToggleStart = () => {
+    if (!currentNode) return;
+
+    if (currentNode.isStart) {
+      updateSelectedNodeFields({ isStart: false });
+    } else {
+      updateSelectedNodeFields({
+        isStart: true,
+        isFinal: false,
+      });
     }
   };
 
-  const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    handleSceneImageFileChange(event, {
-      setImageLocalError,
-      onValidImagePath: (relativePath, file) => {
-        updateSelectedNodeFields({ image: relativePath });
-        registerAssetFile(relativePath, file);
-      },
-    });
+  const handleToggleFinal = () => {
+    if (!currentNode) return;
+
+    if (currentNode.isFinal) {
+      updateSelectedNodeFields({ isFinal: false });
+    } else {
+      updateSelectedNodeFields({
+        isFinal: true,
+        isStart: false,
+      });
+    }
   };
 
-
-  const handleHotspotClickAdd = () => {
-    if (!project || !currentNode) return;
-    if (project.nodes.length < 2) return;
-    addHotspotToActiveScene();
-  };
-
-  const handleHotspotTargetChange = (hotspotId: ID, targetNodeId: ID) => updateHotspotTargetForActiveScene(hotspotId, targetNodeId);
-  const handleHotspotRemove = (hotspotId: ID) => removeHotspotFromActiveScene(hotspotId);
-
+  /* Handler para eliminación de escena */
   const handleDeleteConfirm = () => {
     deleteSelectedNode();
     setIsDeleteModalOpen(false);
     goToHistoriaVista();
   };
-
-  const hotspots: Hotspot[] = currentNode.hotspots ?? [];
-  const canEditHotspots = !!project && project.nodes.length >= 2;
-
-  const usedTargets = getUsedTargetNodeIds(hotspots);
-  const availableNodes = getAvailableTargetNodes(project!.nodes, currentNode.id, usedTargets);
 
   return (
     <>
@@ -178,289 +227,141 @@ export function SceneEditView() {
 
           <div className="space-y-2 text-sm text-slate-200">
             {/* Título */}
-            <ToggleFieldBlock
-              label="Título"
+            <SceneTitleField
+              value={currentNode.title ?? ""}
+              error={titleError}
               active={activeField === "title"}
               onToggle={() => toggleField("title")}
-            >
-              <div className="pt-2">
-                <input
-                  ref={titleInputRef}
-                  type="text"
-                  value={currentNode.title}
-                  onChange={(e) => updateSelectedNodeFields({ title: e.target.value })}
-                  onKeyDown={handleTitleKeyDown}
-                  className="text-center w-full rounded-md bg-slate-900 border-2 border-slate-700 px-2 py-1.5 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-fuchsia-500"
-                  placeholder="Ej: Entrada al bosque"
-                />
-              </div>
-            </ToggleFieldBlock>
-
-            {titleError && (
-            <p className="form-field-error">
-              {titleError.message}
-            </p>
-          )}
+              inputRef={titleInputRef}
+              onChange={(val) => updateSelectedNodeFields({ title: val })}
+              onEnterDone={() => {
+                setActiveField("text");
+                setTimeout(() => {
+                  textAreaRef.current?.focus();
+                  textAreaRef.current?.select();
+                }, 0);
+              }}
+            />
 
             {/* Texto */}
-            <ToggleFieldBlock
-              label="Texto"
+            <SceneTextField
+              value={currentNode.text ?? ""}
+              error={textError}
               active={activeField === "text"}
               onToggle={() => toggleField("text")}
-            >
-              <div className="pt-2">
-                <div className="relative">
-                  <textarea
-                    ref={textAreaRef}
-                    value={currentNode.text}
-                    onChange={(e) =>
-                      updateSelectedNodeFields({ text: e.target.value })
-                    }
-                    className="w-full h-32 rounded-md bg-slate-900 border-2 border-slate-700 px-2 py-1.5 pr-9 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-fuchsia-500 resize-none overflow-y-auto"
-                    placeholder="Escribe aquí el texto de la escena…"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setActiveField(null)}
-                    className="absolute bottom-2 right-2 p-1 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white"
-                    title="Marcar texto como listo"
-                  >
-                    <CheckCircleIcon className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            </ToggleFieldBlock>
-
-            {textError && (
-            <p className="form-field-error">
-              {textError.message}
-            </p>
-          )}
+              textareaRef={textAreaRef}
+              onChange={(val) => updateSelectedNodeFields({ text: val })}
+              onMarkDone={() => setActiveField(null)}
+            />
 
             {/* Imagen */}
-            <ToggleFieldBlock
-              label="Imagen"
+            <SceneImageField
+              value={currentNode.image}
+              schemaError={imageError}
+              localError={imageLocalError}
               active={activeField === "image"}
               onToggle={() => toggleField("image")}
-            >
-              <div className="pt-2 flex flex-col items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  className="px-3 py-1.5 rounded-md border-2 border-slate-700 bg-slate-900 hover:bg-slate-800 text-xs text-slate-100"
-                >
-                  Seleccionar imagen…
-                </button>
+              isDragging={isImageDragging}
+              onDragOver={handleImageDragOver}
+              onDragLeave={handleImageDragLeave}
+              onDrop={handleImageDrop}
+              fileInputRef={fileInputRef}
+              onFileChange={handleImageChange}
+            />
 
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".png,.jpg,.jpeg,image/png,image/jpeg"
-                  className="hidden"
-                  onChange={handleImageChange}
-                />
-
-                {currentNode.image && (
-                  <span className="text-[11px] text-slate-500 text-center">
-                    Imagen seleccionada:{" "}
-                    <span className="font-mono break-all">
-                      {currentNode.image}
-                    </span>
-                  </span>
-                )}
-              </div>
-            </ToggleFieldBlock>
-
-            {imageError && (
-              <p className="form-field-error">
-                {imageError.message}
-              </p>
-            )}
-
-            {!imageError && imageLocalError && (
-            <p className="form-field-error">
-              {imageLocalError}
-            </p>
-          )}
-
-            {/* Hotspots */}
-            <ToggleFieldBlock
+            {/* Hotspot */}
+            <SceneHotspotField
               label="Hotspots"
               active={activeField === "hotspots"}
               onToggle={() => toggleField("hotspots")}
-            >
-              <div className="pt-2 space-y-2 text-left">
-                {!canEditHotspots ? (
-                  <p className="text-xs text-slate-400">
-                    Para crear hotspots de navegación necesitas al menos dos
-                    escenas en el proyecto.
-                  </p>
-                ) : (
-                  <>
-                    {hotspots.length === 0 && (
-                      <p className="text-xs text-slate-400">
-                        Aún no hay hotspots en esta escena. Puedes crear uno
-                        para ir a otra escena.
-                      </p>
-                    )}
+              hotspots={hotspots}
+              canBindTargets={canBindHotspotTargets}
+              availableNodesByHotspotId={availableNodesByHotspotId}
+              onChangeAction={handleHotspotActionChange}
+              onChangeTarget={handleHotspotTargetChange}
+              onStartDrawing={handleStartDrawing}
+              activeDrawingHotspotId={activeDrawingHotspotId}
+              onRemoveHotspot={handleHotspotRemove}
+              onAddHotspot={handleAddHotspot}
+              hotspotErrors={hotspotErrors}
+              noScenesMessage="Para crear hotspots de navegación necesitas al menos dos escenas en el proyecto."
+              emptyHotspotsMessage="Aún no hay hotspots en esta escena. Puedes crear uno para ir a otra escena."
+              resolveNodeLabel={resolveNodeLabel}
+              selectPlaceholderWhenActive="Selecciona destino…"
+              selectPlaceholderWhenDisabled="No hay escenas disponibles"
+              hasImage={!!currentNode?.image}
+              focusedHotspotId={focusedHotspotId}
+              onFocusHotspot={(id) => setFocusedHotspotId(focusedHotspotId === id ? null : id)}
+              onClearFocus={() => setFocusedHotspotId(null)}
+            />
 
-                    <div className="space-y-2">
-                      {hotspots.map((hs, index) => {
-                        const goAction = hs.actions.find(isGoToNodeAction);
-                        const currentTargetId = goAction?.targetNodeId ?? "";
-                        
-                        return (
-                          <div key={hs.id} className="scene-hotspot-row">
-                            <span className="text-[11px] text-slate-400 min-w-[70px]">
-                              Hotspot {index + 1}
-                            </span>
-
-                            <select
-                              value={currentTargetId}
-                              onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-                                handleHotspotTargetChange(
-                                  hs.id,
-                                  e.target.value as ID
-                                )
-                              }
-                              className="flex-1 bg-slate-950 border border-slate-700 rounded-md px-2 py-1 text-[11px] text-slate-100 focus:outline-none focus:ring-1 focus:ring-fuchsia-500"
-                            >
-                              <option value="">
-                                Selecciona destino…
-                              </option>
-                              {/* Siempre incluir el target actual */}
-                              {currentTargetId &&
-                                !availableNodes.some(n => n.id === currentTargetId) && (
-                                  <option value={currentTargetId}>
-                                    {project?.nodes.find(n => n.id === currentTargetId)?.title || currentTargetId}
-                                  </option>
-                                )}
-
-                              {/* El resto de nodos disponibles */}
-                              {availableNodes.map(node => (
-                                <option key={node.id} value={node.id}>
-                                  {node.title || node.id}
-                                </option>
-                              ))}
-                            </select>
-
-                            <button
-                              type="button"
-                              onClick={() => handleHotspotRemove(hs.id)}
-                              className="p-1 rounded-md bg-slate-800 hover:bg-red-700/70 text-slate-300 hover:text-white"
-                              title="Eliminar hotspot"
-                            >
-                              <TrashIcon className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={handleHotspotClickAdd}
-                      className="scene-hotspot-add-btn"
-                    >
-                      <PlusCircleIcon className="w-3.5 h-3.5" />
-                      Añadir hotspot
-                    </button>
-                  </>
-                )}
-              </div>
-            </ToggleFieldBlock>
-
-            {hotspotErrors.length > 0 && (
-            <div className="mt-1 space-y-1">
-              {hotspotErrors.map((err, index) => (
-                <p
-                  key={`${err.code}-${index}`}
-                  className="form-field-error"
-                >
-                  {err.message}
-                </p>
-              ))}
-            </div>
-          )}
-
-            {/* Etiquetas (placeholder de momento) */}
-            <ToggleFieldBlock
+            {/* Etiquetas */}
+            <SceneTagField
               label="Etiquetas"
               active={activeField === "tags"}
               onToggle={() => toggleField("tags")}
-            >
-              <p className="text-xs text-slate-400 pt-2">
-                Aquí podrás añadir etiquetas asociadas a esta escena.
-              </p>
-            </ToggleFieldBlock>
+              tagTypeOptions={tagTypeOptions}
+              sceneTags={sceneTags}
+              getItemsForTagType={getItemsForTagType}
+              isAddingTag={isAddingTag}
+              newTagType={newTagType}
+              newTagId={newTagId}
+              itemsForNewTagType={itemsForNewTagType}
+              tagLocalError={tagLocalError}
+              onStartAddTag={handleStartAddTag}
+              onCancelAddTag={handleCancelAddTag}
+              onConfirmAddTag={handleConfirmAddTag}
+              onNewTagTypeChange={handleNewTagTypeChange}
+              onNewTagValueChange={handleNewTagValueChange}
+              onExistingTagChange={handleExistingTagChange}
+              onRemoveTag={handleRemoveTag}
+              onRequestPlaceTag={tagsLogic.handleRequestPlaceTag}
+              canPlaceOnScene={!!currentNode.image}
+              placeDisabledReason="Carga una imagen para poder dibujar/colocar."
+              musicError={musicError}
+              mapError={mapError}
+              itemError={itemError}
+              npcErrors={npcErrors}
+            />
 
             {/* Inicio / Final */}
-            <div className="scene-type-toggle-container">
-              <div className="flex items-center justify-center gap-10">
-                <SceneTypeButton
-                  active={!!currentNode.isStart}
-                  label="Inicio"
-                  icon={FlagIcon}
-                  onClick={() => {
-                    if (currentNode.isStart) {
-                      updateSelectedNodeFields({ isStart: false });
-                    } else {
-                      updateSelectedNodeFields({
-                        isStart: true,
-                        isFinal: false,
-                      });
-                    }
-                  }}
-                />
-
-                <SceneTypeButton
-                  active={!!currentNode.isFinal}
-                  label="Final"
-                  icon={StopCircleIcon}
-                  onClick={() => {
-                    if (currentNode.isFinal) {
-                      updateSelectedNodeFields({ isFinal: false });
-                    } else {
-                      updateSelectedNodeFields({
-                        isFinal: true,
-                        isStart: false,
-                      });
-                    }
-                  }}
-                />
-              </div>
-            </div>
+            <SceneTypeField
+              isStart={!!currentNode.isStart}
+              isFinal={!!currentNode.isFinal}
+              onToggleStart={handleToggleStart}
+              onToggleFinal={handleToggleFinal}
+            />
           </div>
 
           {/* Botones inferiores */}
-          <div className="mt-3 flex justify-between gap-2">
-            <button
-              type="button"
+          <SceneFooter justify="between">
+            <SceneFooterButton
+              label="Eliminar escena"
+              variant="danger"
               onClick={() => setIsDeleteModalOpen(true)}
-              className="px-3 py-1.5 rounded-lg bg-red-700 hover:bg-red-600 text-xs font-semibold text-white"
-            >
-              Eliminar escena
-            </button>
+            />
 
-            <button
-              type="button"
+            <SceneFooterButton
+              label="Guardar cambios"
+              variant="primary"
               onClick={handleSaveChanges}
-              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white"
-            >
-              Guardar cambios
-            </button>
-          </div>
+            />
+          </SceneFooter>
         </section>
 
-        {/* Panel derecho: previsualización */}
+        {/* Panel de previsualización */ }
         <section className="scene-editor-panel-right">
           <ScenePreviewCard
             title={currentNode.title ?? ""}
             text={currentNode.text ?? ""}
             imageLogicalPath={resolvedImageUrl}
+            mapLabel={mapLabel}
+            npcLabel={npcLabel}
+            itemLabel={itemLabel}
+            musicLabel={musicLabel}
+            musicUrl={musicUrl}
           />
         </section>
-
       </div>
 
       {/* Modal de eliminación */}

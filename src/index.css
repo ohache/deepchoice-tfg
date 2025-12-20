@@ -76,7 +76,8 @@ body {
 
   /* Botón grande de la Home (Crear / Editar / Jugar) */
   .btn-home {
-    @apply relative mx-auto px-4 py-3 rounded-lg font-semibold text-white text-lg transition duration-200 shadow-sm hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 text-center;
+    @apply relative mx-auto px-4 py-3 rounded-lg font-bold text-white text-[19px] border border-black
+        transition duration-200 shadow-sm hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 text-center;
     width: 270px;
   }
 

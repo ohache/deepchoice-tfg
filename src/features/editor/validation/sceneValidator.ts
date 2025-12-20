@@ -12,52 +12,63 @@ export interface SceneValidationIssue {
   message: string;
 }
 
-/** Tipo interno: una issue de Zod cualquiera */
 type AnyZodIssue = ZodError<unknown>["issues"][number];
 
-/** Mapea un issue de Zod a nuestro formato SceneValidationIssue */
 function mapZodIssueToSceneIssue(issue: AnyZodIssue): SceneValidationIssue {
-  const path = (issue.path ?? []).map((p) =>
-    typeof p === "string" || typeof p === "number" ? p : String(p)
-  );
+  const path = (issue.path ?? []).map((p) => (typeof p === "string" || typeof p === "number" ? p : String(p)));
   const field = path.length ? String(path[0]) : "scene";
+  const code = typeof (issue as any).code === "string" ? String((issue as any).code) : "schema_error";
 
-  return { field, path, severity: "error", code: "schema_error", message: issue.message };
+  return { field, path, severity: "error", code, message: issue.message };
 }
 
-/** Tipos derivados del DraftScene para poder hacer type guards cómodos */
-type DraftHotspot = DraftSceneOutput["hotspots"][number];
-type DraftAction = DraftHotspot["actions"][number];
-
-/** Type guard: filtra sólo acciones goToNode y permite usar targetNodeId sin error */
-function isGoToNodeAction(action: DraftAction): action is Extract<DraftAction, { type: "goToNode" }> {
-  return action.type === "goToNode";
+/* Helpers */
+function isRectShape(shape: unknown): shape is { type: "rect"; x: number; y: number; w: number; h: number } {
+  if (!shape || typeof shape !== "object") return false;
+  const s = shape as any;
+  return s.type === "rect" && typeof s.x === "number" && typeof s.y === "number" && typeof s.w === "number" && typeof s.h === "number";
 }
 
-/* Validación local: sólo contra DraftSceneSchema (shape, tipos, reglas básicas) */
+function isValid01Rect(shape: { x: number; y: number; w: number; h: number }): boolean {
+  const ok01 = (v: number) => v >= 0 && v <= 1;
+  if (!ok01(shape.x) || !ok01(shape.y) || !ok01(shape.w) || !ok01(shape.h)) return false;
+  if (shape.w <= 0 || shape.h <= 0) return false;
+  if (shape.x + shape.w > 1) return false;
+  if (shape.y + shape.h > 1) return false;
+
+  return true;
+}
+
+function extractGoToTargetsFromInteractions(interactions: Array<{ effects: Array<any> }>): ID[] {
+  const out: ID[] = [];
+  for (const it of interactions ?? []) {
+    for (const ef of it.effects ?? []) {
+      if (ef?.type === "goToNode" && typeof ef.targetNodeId === "string" && ef.targetNodeId.trim()) {
+        out.push(ef.targetNodeId as ID);
+      }
+    }
+  }
+  return out;
+}
+
+/* Local (Zod) */
 export function validateDraftSceneLocal(input: unknown): { parsed?: DraftSceneOutput; issues: SceneValidationIssue[] } {
   const result = DraftSceneSchema.safeParse(input);
-
-  if (!result.success) {
-    const issues = result.error.issues.map(mapZodIssueToSceneIssue);
-    return { parsed: undefined, issues };
-  }
-
+  if (!result.success) return { parsed: undefined, issues: result.error.issues.map(mapZodIssueToSceneIssue) };
   return { parsed: result.data, issues: [] };
 }
 
-/* Validación contextual: contra el proyecto (unicidad de título, conflicto de escena inicial, destinos de hotspots válidos) */
-export function validateDraftSceneAgainstProject(draft: DraftSceneOutput, project: Project, options?: { currentNodeId?: ID }): SceneValidationIssue[] {
+/* Contextual */
+export function validateDraftSceneAgainstProject( draft: DraftSceneOutput, project: Project, options?: { currentNodeId?: ID }): SceneValidationIssue[] {
   const issues: SceneValidationIssue[] = [];
   const currentId = options?.currentNodeId;
 
+  // Título duplicado (warning)
   const normalizedTitle = draft.title.trim().toLowerCase();
-
   const duplicateNode = project.nodes.find((node) => {
     if (currentId && node.id === currentId) return false;
     return node.title.trim().toLowerCase() === normalizedTitle;
   });
-
   if (duplicateNode) {
     issues.push({
       field: "title",
@@ -67,13 +78,13 @@ export function validateDraftSceneAgainstProject(draft: DraftSceneOutput, projec
     });
   }
 
+  // Conflicto start (warning)
   if (draft.isStart) {
     const existingStart = project.nodes.find((node) => {
       if (!node.isStart) return false;
       if (currentId && node.id === currentId) return false;
       return true;
     });
-
     if (existingStart) {
       issues.push({
         field: "isStart",
@@ -84,53 +95,159 @@ export function validateDraftSceneAgainstProject(draft: DraftSceneOutput, projec
     }
   }
 
-  draft.hotspots.forEach((hs, index) => {
-    const goAction = hs.actions.find(isGoToNodeAction);
+  // Imagen obligatoria si hay zonas dibujadas (hotspots/items/npcs)
+  const hasAnyHotspots = (draft.hotspots?.length ?? 0) > 0;
+  const hasPlaced = (draft.placedItems?.length ?? 0) > 0 || (draft.placedNpcs?.length ?? 0) > 0;
 
-    if (!goAction) {
-      issues.push({
-        field: `hotspots[${index}]`,
-        path: ["hotspots", index, "actions"],
-        severity: "warning",
-        code: "hotspot_without_destination",
-        message: `El hotspot ${index + 1} no tiene ninguna acción goToNode definida.`,
-      });
-      return;
+  if ((hasAnyHotspots || hasPlaced) && !draft.image) {
+    issues.push({
+      field: "image",
+      severity: "error",
+      code: "image_required_for_drawn_zones",
+      message: "Para usar zonas dibujadas (hotspots/ítems/PNJs) debes cargar una imagen.",
+    });
+  }
+
+  // Hotspots: shape válida + targets existentes
+  (draft.hotspots ?? []).forEach((hs, hsIndex) => {
+    if (draft.image) {
+      if (!isRectShape(hs.shape) || !isValid01Rect(hs.shape)) {
+        issues.push({
+          field: `hotspots[${hsIndex}]`,
+          path: ["hotspots", hsIndex, "shape"],
+          severity: "error",
+          code: "hotspot_shape_invalid",
+          message: `El área dibujada del hotspot ${hsIndex + 1} no es válida. Vuelve a dibujarla.`,
+        });
+      }
     }
 
-    const targetExists = project.nodes.some(
-      (node) => node.id === goAction.targetNodeId
-    );
+    const targets = extractGoToTargetsFromInteractions(hs.interactions ?? []);
+    for (const targetId of targets) {
+      const targetExists = project.nodes.some((n) => n.id === targetId);
+      if (!targetExists) {
+        issues.push({
+          field: `hotspots[${hsIndex}]`,
+          path: ["hotspots", hsIndex, "interactions"],
+          severity: "error",
+          code: "invalid_hotspot_target",
+          message: `El hotspot ${hsIndex + 1} apunta a un nodo inexistente (id: "${targetId}").`,
+        });
+      }
+      if (currentId && targetId === currentId) {
+        issues.push({
+          field: `hotspots[${hsIndex}]`,
+          path: ["hotspots", hsIndex, "interactions"],
+          severity: "error",
+          code: "hotspot_target_self",
+          message: `El hotspot ${hsIndex + 1} no puede apuntar a la misma escena.`,
+        });
+      }
+    }
+  });
 
-    if (!targetExists) {
+  // Referencias music/map
+  if (draft.musicId) {
+    const musicExists = project.musicTracks.some((t) => t.id === draft.musicId);
+    if (!musicExists) {
       issues.push({
-        field: `hotspots[${index}]`,
-        path: ["hotspots", index, "actions"],
+        field: "musicId",
         severity: "error",
-        code: "invalid_hotspot_target",
-        message: `El hotspot ${index + 1} apunta a un nodo inexistente (id: "${goAction.targetNodeId}").`,
+        code: "invalid_music_id",
+        message: "La escena hace referencia a una pista de música inexistente.",
       });
+    }
+  }
+
+  if (draft.mapId) {
+    const mapExists = project.maps.some((m) => m.id === draft.mapId);
+    if (!mapExists) {
+      issues.push({
+        field: "mapId",
+        severity: "error",
+        code: "invalid_map_id",
+        message: "La escena hace referencia a un mapa inexistente.",
+      });
+    }
+  }
+
+  // Placed items: itemId existe + shape válida (si hay imagen)
+  (draft.placedItems ?? []).forEach((pi, index) => {
+    const defExists = project.items.some((d) => d.id === pi.itemId);
+    if (!defExists) {
+      issues.push({
+        field: "placedItems",
+        path: ["placedItems", index, "itemId"],
+        severity: "error",
+        code: "invalid_item_id",
+        message: `La escena hace referencia a un ítem inexistente (id: "${pi.itemId}").`,
+      });
+    }
+
+    if (draft.image) {
+      if (!isRectShape(pi.shape) || !isValid01Rect(pi.shape)) {
+        issues.push({
+          field: "placedItems",
+          path: ["placedItems", index, "shape"],
+          severity: "error",
+          code: "placed_item_shape_invalid",
+          message: `El área dibujada del ítem ${index + 1} no es válida. Vuelve a dibujarla.`,
+        });
+      }
+    }
+  });
+
+  // Placed npcs: npcId existe + no duplicar + shape válida
+  const seenNpcResourceIds = new Set<string>();
+  (draft.placedNpcs ?? []).forEach((pn, index) => {
+    const defExists = project.npcs.some((d) => d.id === pn.npcId);
+    if (!defExists) {
+      issues.push({
+        field: "placedNpcs",
+        path: ["placedNpcs", index, "npcId"],
+        severity: "error",
+        code: "invalid_npc_id",
+        message: `La escena hace referencia a un PNJ inexistente (id: "${pn.npcId}").`,
+      });
+    }
+
+    if (seenNpcResourceIds.has(pn.npcId)) {
+      issues.push({
+        field: "placedNpcs",
+        path: ["placedNpcs", index, "npcId"],
+        severity: "warning",
+        code: "duplicate_npc_in_scene",
+        message: `El PNJ "${pn.npcId}" está repetido en la escena.`,
+      });
+    } else {
+      seenNpcResourceIds.add(pn.npcId);
+    }
+
+    if (draft.image) {
+      if (!isRectShape(pn.shape) || !isValid01Rect(pn.shape)) {
+        issues.push({
+          field: "placedNpcs",
+          path: ["placedNpcs", index, "shape"],
+          severity: "error",
+          code: "placed_npc_shape_invalid",
+          message: `El área dibujada del PNJ ${index + 1} no es válida. Vuelve a dibujarla.`,
+        });
+      }
     }
   });
 
   return issues;
 }
 
-/* Función de alto nivel: valida contra el schema, contra el proyecto y devuelve el draft parseado y todos los issues */
-export function validateDraftScene(input: unknown, ctx?: { project?: Project; currentNodeId?: ID }): { parsed?: DraftSceneOutput; issues: SceneValidationIssue[] } {
+/* High level */
+export function validateDraftScene(input: unknown, ctx?: { project?: Project; currentNodeId?: ID }
+): { parsed?: DraftSceneOutput; issues: SceneValidationIssue[] } {
   const local = validateDraftSceneLocal(input);
-
   if (!local.parsed) return { parsed: undefined, issues: local.issues };
 
   const allIssues: SceneValidationIssue[] = [...local.issues];
-
   if (ctx?.project) {
-    const contextualIssues = validateDraftSceneAgainstProject(local.parsed, ctx.project, { currentNodeId: ctx.currentNodeId });
-    allIssues.push(...contextualIssues);
+    allIssues.push(...validateDraftSceneAgainstProject(local.parsed, ctx.project, { currentNodeId: ctx.currentNodeId }));
   }
-
-  return {
-    parsed: local.parsed,
-    issues: allIssues,
-  };
+  return { parsed: local.parsed, issues: allIssues };
 }

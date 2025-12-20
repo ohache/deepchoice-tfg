@@ -30,9 +30,10 @@ export function SceneListView() {
   };
 
   return (
+    <div className="max-w-[900px] mx-auto rounded-xl border-2 border-slate-800 bg-slate-900 p-4 space-y-3 mt-4">
     <div className="space-y-4">
-      <h2 className="text-base font-semibold text-slate-100">
-        Escenas del proyecto
+      <h2 className="text-base font-semibold text-slate-100 text-center">
+        Escenas: {project.title}
       </h2>
 
       <ul className="space-y-2">
@@ -49,8 +50,8 @@ export function SceneListView() {
                 className={[
                   "w-full text-left px-3 py-2 rounded-md border text-xs md:text-sm transition-colors",
                   isActive
-                    ? "border-fuchsia-500 bg-slate-900 text-slate-100"
-                    : "border-slate-700 bg-slate-950 text-slate-200 hover:bg-slate-900",
+                    ? "border-fuchsia-500 bg-sky-950 text-slate-100"
+                    : "border-slate-700 bg-slate-950 text-slate-200 hover:bg-sky-950",
                 ].join(" ")}
               >
                 <div className="flex items-center justify-between gap-2">
@@ -70,5 +71,6 @@ export function SceneListView() {
         })}
       </ul>
     </div>
+  </div>
   );
 }

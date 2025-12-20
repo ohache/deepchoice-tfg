@@ -29,23 +29,8 @@ export function EditorShell() {
         }
     }, [project, location.state, initNewProject, navigate]);
 
-    /*useEffect(() => {
-        const stopAutosave = startProjectAutosave(() => {
-                const { project, isDirty } = useEditorStore.getState();
-                return { project, isDirty };
-            },
-            { intervalMs: 5000 }
-        );
-
-        return () => {stopAutosave();};
-    }, []);*/
-
-    const handlePlayRequested = () => {
-        // Validar proyecto del editorStore - Exportar y pasar al gameStore - Navegar a /play
-        // Si errores, mostrar modal
-        alert("Acción Jugar pendiente de implementar 🙂");
-    };
-
+    const handlePlayRequested = () => alert("Acción Jugar pendiente de implementar");
+    
     if (!project) return null;
 
     return (

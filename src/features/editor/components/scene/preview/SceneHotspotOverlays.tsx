@@ -7,15 +7,9 @@ export type ContainedRect = {
 };
 
 function isRectShape(shape: unknown): shape is Extract<HotspotShape, { type: "rect" }> {
-  if (!shape || typeof shape !== "object") return false;
   const s = shape as any;
-  return (
-    s.type === "rect" &&
-    typeof s.x === "number" &&
-    typeof s.y === "number" &&
-    typeof s.w === "number" &&
-    typeof s.h === "number"
-  );
+  return ( s?.type === "rect" && typeof s.x === "number" && typeof s.y === "number" &&
+    typeof s.w === "number" && typeof s.h === "number");
 }
 
 type ActivePlacement =
@@ -25,7 +19,7 @@ type ActivePlacement =
 
 export interface SceneHotspotOverlaysProps {
   hotspots: Hotspot[];
-  placedItems?: unknown; // ojo: puede venir mal
+  placedItems?: unknown;
   placedNpcs?: unknown;
 
   activeHotspotDrawingId: ID | null;
@@ -36,16 +30,8 @@ export interface SceneHotspotOverlaysProps {
   focusedHotspotId?: ID | null;
 }
 
-export function SceneHotspotOverlays({
-  hotspots,
-  placedItems,
-  placedNpcs,
-  activeHotspotDrawingId,
-  activePlacement = null,
-  rect,
-  tempRectStyle,
-  focusedHotspotId,
-}: SceneHotspotOverlaysProps) {
+export function SceneHotspotOverlays({ hotspots, placedItems, placedNpcs, activeHotspotDrawingId, activePlacement = null,
+  rect, tempRectStyle, focusedHotspotId }: SceneHotspotOverlaysProps) {
   const safePlacedItems: PlacedItem[] = Array.isArray(placedItems) ? (placedItems as PlacedItem[]) : [];
   const safePlacedNpcs: PlacedNpc[] = Array.isArray(placedNpcs) ? (placedNpcs as PlacedNpc[]) : [];
 
@@ -65,17 +51,16 @@ export function SceneHotspotOverlays({
       return (
         <div
           key={key}
-          className={["absolute z-30 rounded-sm pointer-events-none", "transition-opacity", classes].join(" ")}
+          className={["absolute z-30 rounded-sm pointer-events-none transition-opacity", classes].join(" ")}
           style={{ left: `${left}px`, top: `${top}px`, width: `${width}px`, height: `${height}px` }}
           aria-hidden="true"
         />
       );
     };
 
-    const hsRects = hotspots
+    const hsRects = (hotspots ?? [])
       .map((hs) => {
-        const shape = (hs as any).shape as HotspotShape | undefined;
-        if (!isRectShape(shape)) return null;
+        if (!isRectShape(hs.shape)) return null;
 
         const isActive = activeHotspotDrawingId === hs.id || focusedHotspotId === hs.id;
 
@@ -83,13 +68,14 @@ export function SceneHotspotOverlays({
           ? "border-4 border-fuchsia-400 bg-fuchsia-500/15"
           : "border-4 border-sky-300/70 bg-sky-500/10";
 
-        return drawRect(`hs-${hs.id}`, shape, classes);
+        return drawRect(`hs-${hs.id}`, hs.shape, classes);
       })
       .filter(Boolean);
 
     const itemRects = safePlacedItems
       .map((pi) => {
         if (!isRectShape(pi.shape)) return null;
+
         const isActive = activePlacement?.kind === "item" && activePlacement.instanceId === pi.id;
 
         const classes = isActive
@@ -103,6 +89,7 @@ export function SceneHotspotOverlays({
     const npcRects = safePlacedNpcs
       .map((pn) => {
         if (!isRectShape(pn.shape)) return null;
+
         const isActive = activePlacement?.kind === "npc" && activePlacement.instanceId === pn.id;
 
         const classes = isActive
@@ -120,15 +107,8 @@ export function SceneHotspotOverlays({
         {npcRects}
       </>
     );
-  }, [
-    hotspots,
-    safePlacedItems,
-    safePlacedNpcs,
-    activeHotspotDrawingId,
-    focusedHotspotId,
-    activePlacement,
-    rect,
-  ]);
+  }, [hotspots, safePlacedItems, safePlacedNpcs, activeHotspotDrawingId,
+    focusedHotspotId, activePlacement, rect]);
 
   return (
     <>

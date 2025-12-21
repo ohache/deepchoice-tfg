@@ -18,7 +18,6 @@ function mapZodIssueToSceneIssue(issue: AnyZodIssue): SceneValidationIssue {
   const path = (issue.path ?? []).map((p) => (typeof p === "string" || typeof p === "number" ? p : String(p)));
   const field = path.length ? String(path[0]) : "scene";
   const code = typeof (issue as any).code === "string" ? String((issue as any).code) : "schema_error";
-
   return { field, path, severity: "error", code, message: issue.message };
 }
 
@@ -35,11 +34,10 @@ function isValid01Rect(shape: { x: number; y: number; w: number; h: number }): b
   if (shape.w <= 0 || shape.h <= 0) return false;
   if (shape.x + shape.w > 1) return false;
   if (shape.y + shape.h > 1) return false;
-
   return true;
 }
 
-function extractGoToTargetsFromInteractions(interactions: Array<{ effects: Array<any> }>): ID[] {
+function extractGoToTargetsFromHotspotInteractions(interactions: Array<{ effects: Array<any> }>): ID[] {
   const out: ID[] = [];
   for (const it of interactions ?? []) {
     for (const ef of it.effects ?? []) {
@@ -59,7 +57,11 @@ export function validateDraftSceneLocal(input: unknown): { parsed?: DraftSceneOu
 }
 
 /* Contextual */
-export function validateDraftSceneAgainstProject( draft: DraftSceneOutput, project: Project, options?: { currentNodeId?: ID }): SceneValidationIssue[] {
+export function validateDraftSceneAgainstProject(
+  draft: DraftSceneOutput,
+  project: Project,
+  options?: { currentNodeId?: ID }
+): SceneValidationIssue[] {
   const issues: SceneValidationIssue[] = [];
   const currentId = options?.currentNodeId;
 
@@ -85,6 +87,7 @@ export function validateDraftSceneAgainstProject( draft: DraftSceneOutput, proje
       if (currentId && node.id === currentId) return false;
       return true;
     });
+
     if (existingStart) {
       issues.push({
         field: "isStart",
@@ -95,7 +98,7 @@ export function validateDraftSceneAgainstProject( draft: DraftSceneOutput, proje
     }
   }
 
-  // Imagen obligatoria si hay zonas dibujadas (hotspots/items/npcs)
+  // Imagen obligatoria si hay zonas dibujadas
   const hasAnyHotspots = (draft.hotspots?.length ?? 0) > 0;
   const hasPlaced = (draft.placedItems?.length ?? 0) > 0 || (draft.placedNpcs?.length ?? 0) > 0;
 
@@ -122,7 +125,7 @@ export function validateDraftSceneAgainstProject( draft: DraftSceneOutput, proje
       }
     }
 
-    const targets = extractGoToTargetsFromInteractions(hs.interactions ?? []);
+    const targets = extractGoToTargetsFromHotspotInteractions(hs.interactions ?? []);
     for (const targetId of targets) {
       const targetExists = project.nodes.some((n) => n.id === targetId);
       if (!targetExists) {
@@ -240,7 +243,9 @@ export function validateDraftSceneAgainstProject( draft: DraftSceneOutput, proje
 }
 
 /* High level */
-export function validateDraftScene(input: unknown, ctx?: { project?: Project; currentNodeId?: ID }
+export function validateDraftScene(
+  input: unknown,
+  ctx?: { project?: Project; currentNodeId?: ID }
 ): { parsed?: DraftSceneOutput; issues: SceneValidationIssue[] } {
   const local = validateDraftSceneLocal(input);
   if (!local.parsed) return { parsed: undefined, issues: local.issues };

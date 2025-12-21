@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, useMemo, type ChangeEvent } f
 import { useEditorStore } from "@/store/editorStore";
 import type { SceneValidationIssue } from "@/features/editor/validation/sceneValidator";
 
-export type SceneToggleFieldId = "title" | "text" | "image" | "hotspots" | "tags";
+export type SceneToggleFieldId = "title" | "text" | "image" | "hotspots" | "tags" | "entities";
 
 export const buildBackgroundPath = (fileName: string): string => `assets/backgrounds/${fileName}`;
 export const buildMusicPath = (fileName: string): string => `assets/music/${fileName}`;
@@ -50,7 +50,7 @@ export function useSceneNavigation() {
   return { goToHistoriaVista };
 }
 
-/**Resuelve la URL de una imagen de escena dada su ruta lógica */
+/** Resuelve la URL de una imagen de escena dada su ruta lógica */
 export function useResolvedSceneImage(logicalPath?: string) {
   const assetFiles = useEditorStore((s) => s.assetFiles);
   const [resolvedImageUrl, setResolvedImageUrl] = useState<string | undefined>(undefined);
@@ -84,8 +84,8 @@ export interface SceneFieldErrors {
   hotspotErrors: SceneValidationIssue[];
   musicError?: SceneValidationIssue;
   mapError?: SceneValidationIssue;
-  npcErrors?: SceneValidationIssue[];
-  itemError?: SceneValidationIssue;
+  placedItemsErrors?: SceneValidationIssue[];
+  placedNpcsErrors?: SceneValidationIssue[];
 }
 
 export function useSceneFieldErrors(issues: SceneValidationIssue[]): SceneFieldErrors {
@@ -93,17 +93,27 @@ export function useSceneFieldErrors(issues: SceneValidationIssue[]): SceneFieldE
     const titleError = issues.find((i) => i.field === "title" && i.severity === "error");
     const textError = issues.find((i) => i.field === "text" && i.severity === "error");
     const imageError = issues.find((i) => i.field === "image" && i.severity === "error");
-    const hotspotErrors = issues.filter((i) => i.severity === "error" &&
-      (i.field === "hotspots" || i.field.startsWith("hotspots["))
+
+    const hotspotErrors = issues.filter((i) =>
+        i.severity === "error" &&
+        (i.field === "hotspots" || i.field.startsWith("hotspots["))
     );
 
     const musicError = issues.find((i) => i.field === "musicId" && i.severity === "error");
     const mapError = issues.find((i) => i.field === "mapId" && i.severity === "error");
-    const npcErrors = issues.filter((i) => i.field === "npcIds" && i.severity === "error");
-    const itemError = issues.find((i) => i.field === "placedItems" && i.severity === "error");
 
+    const placedItemsErrors = issues.filter((i) =>
+        i.severity === "error" &&
+        (i.field === "placedItems" || i.field.startsWith("placedItems["))
+    );
 
-    return { titleError, textError, imageError, hotspotErrors, musicError, mapError, npcErrors, itemError };
+    const placedNpcsErrors = issues.filter((i) =>
+        i.severity === "error" &&
+        (i.field === "placedNpcs" || i.field.startsWith("placedNpcs["))
+    );
+
+    return { titleError, textError, imageError, hotspotErrors, musicError,
+      mapError, placedItemsErrors, placedNpcsErrors };
   }, [issues]);
 }
 

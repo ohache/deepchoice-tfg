@@ -1,13 +1,35 @@
 import { useEffect, useState } from "react";
 import { useEditorStore } from "@/store/editorStore";
 
-import { ScenePreviewCard, SceneTitleField, SceneTextField, SceneImageField, SceneHotspotField, SceneTagField, SceneTypeField,
-  SceneFooter, SceneFooterButton, useSceneFieldState, useSceneNavigation, useResolvedSceneImage, useSceneFieldErrors } from "@/features/editor/components/scene";
+import {
+  ScenePreviewCard,
+  SceneTitleField,
+  SceneTextField,
+  SceneImageField,
+  SceneHotspotField,
+  SceneTagField,
+  SceneEntityField,
+  SceneTypeField,
+  SceneFooter,
+  SceneFooterButton,
+  useSceneFieldState,
+  useSceneNavigation,
+  useResolvedSceneImage,
+  useSceneFieldErrors,
+} from "@/features/editor/components/scene";
 
 import { StartConflictModal } from "@/features/editor/components/modals";
-import { useSceneValidation, useSceneImageUpload, useSceneTagsLogic, useSceneHotspotsLogic } from "@/features/editor/hooks";
+
+import {
+  useSceneValidation,
+  useSceneImageUpload,
+  useSceneTagsLogic,
+  useSceneHotspotsLogic,
+  useSceneEntitiesLogic,
+} from "@/features/editor/hooks";
+
 import { buildScenePreviewMeta } from "@/features/editor/utils";
-import type { HotspotActionType } from "@/domain/types";
+import type { Node } from "@/domain/types";
 
 export function SceneCreateView() {
   /* Estado global del editor */
@@ -19,6 +41,7 @@ export function SceneCreateView() {
   const updateDraftFields = useEditorStore((s) => s.updateDraftFields);
   const commitDraftAsNode = useEditorStore((s) => s.commitDraftAsNode);
 
+  // Hotspots
   const addHotspotToActiveScene = useEditorStore((s) => s.addHotspotToActiveScene);
   const updateHotspotTargetForActiveScene = useEditorStore((s) => s.updateHotspotTargetForActiveScene);
   const removeHotspotFromActiveScene = useEditorStore((s) => s.removeHotspotFromActiveScene);
@@ -32,66 +55,89 @@ export function SceneCreateView() {
   const focusedHotspotId = useEditorStore((s) => s.focusedHotspotId);
   const setFocusedHotspotId = useEditorStore((s) => s.setFocusedHotspotId);
 
+  // Placement (items / npcs)
   const beginPlaceItemForActiveScene = useEditorStore((s) => s.beginPlaceItemForActiveScene);
   const beginPlaceNpcForActiveScene = useEditorStore((s) => s.beginPlaceNpcForActiveScene);
-
   const beginEditPlacedItemForActiveScene = useEditorStore((s) => s.beginEditPlacedItemForActiveScene);
   const beginEditPlacedNpcForActiveScene = useEditorStore((s) => s.beginEditPlacedNpcForActiveScene);
 
+  // Assets
   const registerAssetFile = useEditorStore((s) => s.registerAssetFile);
+
   const { goToHistoriaVista } = useSceneNavigation();
 
   /* Estado de campos de la escena */
   const { activeField, setActiveField, toggleField, titleInputRef, textAreaRef } = useSceneFieldState();
 
-  /* Estado local de la UI */
+  /* Estado local UI */
   const [isStartModalOpen, setStartModalOpen] = useState(false);
   const [pendingCreate, setPendingCreate] = useState(false);
   const [existingStartTitle, setExistingStartTitle] = useState("");
   const clearStartFlagFromAllNodes = useEditorStore((s) => s.clearStartFlagFromAllNodes);
 
-  /* Validación y mapeo a errores por campo */
+  /* Validación */
   const { validateNow, issues } = useSceneValidation({ mode: "create" });
-  const { titleError, textError, imageError, hotspotErrors, musicError, mapError, npcErrors, itemError } =
-    useSceneFieldErrors(issues);
+  const { titleError, textError, imageError, hotspotErrors, musicError, mapError } = useSceneFieldErrors(issues);
 
-  /* Valores derivados del borrador de escena */
+  /* Derivados del borrador */
   const draftTitle = draftScene.title ?? "";
   const draftText = draftScene.text ?? "";
-  const draftImage = draftScene.image;
+  const draftImage = draftScene.image ?? "";
   const draftIsStart = !!draftScene.isStart;
   const draftIsFinal = !!draftScene.isFinal;
+
   const draftHotspots = draftScene.hotspots ?? [];
+  const draftPlacedItems = draftScene.placedItems ?? [];
+  const draftPlacedNpcs = draftScene.placedNpcs ?? [];
 
-  /* Derivados de hotspot */
-  const { canBindHotspotTargets, availableNodesByHotspotId, handleAddHotspot, handleHotspotActionChange, handleHotspotTargetChange,
-    handleHotspotRemove, handleStartDrawing, resolveNodeLabel } = useSceneHotspotsLogic({
-      mode: "create", project, hotspots: draftHotspots,
-      contextNodeId: "DRAFT_NODE", addHotspot: () => addHotspotToActiveScene(), removeHotspot: (hotspotId) => removeHotspotFromActiveScene(hotspotId),
-      setHotspotAction: (hotspotId, actionType) => setHotspotActionForActiveScene(hotspotId, actionType as HotspotActionType),
-      updateHotspotTarget: (hotspotId, targetNodeId) => updateHotspotTargetForActiveScene(hotspotId, targetNodeId),
-      activeDrawingHotspotId: activeHotspotDrawingId, setActiveHotspotDrawingId, clearHotspotShape: (hotspotId) => clearHotspotShapeForActiveScene(hotspotId),
-      hasImage: !!draftImage
-    });
+  /* Hotspots logic */
+  const {
+    canBindHotspotTargets,
+    availableNodesByHotspotId,
+    handleAddHotspot,
+    handleHotspotActionChange,
+    handleHotspotTargetChange,
+    handleHotspotRemove,
+    handleStartDrawing,
+    resolveNodeLabel,
+  } = useSceneHotspotsLogic({
+    mode: "create",
+    project,
+    hotspots: draftHotspots,
+    contextNodeId: "DRAFT_NODE",
+    addHotspot: () => addHotspotToActiveScene(),
+    removeHotspot: (hotspotId) => removeHotspotFromActiveScene(hotspotId),
+    setHotspotAction: (hotspotId, actionType) => setHotspotActionForActiveScene(hotspotId, actionType as any),
+    updateHotspotTarget: (hotspotId, targetNodeId) => updateHotspotTargetForActiveScene(hotspotId, targetNodeId),
+    activeDrawingHotspotId: activeHotspotDrawingId,
+    setActiveHotspotDrawingId,
+    clearHotspotShape: (hotspotId) => clearHotspotShapeForActiveScene(hotspotId),
+    hasImage: !!draftImage,
+  });
 
-  /* Resolución de la imagen de fondo */
+  /* Imagen resuelta */
   const resolvedImageUrl = useResolvedSceneImage(draftImage);
 
-  const { fileInputRef, imageLocalError, isImageDragging, handleImageChange, handleImageDragOver, handleImageDragLeave, handleImageDrop } =
-    useSceneImageUpload({ onImagePathChange: (relativePath) => updateDraftFields({ image: relativePath }), registerAssetFile });
+  /* Upload de imagen */
+  const {
+    fileInputRef,
+    imageLocalError,
+    isImageDragging,
+    handleImageChange,
+    handleImageDragOver,
+    handleImageDragLeave,
+    handleImageDrop,
+  } = useSceneImageUpload({
+    onImagePathChange: (relativePath) => updateDraftFields({ image: relativePath }),
+    registerAssetFile,
+  });
 
-  /* Estado local para Etiquetas */
+  /* Tags (music/map) */
   const tagsLogic = useSceneTagsLogic({
     project,
     musicId: draftScene.musicId,
     mapId: draftScene.mapId,
-    placedItems: draftScene.placedItems,
-    placedNpcs: draftScene.placedNpcs,
     onUpdateTags: (update) => updateDraftFields(update),
-    onRequestPlace: (kind, resourceId) => {
-      if (kind === "item") beginPlaceItemForActiveScene(resourceId);
-      if (kind === "npc") beginPlaceNpcForActiveScene(resourceId);
-    },
   });
 
   const {
@@ -112,16 +158,52 @@ export function SceneCreateView() {
     handleRemoveTag,
   } = tagsLogic;
 
-  // ==== Etiquetas para la preview ====
-  const { mapLabel, npcLabel, itemLabel, musicLabel, musicFilePath } = buildScenePreviewMeta(project, draftScene);
+  /* Entities (items/npcs colocados en escena) */
+  const entitiesLogic = useSceneEntitiesLogic({
+    project,
+    placedItems: draftPlacedItems,
+    placedNpcs: draftPlacedNpcs,
+    onUpdateEntities: (update) => updateDraftFields(update),
+    onRequestPlace: (kind, resourceId) => {
+      if (!draftScene.image) return; // sin imagen no hay drawing
+      if (kind === "item") beginPlaceItemForActiveScene(resourceId);
+      else beginPlaceNpcForActiveScene(resourceId);
+    },
+    onRequestEdit: (kind, instanceId) => {
+      if (!draftScene.image) return;
+      if (kind === "item") beginEditPlacedItemForActiveScene(instanceId);
+      else beginEditPlacedNpcForActiveScene(instanceId);
+    },
+  });
+
+  const {
+    entities,
+    entityTypeOptions,
+    getResourcesForKind,
+    isAdding: isAddingEntity,
+    newKind,
+    newResourceId,
+    resourcesForNewKind,
+    localError: entityLocalError,
+    handleStartAdd,
+    handleCancelAdd,
+    handleNewKindChange,
+    handleNewResourceChange,
+    handleConfirmAdd,
+    handleExistingEntityResourceChange,
+    handleRemoveEntity,
+  } = entitiesLogic;
+
+  /* Preview meta */
+  const { mapLabel, npcLabel, itemLabel, musicLabel, musicFilePath } = buildScenePreviewMeta(project, draftScene as Node);
   const musicUrl = useResolvedSceneImage(musicFilePath);
 
-  /* Efecto de entrada al modo creación */
+  /* Entrar al modo creación */
   useEffect(() => {
     if (sceneMode !== "creating") enterCreateMode();
   }, [sceneMode, enterCreateMode]);
 
-  /* Handlers para la creación de escena */
+  /* Crear escena */
   const handleCreateScene = () => {
     const { ok } = validateNow(draftScene);
     if (!ok) return;
@@ -133,7 +215,6 @@ export function SceneCreateView() {
     }
 
     const existingStart = project?.nodes.find((n) => n.isStart);
-
     if (!existingStart) {
       commitDraftAsNode();
       goToHistoriaVista();
@@ -158,7 +239,6 @@ export function SceneCreateView() {
 
   const cancelReplace = () => {
     updateDraftFields({ isStart: false });
-
     setStartModalOpen(false);
 
     if (pendingCreate) {
@@ -168,7 +248,7 @@ export function SceneCreateView() {
     }
   };
 
-  /* Handlers para flags de Inicio/Final */
+  /* Flags Inicio/Final */
   const handleToggleStart = () => {
     if (draftIsStart) updateDraftFields({ isStart: false });
     else updateDraftFields({ isStart: true, isFinal: false });
@@ -181,7 +261,6 @@ export function SceneCreateView() {
 
   return (
     <div className="scene-editor-layout">
-      {/* Panel izquierdo: formulario de creación */}
       <section className="scene-editor-panel-left">
         <h4 className="text-base font-semibold text-slate-100">Nueva escena</h4>
 
@@ -226,7 +305,6 @@ export function SceneCreateView() {
             onFileChange={handleImageChange}
           />
 
-          {/* Hotspots */}
           <SceneHotspotField
             label="Hotspots"
             active={activeField === "hotspots"}
@@ -246,7 +324,7 @@ export function SceneCreateView() {
             resolveNodeLabel={resolveNodeLabel}
             selectPlaceholderWhenActive="Selecciona destino…"
             selectPlaceholderWhenDisabled="No hay escenas disponibles"
-            hasImage={!!draftScene?.image}
+            hasImage={!!draftScene.image}
             focusedHotspotId={focusedHotspotId}
             onFocusHotspot={(id) => setFocusedHotspotId(focusedHotspotId === id ? null : id)}
             onClearFocus={() => setFocusedHotspotId(null)}
@@ -271,17 +349,33 @@ export function SceneCreateView() {
             onNewTagValueChange={handleNewTagValueChange}
             onExistingTagChange={handleExistingTagChange}
             onRemoveTag={handleRemoveTag}
-            onRequestPlaceTag={tagsLogic.handleRequestPlaceTag}
-            onRequestEditPlacedInstance={(kind, instanceId) => {
-              if (kind === "item") beginEditPlacedItemForActiveScene(instanceId);
-              if (kind === "npc") beginEditPlacedNpcForActiveScene(instanceId);
-            }}
-            canPlaceOnScene={!!draftScene.image}
-            placeDisabledReason="Carga una imagen para poder dibujar/colocar."
             musicError={musicError}
             mapError={mapError}
-            itemError={itemError}
-            npcErrors={npcErrors}
+          />
+
+          <SceneEntityField
+            label="Entidades en escena"
+            active={activeField === "entities"}
+            onToggle={() => toggleField("entities")}
+            entityTypeOptions={entityTypeOptions}
+            entities={entities}
+            getResourcesForKind={getResourcesForKind}
+            isAdding={isAddingEntity}
+            newKind={newKind}
+            newResourceId={newResourceId}
+            resourcesForNewKind={resourcesForNewKind}
+            localError={entityLocalError}
+            onStartAdd={handleStartAdd}
+            onCancelAdd={handleCancelAdd}
+            onConfirmAdd={handleConfirmAdd}
+            onNewKindChange={handleNewKindChange}
+            onNewResourceChange={handleNewResourceChange}
+            onExistingEntityResourceChange={handleExistingEntityResourceChange}
+            onRemoveEntity={handleRemoveEntity}
+            onRequestPlace={entitiesLogic.handleRequestPlace}
+            onRequestEdit={entitiesLogic.handleRequestEdit}
+            canPlaceOnScene={!!draftScene.image}
+            placeDisabledReason="Carga una imagen para poder dibujar/colocar."
           />
 
           <SceneTypeField
@@ -297,7 +391,6 @@ export function SceneCreateView() {
         </SceneFooter>
       </section>
 
-      {/* Panel derecho: previsualización */}
       <section className="scene-editor-panel-right">
         <ScenePreviewCard
           title={draftTitle}

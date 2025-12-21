@@ -13,3 +13,4 @@ export * from "./fields/SceneTagField";
 export * from "./fields/SceneTypeField";
 export * from "./fields/SceneFooter";
 export * from "./fields/SceneFooterButton";
+export * from "./fields/SceneEntityField";

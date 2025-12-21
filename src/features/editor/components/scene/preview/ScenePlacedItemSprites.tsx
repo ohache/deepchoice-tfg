@@ -3,21 +3,19 @@ import type { HotspotShape, PlacedItem, Project } from "@/domain/types";
 import type { ContainedRect } from "./SceneHotspotOverlays";
 import { useEditorStore } from "@/store/editorStore";
 
-function isRectShape(shape: any): shape is Extract<HotspotShape, { type: "rect" }> {
-  return shape?.type === "rect"
-    && typeof shape.x === "number"
-    && typeof shape.y === "number"
-    && typeof shape.w === "number"
-    && typeof shape.h === "number";
+function isRectShape(shape: unknown): shape is Extract<HotspotShape, { type: "rect" }> {
+  const s = shape as any;
+  return (s?.type === "rect" && typeof s.x === "number" && typeof s.y === "number" &&
+    typeof s.w === "number" && typeof s.h === "number");
 }
 
 const urlCache = new Map<string, string>();
 
-function resolveFromAssetFiles(assetFiles: Record<string, File>, logicalPath: string) {
+function resolveFromAssetFiles(assetFiles: Record<string, File> | undefined, logicalPath: string) {
   if (!logicalPath) return undefined;
   if (/^(https?:|data:|blob:)/.test(logicalPath)) return logicalPath;
 
-  const f = assetFiles[logicalPath];
+  const f = assetFiles?.[logicalPath];
   if (!f) return undefined;
 
   const cached = urlCache.get(logicalPath);
@@ -44,11 +42,13 @@ export function ScenePlacedItemSprites({ placedItems, project, rect }: Props) {
     const ox = contentViewport.x - containerViewport.x;
     const oy = contentViewport.y - containerViewport.y;
 
-    return placedItems.map((pi) => {
+    const defs = project.items ?? [];
+
+    return (placedItems ?? []).map((pi) => {
       if (!isRectShape(pi.shape)) return null;
 
-      const def = project.items.find((d) => d.id === pi.itemId);
-      const logical = def?.image;
+      const def = defs.find((d) => d.id === pi.itemId);
+      const logical = def?.image ?? "";
       if (!logical) return null;
 
       const url = resolveFromAssetFiles(assetFiles, logical);

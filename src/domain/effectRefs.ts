@@ -124,6 +124,11 @@ function getEffectRefs(e: Effect): EffectRefs {
 }
 
 /* Predicados listos para slices */
+export function effectReferencesItem(e: Effect, itemId: ID): boolean {
+  const refs = getEffectRefs(e);
+  return (refs.placedItemIds ?? []).includes(itemId);
+}
+
 export function effectReferencesNpc(e: Effect, npcId: ID): boolean {
   const refs = getEffectRefs(e);
   return (refs.npcIds ?? []).includes(npcId);

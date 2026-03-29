@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { createCommitCancelKeyHandler } from "@/shared/keyboard";
 
 interface CreateAdventureModalProps {
   open: boolean;
@@ -11,18 +12,11 @@ interface CreateAdventureModalProps {
 
 export function CreateAdventureModal({ open, title, onTitleChange, onConfirm, onCancel, titleError }: CreateAdventureModalProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const hasError = !!titleError;
+  const hasError = Boolean(titleError);
 
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      onConfirm();
-    }
-    if (event.key === "Escape") {
-      event.preventDefault();
-      onCancel();
-    }
-  };
+  const handleKeyDown = createCommitCancelKeyHandler<HTMLInputElement>(onConfirm, onCancel, {stopPropagation: true});
+
+  const isConfirmDisabled = hasError || title.trim().length === 0;
 
   useEffect(() => {
     if (open && inputRef.current) inputRef.current.focus();
@@ -33,11 +27,7 @@ export function CreateAdventureModal({ open, title, onTitleChange, onConfirm, on
   return (
     <div className="modal-overlay">
       <div className="modal-card">
-        <h2 className="text-lg font-semibold mb-3 text-center">
-          Nueva aventura
-        </h2>
-
-        <p className="text-sm text-slate-300 mb-4 text-center">
+        <p className="text-[15px] text-slate-100 mb-4 text-center">
           Escribe el título de la aventura que vas a crear
         </p>
 
@@ -47,11 +37,8 @@ export function CreateAdventureModal({ open, title, onTitleChange, onConfirm, on
           value={title}
           onChange={(e) => onTitleChange(e.target.value)}
           onKeyDown={handleKeyDown}
-          className={["w-full rounded-md px-3 py-1.5 text-sm bg-slate-950 border focus:outline-none focus:ring-1",
-              hasError
-                ? "border-red-500 focus:ring-red-500"
-                : "border-slate-600 focus:ring-fuchsia-500",
-            ].join(" ")}
+          className={`w-full rounded-md px-3 py-1.5 text-sm bg-slate-950 border focus:outline-none focus:ring-2 focus:border-transparent
+            ${hasError ? "border-red-500 focus:ring-red-500" : "border-slate-600 focus:ring-fuchsia-500"}`}
           placeholder="Ej: La senda del bosque"
         />
 
@@ -61,18 +48,20 @@ export function CreateAdventureModal({ open, title, onTitleChange, onConfirm, on
           </p>
         )}
 
-        <div className="mt-6 flex justify-end gap-2">
+        <div className="mt-4 flex justify-end gap-2">
           <button
             type="button"
             onClick={onCancel}
-            className="btn btn-secondary"
+            className="btn btn-cancel"
           >
             Cancelar
           </button>
+          
           <button
             type="button"
             onClick={onConfirm}
-            className="btn btn-primary-adventure"
+            className="btn btn-create"
+            disabled={isConfirmDisabled}
           >
             Crear aventura
           </button>

@@ -9,15 +9,48 @@ body {
   font-weight: 300;
 }
 
+/* SOLO para el contenedor que scrollea (recomendado) */
+.editor-scroll {
+  scrollbar-gutter: stable both-edges;
+  /* evita saltos al aparecer/desaparecer */
+}
+
+/* WebKit */
+.editor-scroll::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+  /* horizontal */
+}
+
+.editor-scroll::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.6);
+  /* slate-900 */
+  border-radius: 999px;
+}
+
+.editor-scroll::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  /* slate-400 */
+  border-radius: 999px;
+  border: 3px solid rgba(15, 23, 42, 0.6);
+  /* crea “padding” visual */
+}
+
+.editor-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.55);
+}
+
 /* =========================
    COMPONENTES / UTILIDADES
    ========================= */
 
 @layer components {
+
   /* Errores de validación */
   .form-field-error {
-    @apply mt-1 text-xs text-red-400 flex items-center gap-1 justify-center;
+    @apply mt-3 text-xs text-red-400 flex items-center gap-1 justify-center;
   }
+
   /* ---- Layout genérico ---- */
 
   /* Página a pantalla completa centrada (pantallas de error / sin partida) */
@@ -27,7 +60,7 @@ body {
 
   /* Tarjeta principal de la Home */
   .home-card {
-    @apply max-w-xl w-full px-6 py-10 rounded-2xl bg-slate-800 border-4 border-slate-700;
+    @apply max-w-xl w-full px-6 py-10 rounded-2xl bg-slate-800 border-4 border-slate-600;
   }
 
   /* Overlay oscuro centrado para modales */
@@ -37,7 +70,7 @@ body {
 
   /* Contenedor base de los modales (Create, Manual, etc.) */
   .modal-card {
-    @apply max-w-md w-full mx-4 bg-slate-900 rounded-2xl shadow-xl border-4 border-slate-700 p-6;
+    @apply max-w-lg w-full mx-4 bg-slate-900 rounded-2xl shadow-xl border-4 border-slate-500 p-6;
   }
 
   /* Botón de cierre "X" en la cabecera de los modales */
@@ -46,38 +79,84 @@ body {
   }
 
   /* ---- Botones genéricos ---- */
-
   /* Base para botones pequeños (modales, acciones secundarias, etc.) */
   .btn {
-    @apply px-3 py-1.5 rounded-lg text-sm transition-colors;
+    @apply px-2 py-1 rounded-md border text-sm transition;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    -ms-user-select: none;
   }
 
   /* Botón primario genérico (por ejemplo, "Volver al inicio" en PlayerShell) */
-  .btn-primary {
+  .btn-primary-player {
     @apply px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm font-semibold;
   }
 
-  /* Botón secundario genérico (por ejemplo, "Cancelar" en modales) */
-  .btn-secondary {
-    @apply bg-slate-800 hover:bg-slate-700 text-slate-200;
+  /* Botón primario específico para la aventura (por ejemplo, "Crear aventura" en el modal) */
+  .btn-create {
+    @apply border border-fuchsia-400 bg-fuchsia-800 hover:bg-fuchsia-600 text-slate-100 font-semibold;
   }
 
-  /* Botón primario específico para la aventura (por ejemplo, "Crear aventura" en el modal) */
-  .btn-primary-adventure {
-    @apply bg-fuchsia-700 hover:bg-fuchsia-600 text-slate-100 font-semibold;
+  /* Botón secundario genérico (por ejemplo, "Cancelar" en modales) */
+  .btn-cancel {
+    @apply border border-slate-400 bg-slate-700 hover:bg-slate-500 text-slate-200;
   }
 
   /* Botón danger */
   .btn-danger {
-    @apply bg-red-700 hover:bg-red-600 text-white;
+    @apply border border-red-500 bg-red-800 hover:bg-red-500 text-white;
   }
+
+  /* Botón seleccionar */
+  .btn-select {
+    @apply border-2 border-slate-700 bg-slate-900 hover:bg-slate-700 text-xs text-white;
+  }
+
+  /* Botón seleccionar */
+  .btn-json {
+    @apply border-2 border-emerald-700 bg-emerald-900/50 hover:bg-emerald-800 text-xs text-white;
+  }
+
+  /* Botón guardar */
+  /* base ya la tienes */
+  .btn-save {
+    @apply border-2 text-[12px] font-semibold text-white;
+    border-color: var(--accent-border);
+    background-color: var(--accent-bg);
+  }
+
+  .btn-save:hover {
+    background-color: var(--accent-hover);
+  }
+
+  /* PLAYER (emerald) */
+  .btn-save--player {
+    --accent-border: #10b981; /* emerald-500 */
+    --accent-bg: #065f46; /* emerald-800 */
+    --accent-hover: #047857; /* emerald-700 */
+  }
+
+  /* NPC (lime) */
+  .btn-save--npc {
+    --accent-border: #84cc16; /* lime-500 */
+    --accent-bg: #365314; /* lime-800 */
+    --accent-hover: #4d7c0f; /* lime-700 */
+  }
+
+  /* HOTSPOT (fuchsia) */
+  .btn-save--hotspot {
+    --accent-border: #d946ef; /* fuchsia-500 */
+    --accent-bg: #4a044e; /* fuchsia-950 */
+    --accent-hover: #701a75; /* fuchsia-800 */
+  }
+
 
   /* ---- Botones específicos de la Home ---- */
 
   /* Botón grande de la Home (Crear / Editar / Jugar) */
   .btn-home {
-    @apply relative mx-auto px-4 py-3 rounded-lg font-bold text-white text-[19px] border border-black
-        transition duration-200 shadow-sm hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 text-center;
+    @apply relative mx-auto px-4 py-3 rounded-lg font-bold text-white text-[19px] border-2 border-black transition duration-200 shadow-sm hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 text-center;
     width: 270px;
   }
 
@@ -108,27 +187,204 @@ body {
   }
 
   /* =========================
+   Panel themes
+   ========================= */
+
+  .panel--music {
+    --accent-border: theme(colors.cyan.500);
+    --accent-bg: theme(colors.cyan.700);
+    --accent-hover: theme(colors.cyan.500);
+  }
+
+  .panel--sfx {
+    --accent-border: theme(colors.indigo.500);
+    --accent-bg: theme(colors.indigo.700);
+    --accent-hover: theme(colors.indigo.500);
+  }
+
+  .panel--items {
+    --accent-border: theme(colors.red.500);
+    --accent-bg: theme(colors.red.700);
+    --accent-hover: theme(colors.red.500);
+  }
+
+  .panel--npcs {
+    --accent-border: theme(colors.lime.500);
+    --accent-bg: theme(colors.lime.700);
+    --accent-hover: theme(colors.lime.500);
+  }
+
+  /* MAP (amber) */
+  .panel--map {
+    --accent-border: theme(colors.amber.500);
+    --accent-bg: theme(colors.amber.800);
+    --accent-hover: theme(colors.amber.500);
+} 
+
+  /** CONDITIONS */
+  .input-conditions {
+    @apply w-full rounded-md bg-slate-900 border border-slate-700 px-2 py-1 text-xs text-white focus:outline-none focus:ring-2 focus:ring-fuchsia-500;
+  }
+
+  .btn-add-condition {
+    @apply border border-fuchsia-700 bg-fuchsia-950/30 text-white hover:bg-fuchsia-900/40;
+  }
+
+  .btn-close-condition {
+    @apply border border-slate-500 bg-slate-900 text-slate-100 hover:bg-slate-700 text-[11px];
+  }
+
+  .btn-create-condition {
+    @apply border border-emerald-700 bg-emerald-900/20 text-emerald-100 hover:bg-emerald-900/65 text-[11px];
+  }
+
+  .btn-danger-condition {
+    @apply border border-red-500 bg-red-950/40 hover:bg-red-950 text-white text-[11px];
+  }
+
+  .btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    pointer-events: none;
+    transform: none !important;
+  }
+
+  .btn:disabled:hover {
+    background: inherit !important;
+    box-shadow: none !important;
+  }
+
+
+  /** SCENE PREVIEW */
+  .scene-preview-grid {
+    display: grid;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    gap: 0.75rem;
+  }
+
+  .scene-preview--top {
+    grid-template-rows: 25% 75%;
+    grid-template-columns: 100%;
+    grid-template-areas:
+      "text"
+      "image";
+  }
+
+  .scene-preview--bottom {
+    grid-template-rows: 75% 25%;
+    grid-template-columns: 100%;
+    grid-template-areas:
+      "image"
+      "text";
+  }
+
+  .scene-preview--left {
+    grid-template-rows: 100%;
+    grid-template-columns: 25% 75%;
+    grid-template-areas: "text image";
+  }
+
+  .scene-preview--right {
+    grid-template-rows: 100%;
+    grid-template-columns: 75% 25%;
+    grid-template-areas: "image text";
+  }
+
+  /* =========================
+       DRAG AND DROP
+     ========================= */
+
+  /* Card draggable (lista variantes) */
+  .dnd-card {
+    @apply select-none rounded-md border px-2 py-2;
+    @apply border-slate-800 bg-slate-950/30 hover:bg-slate-950/45;
+    @apply transition;
+    /* cursor base (explicita) */
+    @apply cursor-grab;
+  }
+
+  /* Mientras arrastras (se añade con data / estado) */
+  .dnd-card--dragging {
+    @apply cursor-grabbing opacity-70;
+    @apply ring-2 ring-fuchsia-500/70;
+  }
+
+  /* Cuando un item es “drop target” (hover/dragover) */
+  .dnd-card--over {
+    @apply ring-2 ring-cyan-500/60;
+    @apply bg-slate-900/60;
+  }
+
+  /* “Handle” opcional si quieres agarrar desde un icono */
+  .dnd-handle {
+    @apply cursor-grab text-slate-300 hover:text-white;
+  }
+
+  .dnd-handle:active {
+    @apply cursor-grabbing;
+  }
+
+  /* Variante arrastrable */
+  .variant-draggable {
+    @apply cursor-grab transition-all duration-150;
+  }
+
+  .variant-draggable:active {
+    @apply cursor-grabbing;
+  }
+
+  /* Mientras se arrastra */
+  .variant-dragging {
+    @apply opacity-70 scale-[0.98] ring-2 ring-fuchsia-500/70;
+  }
+
+  /* Cuando es target de drop */
+  .variant-drop-target {
+    @apply ring-2 ring-cyan-500/70 shadow-lg;
+  }
+
+  .dnd-active,
+  .dnd-active * {
+    cursor: grabbing !important;
+  }
+
+  /* Si quieres que en reposo sea grab y no pointer */
+  .variant-draggable {
+    @apply cursor-grab transition-all duration-150;
+  }
+
+  .variant-draggable:active {
+    @apply cursor-grabbing;
+  }
+
+
+
+  /* =========================
        EDITOR: SCENE CREATE
      ========================= */
 
   /* Contenedor principal izquierda/derecha */
   .scene-editor-layout {
-    @apply flex flex-col md:flex-row gap-3 min-h-[420px] md:min-h-[600px];
+    @apply flex flex-col md:flex-row gap-3 md:min-h-[600px] h-full min-h-0;
   }
 
-  /* Panel izquierdo: formulario escena */
+  /* Panel izquierdo */
   .scene-editor-panel-left {
-    @apply w-full md:max-w-md bg-slate-800 border border-slate-700 rounded-lg md:h-full md:overflow-y-auto p-3 space-y-3 text-center;
+    @apply w-full md:max-w-md bg-slate-800 border border-slate-700 rounded-lg md:h-full min-h-0 md:overflow-y-auto p-3 space-y-3 text-center;
   }
 
-  /* Panel derecho: previsualización */
+  /* Panel derecho */
   .scene-editor-panel-right {
-    @apply flex-1 bg-slate-800 border border-slate-700 rounded-lg p-3;
+    @apply flex-1 bg-slate-800 border border-slate-700 rounded-lg p-3 flex flex-col min-h-0 overflow-hidden;
   }
 
   /* Tarjeta de previsualización completa */
   .scene-preview-card {
-    @apply w-full rounded-md border border-slate-700 bg-slate-950/60 overflow-hidden flex flex-col gap-2;
+    @apply w-full h-full min-h-0 rounded-md border border-slate-700 bg-slate-950/60 overflow-hidden flex flex-col gap-2;
   }
 
   /* Contenedor de la imagen (aspect ratio video) */
@@ -138,7 +394,7 @@ body {
 
   /* Caja de texto de la escena en la preview */
   .scene-preview-text-box {
-    @apply w-full bg-slate-950/85 border-t border-slate-700 px-4 py-3 h-20 md:h-20 overflow-y-auto;
+    @apply w-full bg-slate-950/85 border-t border-slate-700 px-4 py-3 h-20 md:h-20 min-h-0 overflow-auto;
   }
 
   /* Fila de hotspot en el editor */
@@ -258,4 +514,11 @@ body {
   100% {
     transform: translateX(-50%);
   }
+}
+
+/* Oculta spinners nativos (Chrome/Safari/Edge) */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
 }

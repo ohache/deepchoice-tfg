@@ -1,37 +1,20 @@
-export type EditorPrimaryMode = "historia" | "escena" | "test";
+export const PRIMARY = {
+    historia: { label: "Historia", defaultSecondary: "vista"},
+    escena: { label: "Escena", defaultSecondary: "crear"},
+    test: { label: "Test", defaultSecondary: "historia"},
+} as const;
 
-export type HistoriaSecondaryMode =
-    | "vista"
-    | "jugador"
-    | "mapa"
-    | "pnjs"
-    | "items"
-    | "musica"
-    | "dialogos"
-    | "etiquetas";
+export type EditorPrimaryMode = keyof typeof PRIMARY;
 
-export type EscenaSecondaryMode = "crear" | "buscar" | "listar";
+export type HistoriaSecondaryMode = | "vista" | "jugador" | "pnjs" | "items" | "musica" | "sfx" | "mapa" | "recursos";
+export type EscenaSecondaryMode = "crear" | "buscar";
+export type TestSecondaryMode = "historia" | "escena";
 
-export type TestSecondaryMode = "historia" | "nodo";
+export type EditorSecondaryMode = HistoriaSecondaryMode | EscenaSecondaryMode | TestSecondaryMode;
 
-export type EditorSecondaryMode =
-    | HistoriaSecondaryMode
-    | EscenaSecondaryMode
-    | TestSecondaryMode;
+export const PRIMARY_TABS = (Object.keys(PRIMARY) as EditorPrimaryMode[]).map((id) => ({
+  id, label: PRIMARY[id].label }));
 
-export function getDefaultSecondaryMode(
-    primary: EditorPrimaryMode
-): EditorSecondaryMode {
-    switch (primary) {
-        case "historia":
-            return "vista";
-        case "escena":
-            return "crear";
-        case "test":
-            return "historia";
-
-        default:
-            const _exhaustiveCheck: never = primary;
-            return _exhaustiveCheck;
-    }
+export function getDefaultSecondaryMode(primary: EditorPrimaryMode) {
+  return PRIMARY[primary].defaultSecondary;
 }

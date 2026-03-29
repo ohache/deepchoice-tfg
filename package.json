@@ -12,9 +12,13 @@
   "dependencies": {
     "@heroicons/react": "^2.2.0",
     "jszip": "^3.10.1",
+    "lucide-react": "^0.564.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "react-pageflip": "^2.0.3",
     "react-router-dom": "^7.9.6",
+    "sooner": "^1.1.1",
+    "toast": "^0.5.4",
     "zod": "^4.1.13",
     "zustand": "^5.0.9"
   },
@@ -25,6 +29,7 @@
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
+    "baseline-browser-mapping": "^2.9.19",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",

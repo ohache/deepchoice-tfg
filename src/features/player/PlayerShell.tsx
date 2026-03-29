@@ -1,61 +1,879 @@
-import { useEffect, useState, useRef, useMemo } from "react";
+import { useCallback, useMemo, useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import type { Hotspot, ID, Effect, PlacedItem, HotspotShape, ItemDef } from "@/domain/types";
+import type { ID, Node, Project, TextDock, PlaceableState, SceneImageLayer, PlacedItem, AssetDef, ItemDef, PlacedPlayerState, PlacedNpc } from "@/domain/types";
+import type { Condition } from "@/domain/conditions";
+import type { GameState } from "@/engine/state/runtimeState";
+import { applyHotspotUseItem } from "@/engine/apply/applyHotspot";
+import { applyPlacedItemUseItem } from "@/engine/apply/applyPlacedItem";
 import { useGameStore } from "@/store/gameStore";
+import { ensureNodeRuntime, type InventoryEntry } from "@/engine/state/runtimeState";
+import { musicRememberPosition, musicPlay, musicStop, musicSetTargetTrack, selectSavedTrackPosition } from "@/engine/state/slices/musicSlice";
+import { useSceneAudio } from "@/features/player/hooks/useSceneAudio";
+import { evaluateCondition } from "@/engine/conditions/evaluateConditions";
+import { SceneStage } from "@/features/player/components/SceneStage";
+import { resolveTextTokensToParts } from "@/features/editor/scene/textTokens/ResolveTextTokens";
+import { BottomBar } from "@/features/player/components/BottomBar";
+import { InventoryOverlay, type InventoryItemView } from "@/features/player/components/InventoryOverlay";
+import { MapOverlay } from "@/features/player/components/MapOVerlay";
+import { useUiMessageStore } from "@/engine/messages/uiMessageStore";
+import { iconForInteractionKind, type InteractionKind } from "@/features/player/components/interactionCursors";
+import { applyInventoryItemUseItem } from "@/engine/apply/applyInventoryItem";
+import { DialogueChoicesPanel } from "@/features/player/components/DialogueChoicesPanel";
+import { usePlayerKeyboard } from "@/features/player/hooks/usePlayerKeyboard";
 
-function resolveAssetSrc(path?: string, assetUrls?: Record<string, string>) {
-  if (!path) return undefined;
-  return assetUrls?.[path] ?? path;
+type PlayerInteractionMode =
+  | { type: "default" }
+  | { type: "useItem"; item: InventoryItemView }
+
+const DIALOGUE_AUTO_ADVANCE_MS = 2000;
+
+function buildAssetIdToFile(project: Project): Map<ID, string> {
+  const m = new Map<ID, string>();
+  for (const a of project.assets ?? []) m.set(a.id as ID, a.file);
+  return m;
 }
 
-/** Convención temporal: primer effect del primer interaction */
-function getPrimaryEffect(hs: Hotspot): Effect | undefined {
-  return hs.interactions?.[0]?.effects?.[0];
+function resolveAssetIdToSrc(assetId: ID | undefined, assetIdToFile: Map<ID, string>, assetUrls: Record<string, string>) {
+  if (!assetId) return undefined;
+
+  const file = assetIdToFile.get(assetId);
+  if (!file) return undefined;
+
+  return assetUrls[file] ?? file;
 }
 
-function getGoToNodeTargetId(hs: Hotspot): ID | null {
-  const eff = getPrimaryEffect(hs);
-  return eff && eff.type === "goToNode" ? (eff.targetNodeId as ID) : null;
+function pickNodeById(project: Project, id: ID): Node | null {
+  return project.nodes.find((n) => n.id === id) ?? null;
 }
 
-function isRectShape(shape: HotspotShape | undefined): shape is Extract<HotspotShape, { type: "rect" }> {
-  return !!shape && shape.type === "rect";
+function indexOfNode(project: Project, id: ID): number {
+  return project.nodes.findIndex((n) => n.id === id);
 }
 
-function getItemDef(projectItems: ItemDef[] | undefined, itemId: ID): ItemDef | undefined {
-  return projectItems?.find((i) => i.id === itemId);
+function nodeIdAtIndex(project: Project, idx: number): ID | null {
+  const n = project.nodes[idx];
+  return n ? (n.id as ID) : null;
+}
+
+function isEmptyCondition(cond: Condition | undefined): boolean {
+  if (!cond) return false;
+
+  if (cond.type === "and") return Array.isArray(cond.all) && cond.all.length === 0;
+  if (cond.type === "or") return Array.isArray(cond.any) && cond.any.length === 0;
+
+  return false;
+}
+
+function pickActiveLayer(node: Node, gameState: GameState): SceneImageLayer | null {
+  const layers = node.layers ?? [];
+
+  if (layers.length === 0) return null;
+
+  for (const layer of layers) {
+    if (!layer.when) continue;
+    if (isEmptyCondition(layer.when)) continue;
+
+    if (evaluateCondition(gameState, layer.when)) return layer;
+  }
+
+  return layers[0] ?? null;
+}
+
+function pickActiveText(layer: SceneImageLayer | null, gameState: GameState): { text: string; dock: TextDock } {
+  if (!layer) return { text: "", dock: "bottom" };
+
+  const dock: TextDock = layer.dock ?? "bottom";
+  const entries = layer.text ?? [];
+
+  for (const entry of entries) {
+    if (!entry.when) continue;
+    if (isEmptyCondition(entry.when)) continue;
+
+    if (evaluateCondition(gameState, entry.when)) {
+      return { text: entry.content ?? "", dock };
+    }
+  }
+
+  const fallback = entries.find((e) => !e.when) ?? entries[0];
+
+  return { text: fallback?.content ?? "", dock };
+}
+
+function pickActiveMusicTrackId(node: Node, gameState: GameState): ID | undefined {
+  const activeLayer = pickActiveLayer(node, gameState);
+
+  if (activeLayer?.musicTrackId) return activeLayer.musicTrackId;
+  if (node.musicTrackId) return node.musicTrackId;
+
+  const loc = node.mapLocation;
+  if (!loc) return undefined;
+
+  const map = gameState.project.maps.find((m) => m.id === loc.mapId) ?? null;
+  const region = map?.regions.find((r) => r.id === loc.regionId) ?? null;
+
+  return region?.musicTrackId;
+}
+
+function findPlacedItemShapeByInstanceId(project: Project, instanceId: ID) {
+  for (const node of project.nodes ?? []) {
+    for (const layer of node.layers ?? []) {
+      for (const placedItem of layer.placedItems ?? []) {
+        if (placedItem.id === instanceId) {
+          return placedItem.shape;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+function findActiveDialogue(gameState: GameState) {
+  const active = gameState.activeDialogue;
+  if (!active) return null;
+
+  const node = gameState.project.nodes.find((n) => n.id === active.nodeId);
+  if (!node) return null;
+
+  return (node.dialogues ?? []).find((d) => d.id === active.dialogueId) ?? null;
+}
+
+function findCurrentDialogueNode(gameState: GameState) {
+  const active = gameState.activeDialogue;
+  const dialogue = findActiveDialogue(gameState);
+
+  if (!active || !dialogue) return null;
+
+  return dialogue.nodes.find((n) => n.id === active.currentNodeId) ?? null;
+}
+
+function withPreparedRuntimeAndMusic(state: GameState): GameState {
+  const withRuntime = ensureNodeRuntime(state, state.currentNodeId);
+  const node = pickNodeById(withRuntime.project, withRuntime.currentNodeId);
+
+  if (!node) return withRuntime;
+
+  const targetTrackId = pickActiveMusicTrackId(node, withRuntime);
+  const nextMusic = musicSetTargetTrack(withRuntime.music, targetTrackId);
+
+  if (nextMusic === withRuntime.music) return withRuntime;
+
+  return {
+    ...withRuntime,
+    music: nextMusic,
+  };
 }
 
 export function PlayerShell() {
   const navigate = useNavigate();
 
-  /* Estado global del juego */
-  const gameState = useGameStore((state) => state.gameState);
-  const applyHotspot = useGameStore((state) => state.applyHotspot);
-  const resetGame = useGameStore((state) => state.reset);
-  const assetUrls = useGameStore((state) => state.assetUrls);
+  const gameState = useGameStore((s) => s.gameState);
+  const assetUrls = useGameStore((s) => s.assetUrls);
+  const resetGame = useGameStore((s) => s.reset);
 
-  const [hoveredId, setHoveredId] = useState<ID | null>(null);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const applyHotspot = useGameStore((s) => s.applyHotspot);
+  const applyPlacedItemInteraction = useGameStore((s) => s.applyPlacedItemInteraction);
+  const applyPlacedNpcInteraction = useGameStore((s) => s.applyPlacedNpcInteraction);
+  const audioAdapter = useGameStore((s) => s.audioAdapter);
 
-  // Toast MVP
-  const [toastText, setToastText] = useState<string | null>(null);
+  const advanceDialogue = useGameStore((s) => s.advanceDialogue);
+
+  const closeMap = useGameStore((s) => s.closeMap);
+  const toggleMap = useGameStore((s) => s.toggleMap);
+  const cycleMapRegionSelection = useGameStore((s) => s.cycleMapRegionSelection);
+  const travelToSelectedMapRegion = useGameStore((s) => s.travelToSelectedMapRegion);
+  const selectMapRegion = useGameStore((s) => s.selectMapRegion);
+
+  const saveGameToFile = useGameStore((s) => s.saveGameToFile);
+  const loadGameFromFile = useGameStore((s) => s.loadGameFromFile);
+
+  const currentNodeId = useGameStore((s) => s.gameState?.currentNodeId);
+
+  const pushUiMessage = useUiMessageStore((s) => s.push);
+  const sceneMessage = useUiMessageStore((s) => s.queue[0]);
+
+  const project: Project | null = gameState?.project ?? null;
+
+  const [isFading, setIsFading] = useState(false);
+  const prevNodeIdRef = useRef<ID | null>(null);
+
+  const [displayedNodeId, setDisplayedNodeId] = useState<ID | null>(currentNodeId ?? null);
+const fadeTimeoutRef = useRef<number | null>(null);
+
+  const [textCursor, setTextCursor] = useState<{ visible: boolean; x: number; y: number }>({ visible: false, x: 0, y: 0 });
+  const [playerCursor, setPlayerCursor] = useState<{ visible: boolean; kind: InteractionKind; x: number; y: number }>({ visible: false, kind: "idle", x: 0, y: 0 });
+
+  const playerCursorIconSrc = iconForInteractionKind(playerCursor.kind);
+
+  const [bottomBarOpen, setBottomBarOpen] = useState(false);
+  const [inventoryOpen, setInventoryOpen] = useState(false);
+  const [interactionMode, setInteractionMode] = useState<PlayerInteractionMode>({ type: "default" });
+
+  const loadInputRef = useRef<HTMLInputElement | null>(null);
+
+useEffect(() => {
+  if (!currentNodeId) return;
+
+  if (displayedNodeId == null) {
+    if (fadeTimeoutRef.current) {
+      window.clearTimeout(fadeTimeoutRef.current);
+      fadeTimeoutRef.current = null;
+    }
+
+    setIsFading(false);
+    setDisplayedNodeId(currentNodeId);
+    prevNodeIdRef.current = currentNodeId;
+    return;
+  }
+
+  if (prevNodeIdRef.current === currentNodeId) {
+    setIsFading(false);
+    return;
+  }
+
+  if (fadeTimeoutRef.current) {
+    window.clearTimeout(fadeTimeoutRef.current);
+    fadeTimeoutRef.current = null;
+  }
+
+  setIsFading(true);
+
+  fadeTimeoutRef.current = window.setTimeout(() => {
+    setDisplayedNodeId(currentNodeId);
+
+    window.setTimeout(() => {
+      setIsFading(false);
+    }, 120);
+  }, 120);
+
+  prevNodeIdRef.current = currentNodeId;
+}, [currentNodeId, displayedNodeId]);
+
+useEffect(() => {
+  if (!gameState?.currentNodeId) return;
+
+  if (fadeTimeoutRef.current) {
+    window.clearTimeout(fadeTimeoutRef.current);
+    fadeTimeoutRef.current = null;
+  }
+
+  setIsFading(false);
+  setDisplayedNodeId(gameState.currentNodeId);
+  prevNodeIdRef.current = gameState.currentNodeId;
+}, [gameState?.project?.id]);
+
+useEffect(() => {
+  return () => {
+    if (fadeTimeoutRef.current) {
+      window.clearTimeout(fadeTimeoutRef.current);
+      fadeTimeoutRef.current = null;
+    }
+  };
+}, []);
+
+  const handleLoadSaveFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      await loadGameFromFile(file);
+
+      pushUiMessage({
+        text: "Partida cargada correctamente.",
+        preferredChannel: "bubble",
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "No se ha podido cargar la partida.";
+
+      pushUiMessage({
+        text: msg,
+        preferredChannel: "bubble",
+      });
+    } finally {
+      e.target.value = "";
+    }
+  };
+
+  const assetIdToFile = useMemo(() => {
+    if (!project) return new Map<ID, string>();
+    return buildAssetIdToFile(project);
+  }, [project]);
+
+  const itemAssetIdByItemId = useMemo(() => {
+    const map = new Map<ID, ID>();
+
+    for (const asset of project?.assets ?? []) {
+      if ((asset as AssetDef).kind !== "items") continue;
+      map.set(asset.id, asset.id);
+    }
+
+    return map;
+  }, [project]);
+
+  const itemById = useMemo(() => {
+    const map = new Map<ID, ItemDef>();
+
+    for (const item of project?.items ?? []) {
+      map.set(item.id, item);
+    }
+
+    return map;
+  }, [project]);
+
+  const inventoryItems = useMemo<InventoryItemView[]>(() => {
+    if (!gameState) return [];
+
+    return gameState.inventory.map((entry: InventoryEntry) => {
+      const item = itemById.get(entry.itemId);
+
+      if (!item) return null;
+
+      const assetId = itemAssetIdByItemId.get(entry.itemId);
+
+      const imageSrc = assetId
+        ? resolveAssetIdToSrc(assetId, assetIdToFile, assetUrls)
+        : undefined;
+
+      const shape = project
+        ? findPlacedItemShapeByInstanceId(project, entry.instanceId)
+        : null;
+
+      const cursorSize =
+        shape?.type === "rect"
+          ? {
+            width: Math.max(28, Math.min(160, shape.w * 1000)),
+            height: Math.max(28, Math.min(160, shape.h * 1000)),
+          }
+          : {
+            width: 64,
+            height: 64,
+          };
+
+      return {
+        instanceId: entry.instanceId,
+        itemId: entry.itemId,
+        name: item.name,
+        imageSrc: imageSrc ?? "",
+        cursorSize,
+      };
+    })
+      .filter((item): item is InventoryItemView => item !== null);
+  }, [gameState, itemById, itemAssetIdByItemId, assetIdToFile, assetUrls]);
+
+  const playerImageAssetIdByImageId = useMemo(() => {
+    const map = new Map<ID, ID>();
+
+    for (const asset of project?.assets ?? []) {
+      if (asset.kind !== "players") continue;
+      map.set(asset.id, asset.id);
+    }
+
+    return map;
+  }, [project]);
+
+  const npcAssetIdByNpcId = useMemo(() => {
+    const map = new Map<ID, ID>();
+
+    for (const asset of project?.assets ?? []) {
+      if (asset.kind !== "npcs") continue;
+      map.set(asset.id, asset.id);
+    }
+
+    return map;
+  }, [project]);
+
+  usePlayerKeyboard({
+    openInventory: () => {
+      if (isDialogueOpen || isMapOpen) return;
+      setInventoryOpen((prev) => !prev);
+    },
+    openMap: () => {
+      if (isDialogueOpen) return;
+
+      setInventoryOpen(false);
+      setBottomBarOpen(false);
+      setInteractionMode({ type: "default" });
+      toggleMap();
+    },
+    openSettings: () => { },
+    toggleFullscreen: () => { },
+    onTab: () => {
+      if (!isMapOpen) return;
+      cycleMapRegionSelection();
+    },
+    onEnter: () => {
+      if (!isMapOpen) return;
+      travelToSelectedMapRegion();
+    },
+    onEscape: () => {
+      if (isMapOpen) {
+        closeMap();
+        return;
+      }
+
+      setInventoryOpen(false);
+      setBottomBarOpen(false);
+      setInteractionMode({ type: "default" });
+    },
+  });
+
+const currentNode = useMemo(() => {
+  if (!project || !displayedNodeId) return null;
+
+  return pickNodeById(project, displayedNodeId);
+}, [project, displayedNodeId]);
+
+const runtimeNode = useMemo(() => {
+  if (!project || !gameState?.currentNodeId) return null;
+
+  return pickNodeById(project, gameState.currentNodeId);
+}, [project, gameState?.currentNodeId]);
+
+  const currentIndex = useMemo(() => {
+    if (!project || !gameState) return 0;
+
+    const idx = indexOfNode(project, gameState.currentNodeId);
+
+    return idx >= 0 ? idx : 0;
+  }, [project, gameState]);
+
+  const activeDialogue = useMemo(() => {
+    if (!gameState?.activeDialogue) return null;
+    return findActiveDialogue(gameState);
+  }, [gameState]);
+
+  const currentDialogueNode = useMemo(() => {
+    if (!gameState?.activeDialogue) return null;
+    return findCurrentDialogueNode(gameState);
+  }, [gameState]);
+
+  const dialogueOptions = useMemo(() => {
+    if (!gameState || !activeDialogue || !currentDialogueNode) return [];
+
+    return currentDialogueNode.childrenIds
+      .map((childId) => activeDialogue.nodes.find((n) => n.id === childId))
+      .filter((node): node is NonNullable<typeof node> => !!node)
+      .filter((node) => node.type === "line")
+      .filter((node) => node.speaker === "player")
+      .filter((node) => !node.when || evaluateCondition(gameState, node.when));
+  }, [gameState, activeDialogue, currentDialogueNode]);
+
+  const isDialogueOpen = !!gameState?.activeDialogue && !!activeDialogue && !!currentDialogueNode;
+
+  const isMapOpen = Boolean(gameState?.map.isOpen);
+
+  const activeDialogueLine = currentDialogueNode && currentDialogueNode.type === "line" ? currentDialogueNode : null;
+
+  const dialogueBubbleText = activeDialogueLine?.text ?? "";
+  const dialogueBubbleSpeaker = activeDialogueLine?.speaker ?? null;
+
+  const shouldShowDialogueChoices = useMemo(() => {
+    if (!isDialogueOpen || !currentDialogueNode) return false;
+    return dialogueOptions.length > 0;
+  }, [isDialogueOpen, dialogueOptions.length]);
+
+
+  const isFinal = currentNode?.isFinal === true;
+
+  const canGoPrev = !!project && currentIndex > 0;
+  const canGoNext = !!project && !!currentNode && !isFinal && currentIndex < project.nodes.length - 1;
+
+
   useEffect(() => {
-    if (!toastText) return;
-    const t = window.setTimeout(() => setToastText(null), 1800);
-    return () => window.clearTimeout(t);
-  }, [toastText]);
+    if (!isDialogueOpen) return;
 
-  /* Música */
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const lastTrackIdRef = useRef<ID | null>(null);
+    showPlayerCursor(playerCursor.x, playerCursor.y, "dialogue");
 
-  /* Refs layout */
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const imgRef = useRef<HTMLImageElement | null>(null);
+    setInventoryOpen(false);
+    setBottomBarOpen(false);
+    setInteractionMode({ type: "default" });
+  }, [isDialogueOpen, playerCursor.x, playerCursor.y]);
 
-  /* Returns seguros */
-  if (!gameState) {
+  useEffect(() => {
+    if (!isMapOpen) return;
+
+    setInventoryOpen(false);
+    setBottomBarOpen(false);
+    setInteractionMode({ type: "default" });
+  }, [isMapOpen]);
+
+  const goToIndex = useCallback(
+    (nextIndex: number) => {
+      if (!project) return;
+
+      const nextId = nodeIdAtIndex(project, nextIndex);
+      if (!nextId) return;
+
+      useGameStore.setState((prev) => {
+        if (!prev.gameState) return prev;
+
+        const prevId = prev.gameState.currentNodeId;
+        const prevIdx = indexOfNode(project, prevId);
+
+        const goingForward = typeof prevIdx === "number" && nextIndex > prevIdx;
+
+        const visitedNodes = goingForward
+          ? { ...prev.gameState.visitedNodes, [prevId]: true }
+          : prev.gameState.visitedNodes;
+
+        const s1 = {
+          ...prev.gameState,
+          visitedNodes,
+          currentNodeId: nextId,
+        };
+
+        const s2 = ensureNodeRuntime(s1, nextId);
+        const s3 = withPreparedRuntimeAndMusic(s2);
+
+        return { ...prev, gameState: s3 };
+      });
+    },
+    [project]
+  );
+
+  const showPlayerCursor = useCallback(
+    (x: number, y: number, kind: InteractionKind = "idle") => {
+      setPlayerCursor({ visible: true, x, y, kind });
+    },
+    []
+  );
+
+  const hidePlayerCursor = useCallback(() => {
+    setPlayerCursor((prev) => ({ ...prev, visible: false }));
+  }, []);
+
+  const clearInteractionMode = useCallback(() => {
+    setInteractionMode({ type: "default" });
+  }, []);
+
+  const updatePlayerCursorFromMouseEvent = useCallback(
+    (e: React.MouseEvent, kind: InteractionKind = "idle") => {
+      showPlayerCursor(e.clientX, e.clientY, kind);
+    },
+    [showPlayerCursor]
+  );
+
+  const useSelectedItemOnHotspot = useCallback((hotspot: import("@/domain/types").Hotspot) => {
+    if (interactionMode.type !== "useItem") return;
+    if (!gameState) return;
+
+    try {
+      const nextState = applyHotspotUseItem(
+        gameState,
+        hotspot,
+        interactionMode.item.instanceId,
+        {
+          audio: audioAdapter,
+          emitMessage: (text) =>
+            useUiMessageStore.getState().push({
+              text,
+              preferredChannel: "bubble",
+            }),
+        }
+      );
+
+      useGameStore.setState({ gameState: withPreparedRuntimeAndMusic(nextState) });
+      setInteractionMode({ type: "default" });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "No se ha podido usar el objeto.";
+      pushUiMessage({ text: msg, preferredChannel: "bubble" });
+    }
+  }, [gameState, interactionMode, pushUiMessage, audioAdapter]);
+
+  const useSelectedItemOnPlacedItem = useCallback((placedItem: PlacedItem) => {
+    if (interactionMode.type !== "useItem") return;
+    if (!gameState) return;
+
+    try {
+      const nextState = applyPlacedItemUseItem(
+        gameState,
+        placedItem,
+        interactionMode.item.instanceId,
+        {
+          audio: audioAdapter,
+          emitMessage: (text) =>
+            useUiMessageStore.getState().push({
+              text,
+              preferredChannel: "bubble",
+            }),
+        }
+      );
+
+      useGameStore.setState({ gameState: withPreparedRuntimeAndMusic(nextState) });
+      setInteractionMode({ type: "default" });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "No se ha podido usar el objeto.";
+      pushUiMessage({ text: msg, preferredChannel: "bubble" });
+    }
+  }, [gameState, interactionMode, pushUiMessage, audioAdapter]);
+
+  const useInventoryItemOnInventoryItem = useCallback((sourceItem: InventoryItemView, targetItem: InventoryItemView) => {
+    if (!gameState) return;
+
+    try {
+      const nextState = applyInventoryItemUseItem(
+        gameState,
+        sourceItem.instanceId,
+        targetItem.instanceId,
+        {
+          audio: audioAdapter,
+          emitMessage: (text: string) =>
+            useUiMessageStore.getState().push({
+              text,
+              preferredChannel: "bubble",
+            }),
+        }
+      );
+
+      useGameStore.setState({ gameState: withPreparedRuntimeAndMusic(nextState) });
+      setInteractionMode({ type: "default" });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "No se ha podido usar el objeto.";
+      pushUiMessage({ text: msg, preferredChannel: "bubble" });
+    }
+  }, [audioAdapter, gameState, pushUiMessage]);
+
+  useEffect(() => {
+    if (!isDialogueOpen) return;
+
+    setInventoryOpen(false);
+    setBottomBarOpen(false);
+    setInteractionMode({ type: "default" });
+
+    setPlayerCursor((prev) => ({ ...prev, visible: true, kind: "dialogue" }));
+  }, [isDialogueOpen]);
+
+  useEffect(() => {
+    if (!isDialogueOpen || !activeDialogueLine) return;
+    if (dialogueOptions.length > 0) return;
+
+    const timer = window.setTimeout(() => {
+      useGameStore.getState().advanceDialogue();
+    }, DIALOGUE_AUTO_ADVANCE_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [isDialogueOpen, activeDialogueLine?.id, dialogueOptions.length]);
+
+  const handlePrev = useCallback(() => {
+    if (!canGoPrev || isMapOpen) return;
+    goToIndex(currentIndex - 1);
+  }, [canGoPrev, currentIndex, goToIndex]);
+
+  const handleNext = useCallback(() => {
+    if (!canGoNext || isMapOpen) return;
+    goToIndex(currentIndex + 1);
+  }, [canGoNext, currentIndex, goToIndex]);
+
+  const activeLayer = useMemo(() => {
+    if (!currentNode || !gameState) return null;
+
+    return pickActiveLayer(currentNode, gameState);
+  }, [currentNode, gameState]);
+
+  const activeText = useMemo(() => {
+    if (!gameState) return { text: "", dock: "bottom" as TextDock };
+
+    return pickActiveText(activeLayer, gameState);
+  }, [activeLayer, gameState]);
+
+  const activeImageSrc = useMemo(() => {
+    if (!activeLayer || !project) return undefined;
+
+    return resolveAssetIdToSrc(activeLayer.assetId, assetIdToFile, assetUrls);
+  }, [activeLayer, project, assetIdToFile, assetUrls]);
+
+const activeMusicTrackId = useMemo(() => {
+  if (!runtimeNode || !gameState) return undefined;
+  return pickActiveMusicTrackId(runtimeNode, gameState);
+}, [runtimeNode, gameState]);
+
+  const activeMusicSrc = useMemo(() => {
+    if (!activeMusicTrackId) return undefined;
+    return resolveAssetIdToSrc(activeMusicTrackId, assetIdToFile, assetUrls);
+  }, [activeMusicTrackId, assetIdToFile, assetUrls]);
+
+  const savedMusicPosition = useMemo(() => {
+    if (!gameState?.music || !activeMusicTrackId) return 0;
+    return selectSavedTrackPosition(gameState.music, activeMusicTrackId);
+  }, [gameState?.music, activeMusicTrackId]);
+
+  const { audioRef } = useSceneAudio({
+    targetTrackId: gameState?.music.targetTrackId,
+    currentTrackId: gameState?.music.currentTrackId,
+    musicSrc: activeMusicSrc,
+    savedPosition: savedMusicPosition,
+    loop: true,
+    onRememberPosition: (trackId, seconds) => {
+      useGameStore.setState((prev) => {
+        if (!prev.gameState) return prev;
+
+        return {
+          ...prev,
+          gameState: {
+            ...prev.gameState,
+            music: musicRememberPosition(prev.gameState.music, trackId, seconds),
+          },
+        };
+      });
+    },
+    onPlaybackStarted: (trackId) => {
+      useGameStore.setState((prev) => {
+        if (!prev.gameState) return prev;
+
+        return {
+          ...prev,
+          gameState: {
+            ...prev.gameState,
+            music: musicPlay(prev.gameState.music, trackId, { startAt: "resume" }),
+          },
+        };
+      });
+    },
+    onPlaybackStopped: () => {
+      useGameStore.setState((prev) => {
+        if (!prev.gameState) return prev;
+
+        return {
+          ...prev,
+          gameState: {
+            ...prev.gameState,
+            music: musicStop(prev.gameState.music, { keepLastTrackId: true }),
+          },
+        };
+      });
+    },
+  });
+
+  const resolvedActiveText = useMemo(() => {
+    if (!project) return activeText.text ?? "";
+
+    const parts = resolveTextTokensToParts(activeText.text ?? "", project);
+
+    return parts
+      .map((part) =>
+        part.type === "text" ? part.value : part.resolvedText ?? part.raw
+      )
+      .join("");
+  }, [activeText.text, project]);
+
+  const hasText = resolvedActiveText.trim().length > 0;
+
+  const layoutClass = !hasText
+    ? "flex-col"
+    : activeText.dock === "left" || activeText.dock === "right"
+      ? "flex-row"
+      : "flex-col";
+
+  const isTextFirst =
+    hasText && (activeText.dock === "top" || activeText.dock === "left");
+
+const nodeRt = useMemo(() => {
+  if (!gameState || !currentNode?.id) return null;
+
+  return gameState.nodes?.[currentNode.id] ?? null;
+}, [gameState?.nodes, currentNode?.id]);
+
+  const hotspotsForStage = useMemo(() => {
+    const hs = activeLayer?.hotspots ?? [];
+
+    return hs.map((hotspot) => {
+      const rt: PlaceableState | undefined =
+        nodeRt?.hotspots?.[hotspot.id] ?? hotspot.initialState;
+
+      return { hotspot, runtime: rt };
+    });
+  }, [activeLayer, nodeRt]);
+
+  const placedItemsForStage = useMemo(() => {
+    const items = activeLayer?.placedItems ?? [];
+
+    return items.map((placedItem) => {
+      const rt: PlaceableState | undefined =
+        nodeRt?.placedItems?.[placedItem.id] ?? placedItem.initialState;
+
+      const assetId = itemAssetIdByItemId.get(placedItem.itemId);
+
+      const imageSrc = assetId
+        ? resolveAssetIdToSrc(assetId, assetIdToFile, assetUrls)
+        : undefined;
+
+      return { placedItem, runtime: rt, imageSrc };
+    });
+  }, [activeLayer, nodeRt, itemAssetIdByItemId, assetIdToFile, assetUrls]);
+
+  const placedPlayersForStage = useMemo(() => {
+    const players = activeLayer?.placedPlayers ?? [];
+
+    return players.map((placedPlayer) => {
+      const rt: PlacedPlayerState | undefined = nodeRt?.placedPlayers?.[placedPlayer.playerId] ?? placedPlayer.initialState;
+
+      const runtimeImageId = nodeRt?.placedPlayerImageId?.[placedPlayer.playerId] ?? placedPlayer.initialImageId;
+
+      const assetId = playerImageAssetIdByImageId.get(runtimeImageId);
+
+      const imageSrc = assetId ? resolveAssetIdToSrc(assetId, assetIdToFile, assetUrls) : undefined;
+
+      return { placedPlayer, runtime: rt, imageSrc };
+    });
+  }, [activeLayer, nodeRt, itemAssetIdByItemId, assetIdToFile, assetUrls]);
+
+  const placedNpcsForStage = useMemo(() => {
+    const npcs = activeLayer?.placedNpcs ?? [];
+
+    return npcs.map((placedNpc) => {
+      const rt: PlaceableState | undefined = nodeRt?.placedNpcs?.[placedNpc.npcId] ?? placedNpc.initialState;
+
+      const assetId = npcAssetIdByNpcId.get(placedNpc.npcId);
+
+      const imageSrc = assetId ? resolveAssetIdToSrc(assetId, assetIdToFile, assetUrls) : undefined;
+
+      return { placedNpc, runtime: rt, imageSrc };
+    });
+  }, [activeLayer, nodeRt, itemAssetIdByItemId, assetIdToFile, assetUrls]);
+
+  const updateTextCursor = (e: React.MouseEvent<HTMLDivElement>) => {
+    setTextCursor({
+      visible: true,
+      x: e.clientX,
+      y: e.clientY,
+    });
+  };
+
+  const isUsingItem = interactionMode.type === "useItem";
+  const selectedInventoryItem = interactionMode.type === "useItem" ? interactionMode.item : null;
+  const selectedInventoryItemShape = useMemo(() => {
+    if (!project || !selectedInventoryItem) return null;
+
+    return findPlacedItemShapeByInstanceId(project, selectedInventoryItem.instanceId);
+  }, [project, selectedInventoryItem]);
+
+  const effectivePlayerCursorSrc = isUsingItem
+    ? selectedInventoryItem?.imageSrc ?? playerCursorIconSrc
+    : playerCursorIconSrc;
+
+  const selectedItemCursorSize = useMemo(() => {
+    if (!selectedInventoryItemShape || selectedInventoryItemShape.type !== "rect") {
+      return { width: 64, height: 64 };
+    }
+
+    const MAX_CURSOR_SIZE = 160;
+    const MIN_CURSOR_SIZE = 28;
+    const BASE_SCENE_SIZE = 1000;
+
+    const width = Math.max(
+      MIN_CURSOR_SIZE,
+      Math.min(MAX_CURSOR_SIZE, selectedInventoryItemShape.w * BASE_SCENE_SIZE)
+    );
+
+    const height = Math.max(
+      MIN_CURSOR_SIZE,
+      Math.min(MAX_CURSOR_SIZE, selectedInventoryItemShape.h * BASE_SCENE_SIZE)
+    );
+
+    return { width, height };
+  }, [selectedInventoryItemShape]);
+
+  if (!gameState || !project) {
     return (
       <div className="page-fullscreen-center">
         <p className="text-center text-slate-300">
@@ -63,16 +881,17 @@ export function PlayerShell() {
           <br />
           Carga una aventura desde la pantalla de inicio.
         </p>
-        <button type="button" onClick={() => navigate("/")} className="btn-primary">
+
+        <button
+          type="button"
+          onClick={() => navigate("/")}
+          className="btn-primary-player"
+        >
           Volver al inicio
         </button>
       </div>
     );
   }
-
-  /* Nodo actual */
-  const currentNode =
-    gameState.project.nodes.find((node) => node.id === gameState.currentNodeId) ?? null;
 
   if (!currentNode) {
     return (
@@ -81,13 +900,14 @@ export function PlayerShell() {
           Error interno: no se ha encontrado el nodo actual con id{" "}
           <span className="font-mono">{gameState.currentNodeId}</span>.
         </p>
+
         <button
           type="button"
           onClick={() => {
             resetGame();
             navigate("/");
           }}
-          className="btn-primary"
+          className="btn-primary-player"
         >
           Volver al inicio
         </button>
@@ -95,433 +915,298 @@ export function PlayerShell() {
     );
   }
 
-  /* Derivados visuales */
-  const imageSrc = resolveAssetSrc(currentNode.image, assetUrls);
-  const isFinal = currentNode.isFinal === true;
-  const hotspots = currentNode.hotspots ?? [];
-  const placedItems = (currentNode.placedItems ?? []) as PlacedItem[];
-
-  /* Música de la escena */
-  const musicTrack =
-    currentNode.musicId != null
-      ? gameState.project.musicTracks?.find((t) => t.id === currentNode.musicId)
-      : undefined;
-
-  const musicSrc = musicTrack ? resolveAssetSrc(musicTrack.file, assetUrls) : undefined;
-  const musicTrackId: ID | null = (musicTrack?.id as ID) ?? null;
-  const musicLoop = musicTrack?.loop ?? true;
-
-  function getImageContentRect() {
-    const container = containerRef.current;
-    const img = imgRef.current;
-    if (!container || !img) return null;
-
-    const c = container.getBoundingClientRect();
-    const nw = img.naturalWidth;
-    const nh = img.naturalHeight;
-    if (!nw || !nh) return null;
-
-    const containerRatio = c.width / c.height;
-    const imgRatio = nw / nh;
-
-    let w = c.width;
-    let h = c.height;
-    let x = c.left;
-    let y = c.top;
-
-    if (imgRatio > containerRatio) {
-      h = w / imgRatio;
-      y = c.top + (c.height - h) / 2;
-    } else {
-      w = h * imgRatio;
-      x = c.left + (c.width - w) / 2;
-    }
-
-    return { x, y, w, h };
-  }
-
-  /* Helpers UI */
-  const openInventory = () => console.log("TODO: abrir panel de inventario");
-  const openMap = () => console.log("TODO: abrir panel de mapa");
-  const openSettings = () => console.log("TODO: abrir panel de configuración");
-
-  const toggleFullscreen = async () => {
-    try {
-      if (!document.fullscreenElement) {
-        await document.documentElement.requestFullscreen();
-        setIsFullscreen(true);
-      } else {
-        await document.exitFullscreen();
-        setIsFullscreen(false);
-      }
-    } catch (err) {
-      console.error("No se ha podido cambiar a pantalla completa", err);
-    }
-  };
-
-  /* Atajos de teclado */
-  useEffect(() => {
-    const handler = (event: KeyboardEvent) => {
-      if (event.repeat) return;
-
-      const key = event.key.toLowerCase();
-
-      if (key === "i") {
-        event.preventDefault();
-        openInventory();
-      } else if (key === "m") {
-        event.preventDefault();
-        openMap();
-      } else if (key === "s") {
-        event.preventDefault();
-        openSettings();
-      } else if (key === "f") {
-        event.preventDefault();
-        void toggleFullscreen();
-      } else if (key === "escape") {
-        if (document.fullscreenElement) {
-          event.preventDefault();
-          void toggleFullscreen();
-        }
-      }
-    };
-
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, []);
-
-  /* Mantener isFullscreen sincronizado si el usuario sale con ESC del navegador */
-  useEffect(() => {
-    const onFsChange = () => setIsFullscreen(!!document.fullscreenElement);
-    document.addEventListener("fullscreenchange", onFsChange);
-    return () => document.removeEventListener("fullscreenchange", onFsChange);
-  }, []);
-
-  /* Control de música al cambiar de escena */
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-
-    if (!musicTrackId || !musicSrc) {
-      if (audio.src) {
-        audio.pause();
-        audio.currentTime = 0;
-        audio.removeAttribute("src");
-        audio.load();
-      }
-      lastTrackIdRef.current = null;
-      return;
-    }
-
-    if (lastTrackIdRef.current === musicTrackId) {
-      audio.loop = musicLoop;
-      return;
-    }
-
-    audio.src = musicSrc;
-    audio.loop = musicLoop;
-
-    const play = async () => {
-      try {
-        await audio.play();
-        lastTrackIdRef.current = musicTrackId;
-      } catch (err) {
-        console.error("No se ha podido reproducir la música del Player", err);
-        lastTrackIdRef.current = null;
-      }
-    };
-
-    void play();
-  }, [musicTrackId, musicSrc, musicLoop]);
-
-  /* Handlers */
-  const handleHotspotClick = (hotspot: Hotspot) => {
-    if (isFinal) return;
-    applyHotspot(hotspot);
-  };
-
-  const handleExit = () => {
-    resetGame();
-    navigate("/");
-  };
-
-  // Labels de hotspots (evita lógica dentro del map)
-  const hotspotLabels = useMemo(() => {
-    const out = new Map<ID, string>();
-
-    hotspots.forEach((hs, index) => {
-      let label = hs.label ?? `Opción ${index + 1}`;
-
-      const targetId = getGoToNodeTargetId(hs);
-      if (targetId) {
-        const targetNode = gameState.project.nodes.find((n) => n.id === targetId);
-        if (targetNode) label = hs.label ?? targetNode.title;
-      }
-
-      out.set(hs.id as ID, label);
-    });
-
-    return out;
-  }, [hotspots, gameState.project.nodes]);
-
   return (
     <div className="game-root">
+      <audio ref={audioRef} className="hidden" />
       <div className="game-frame">
-        <button
-          type="button"
-          onClick={openMap}
-          className="absolute top-6 left-6 z-20 game-hud-icon"
-        >
-          <img src="/ui/map.png" alt="Mapa" className="game-hud-icon-img" />
-        </button>
-
-        <button
-          type="button"
-          onClick={openSettings}
-          className="absolute top-6 right-6 z-20 game-hud-icon"
-        >
-          <img src="/ui/settings.png" alt="Configuración" className="game-hud-icon-img" />
-        </button>
-
-        {/* Toast MVP */}
-        {toastText && (
-          <div
-            className="absolute bottom-24 left-1/2 -translate-x-1/2 z-50
-                       bg-slate-900/90 text-slate-100 text-xs px-3 py-2
-                       rounded-md border border-slate-700 shadow pointer-events-none"
-          >
-            {toastText}
-          </div>
-        )}
-
         <main className="game-main">
-          <div className="game-scene-panel">
-            <div className="game-scene-image h-[85%]">
-              {imageSrc ? (
-                <>
-                  <img
-                    src={imageSrc}
-                    alt=""
-                    aria-hidden="true"
-                    className="absolute inset-0 w-full h-full object-cover blur-lg scale-110 opacity-60 z-0"
-                  />
+          <div className="game-scene-panel h-full min-h-0 flex flex-col">
+            <div className="shrink-0 flex items-center justify-between gap-2 px-3 py-2 border-b border-slate-800 bg-slate-950/60">
+              <div className="flex items-center gap-2">
+                <button type="button" className="btn btn-select" onClick={handlePrev} disabled={!canGoPrev || isDialogueOpen || isMapOpen}>
+                  Escena anterior
+                </button>
 
-                  {/* Imagen principal centrada */}
-                  <div
-                    ref={containerRef}
-                    className="relative z-10 w-full h-full flex items-center justify-center"
-                  >
+                <button type="button" className="btn btn-select" onClick={handleNext} disabled={!canGoNext || isDialogueOpen || isMapOpen}>
+                  Siguiente escena
+                </button>
+
+                <button
+                  type="button"
+                  className="btn btn-select"
+                  onClick={() => {
+                    try {
+                      saveGameToFile();
+                      pushUiMessage({ text: "Partida guardada.", preferredChannel: "bubble" });
+                    } catch (err) {
+                      const msg = err instanceof Error ? err.message : "No se ha podido guardar la partida.";
+                      pushUiMessage({ text: msg, preferredChannel: "bubble" });
+                    }
+                  }}
+                >
+                  Guardar
+                </button>
+
+                <button
+                  type="button"
+                  className="btn btn-select"
+                  onClick={() => loadInputRef.current?.click()}
+                >
+                  Cargar
+                </button>
+
+                <input
+                  ref={loadInputRef}
+                  type="file"
+                  accept="application/json,.json"
+                  className="hidden"
+                  onChange={handleLoadSaveFile}
+                />
+              </div>
+
+              <button
+                type="button"
+                className="btn btn-cancel"
+                onClick={() => {
+                  closeMap();
+                  clearInteractionMode();
+                  resetGame();
+                  navigate("/");
+                }}
+              >
+                Salir
+              </button>
+            </div>
+
+            <div className={`w-full flex-1 min-h-0 flex ${layoutClass}`}>
+              {isTextFirst && hasText && (
+                <div
+                  className="relative min-h-0 bg-slate-950/90 px-4 py-3 overflow-y-auto basis-1/4 border-b border-slate-800 select-none"
+                  style={{ cursor: "none", userSelect: "none" }}
+                  onMouseMove={updateTextCursor}
+                  onMouseEnter={updateTextCursor}
+                  onMouseLeave={() => setTextCursor((prev) => ({ ...prev, visible: false }))}
+                >
+                  <p className="text-slate-100 text-sm whitespace-pre-line text-left leading-relaxed select-none">
+                    {resolvedActiveText}
+                  </p>
+
+                  {textCursor.visible && (
                     <img
-                      ref={imgRef}
-                      src={imageSrc}
-                      alt={currentNode.title || "Escena"}
-                      className="max-w-full max-h-full object-contain drop-shadow"
+                      src="/cursor/idle.png"
+                      alt=""
+                      aria-hidden="true"
                       draggable={false}
+                      className="pointer-events-none fixed z-40 h-12 w-12 object-contain select-none"
+                      style={{
+                        left: textCursor.x - 24,
+                        top: textCursor.y - 24,
+                        position: "fixed",
+                      }}
                     />
-
-                    {/* Capa interactiva (hotspots + items) */}
-                    <div className="absolute inset-0 z-20 pointer-events-none">
-                      {(() => {
-                        const content = getImageContentRect();
-                        const containerBox = containerRef.current?.getBoundingClientRect();
-                        if (!content || !containerBox) return null;
-
-                        const ox = content.x - containerBox.left;
-                        const oy = content.y - containerBox.top;
-
-                        return (
-                          <>
-                            {/* Hotspots FREE */}
-                            {hotspots.map((hotspot) => {
-                              const shape = hotspot.shape;
-                              if (!shape || shape.type !== "rect") return null;
-
-                              const left = ox + shape.x * content.w;
-                              const top = oy + shape.y * content.h;
-                              const width = shape.w * content.w;
-                              const height = shape.h * content.h;
-
-                              const id = hotspot.id as ID;
-                              const isHovered = hoveredId === id;
-                              const label = hotspotLabels.get(id) ?? "Opción";
-
-                              return (
-                                <div
-                                  key={`hs-${id}`}
-                                  className="absolute pointer-events-auto"
-                                  style={{ left, top, width, height }}
-                                  onMouseEnter={() => setHoveredId(id)}
-                                  onMouseLeave={() => setHoveredId(null)}
-                                  onClick={() => handleHotspotClick(hotspot)}
-                                >
-                                  <div
-                                    className={[
-                                      "absolute inset-0 rounded-sm transition",
-                                      isHovered
-                                        ? "bg-sky-400/15 ring-1 ring-sky-300"
-                                        : "bg-transparent",
-                                    ].join(" ")}
-                                    style={{ cursor: "pointer" }}
-                                  />
-
-                                  {isHovered && (
-                                    <div
-                                      className="absolute left-1/2 -translate-x-1/2 -top-7 z-30
-                                                 bg-slate-900 text-slate-100 text-[11px]
-                                                 px-2 py-1 rounded border border-slate-700
-                                                 whitespace-nowrap pointer-events-none"
-                                    >
-                                      {label}
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-
-                            {/* Items colocados */}
-                            {placedItems.map((pi) => {
-                              if (pi.state?.visible === false) return null;
-                              if (!isRectShape(pi.shape)) return null;
-
-                              const left = ox + pi.shape.x * content.w;
-                              const top = oy + pi.shape.y * content.h;
-                              const width = pi.shape.w * content.w;
-                              const height = pi.shape.h * content.h;
-
-                              const itemDef = getItemDef(gameState.project.items, pi.itemId as ID);
-                              const spriteSrc = resolveAssetSrc(itemDef?.image, assetUrls);
-
-                              const id = pi.id as ID;
-                              const isHovered = hoveredId === id;
-                              const label = itemDef?.name ?? (pi.itemId as string);
-
-                              const onClickItem = () => {
-                                if (isFinal) return;
-
-                                // MVP: click = LOOK
-                                // - reachable=false: mirar sí
-                                // - reachable=true: mirar también (por ahora)
-                                const desc = itemDef?.description?.trim();
-                                setToastText(desc?.length ? desc : "No ves nada especial.");
-                              };
-
-                              return (
-                                <div
-                                  key={`pi-${id}`}
-                                  className="absolute pointer-events-auto"
-                                  style={{ left, top, width, height }}
-                                  onMouseEnter={() => setHoveredId(id)}
-                                  onMouseLeave={() => setHoveredId(null)}
-                                  onClick={onClickItem}
-                                >
-                                  {/* sprite */}
-                                  {spriteSrc ? (
-                                    <img
-                                      src={spriteSrc}
-                                      alt={label}
-                                      className="absolute inset-0 w-full h-full object-contain select-none"
-                                      draggable={false}
-                                    />
-                                  ) : null}
-
-                                  {/* hover highlight */}
-                                  <div
-                                    className={[
-                                      "absolute inset-0 rounded-sm transition",
-                                      isHovered
-                                        ? "bg-amber-400/15 ring-1 ring-amber-300"
-                                        : "bg-transparent",
-                                    ].join(" ")}
-                                    style={{ cursor: "pointer" }}
-                                  />
-
-                                  {isHovered && (
-                                    <div
-                                      className="absolute left-1/2 -translate-x-1/2 -top-7 z-30
-                                                 bg-slate-900 text-slate-100 text-[11px]
-                                                 px-2 py-1 rounded border border-slate-700
-                                                 whitespace-nowrap pointer-events-none"
-                                    >
-                                      {label}
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <div className="game-no-image">
-                  <span className="game-no-image-text">Esta escena no tiene imagen definida.</span>
+                  )}
                 </div>
               )}
 
-              {currentNode.title && (
-                <div className="game-title-overlay">
-                  <div
-                    className={[
-                      "game-title-text",
-                      currentNode.title.length > 80
-                        ? "animate-[scene-title-marquee_16s_linear_infinite]"
-                        : "",
-                    ].join(" ")}
-                  >
-                    {currentNode.title}
-                  </div>
-                </div>
-              )}
+              <div className="relative flex-1 min-h-0">
 
-              <div className="game-hotspot-layer">
-                {isFinal && (
-                  <div className="flex justify-center mb-2">
-                    <div className="text-center space-y-2 bg-slate-900/70 backdrop-blur-sm px-4 py-2 rounded-lg border border-slate-700">
-                      <p className="text-sm text-emerald-300">Has llegado al final de esta aventura.</p>
-                      <button
-                        type="button"
-                        onClick={handleExit}
-                        className="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold"
-                      >
-                        Volver al inicio
-                      </button>
+                <SceneStage
+                  imageSrc={activeImageSrc}
+                  hotspots={hotspotsForStage}
+                  placedItems={placedItemsForStage}
+                  placedPlayers={placedPlayersForStage}
+                  placedNpcs={placedNpcsForStage}
+                  dialogueText={dialogueBubbleText}
+                  dialogueSpeaker={dialogueBubbleSpeaker}
+                  isUsingItem={isUsingItem}
+                  onHotspotUseItem={(hotspot) => {
+                    useSelectedItemOnHotspot(hotspot);
+                  }}
+                  onPlacedItemUseItem={(placedItem) => {
+                    useSelectedItemOnPlacedItem(placedItem);
+                  }}
+                  onSceneBackgroundClick={() => {
+                    if (isMapOpen) return;
+
+                    if (isUsingItem) clearInteractionMode();
+                  }}
+                  onCursorMove={(e, kind) => updatePlayerCursorFromMouseEvent(e, kind)}
+                  onCursorEnter={(e, kind) => updatePlayerCursorFromMouseEvent(e, kind)}
+                  onCursorLeave={hidePlayerCursor}
+                  onHotspotClick={(hotspot) => {
+                    if (interactionMode.type === "useItem" || isMapOpen) return;
+                    applyHotspot(hotspot);
+                  }}
+                  onPlacedItemClick={(placedItem: PlacedItem) => {
+                    if (interactionMode.type === "useItem" || isMapOpen) return;
+                    applyPlacedItemInteraction(placedItem);
+                  }}
+                  onPlacedNpcClick={(placedNpc: PlacedNpc) => {
+                    if (interactionMode.type == "useItem" || isMapOpen) return;
+                    applyPlacedNpcInteraction(placedNpc);
+                  }}
+                  onNotReachable={(_, text) => {
+                    const msg = (text ?? "").trim();
+
+                    if (isUsingItem) {
+                      clearInteractionMode();
+                    }
+
+                    pushUiMessage({
+                      text: msg || "No puedes interactuar con eso ahora.",
+                      preferredChannel: "bubble",
+                    });
+                  }}
+                  onPlacedItemNotReachable={(_, text) => {
+                    const msg = (text ?? "").trim();
+
+                    if (isUsingItem) {
+                      clearInteractionMode();
+                    }
+
+                    pushUiMessage({
+                      text: msg || "No puedes interactuar con eso ahora.",
+                      preferredChannel: "bubble",
+                    });
+                  }}
+                  onPlacedNpcNotReachable={(_, text) => {
+                    const msg = (text ?? "").trim();
+
+                    if (isUsingItem) {
+                      clearInteractionMode();
+                    }
+
+                    pushUiMessage({
+                      text: msg || "No puedes interactuar con eso ahora.",
+                      preferredChannel: "bubble",
+                    });
+                  }}
+                />
+
+                <div
+                  className={`absolute inset-0 z-200 pointer-events-none transition-opacity duration-150 ${isFading ? "opacity-100 bg-black" : "opacity-0 bg-black"
+                    }`}
+                />
+
+                <BottomBar
+                  open={bottomBarOpen}
+                  onToggle={() => setBottomBarOpen((prev) => !prev)}
+                  onOpenInventory={() => {
+                    if (isDialogueOpen || isMapOpen) return;
+
+                    setBottomBarOpen(true);
+                    setInventoryOpen(true);
+                  }}
+                  onOpenMap={() => {
+                    if (isDialogueOpen || inventoryOpen) return;
+
+                    setBottomBarOpen(true);
+                    toggleMap();
+                  }}
+                />
+
+                <InventoryOverlay
+                  open={!isDialogueOpen && !isMapOpen && inventoryOpen}
+                  items={inventoryItems}
+                  onClose={() => setInventoryOpen(false)}
+                  onSelectItem={(item) => {
+                    setInteractionMode({ type: "useItem", item });
+                    setInventoryOpen(false);
+                  }}
+                  onUseItemOnInventoryItem={(sourceItem, targetItem) => {
+                    useInventoryItemOnInventoryItem(sourceItem, targetItem);
+                  }}
+                />
+
+
+
+                <DialogueChoicesPanel
+                  open={shouldShowDialogueChoices}
+                  options={dialogueOptions}
+                  onSelectOption={(nodeId) => advanceDialogue(nodeId)}
+                  onCursorMove={(e, kind) => updatePlayerCursorFromMouseEvent(e, kind)}
+                  onCursorEnter={(e, kind) => updatePlayerCursorFromMouseEvent(e, kind)}
+                  onCursorLeave={hidePlayerCursor}
+                />
+
+                {isMapOpen && (
+                  <MapOverlay
+                    gameState={gameState}
+                    assetUrls={assetUrls}
+                    onClose={closeMap}
+                    onTravel={() => { travelToSelectedMapRegion(); }}
+                    onSelectRegion={selectMapRegion}
+                  />
+                )}
+
+                {sceneMessage && (
+                  <div className="pointer-events-none absolute inset-x-4 top-4 z-30 flex justify-center">
+                    <div className="pointer-events-auto max-w-2xl rounded-xl border border-slate-500/50 bg-slate-950/85 px-4 py-3 text-sm text-slate-100 shadow-xl backdrop-blur">
+                      <div className="flex items-start gap-3">
+                        <p className="whitespace-pre-line leading-relaxed">{sceneMessage.text}</p>
+                      </div>
                     </div>
                   </div>
                 )}
 
-                <div className="flex items-center justify-between px-2 mt-1">
-                  <button type="button" onClick={openInventory} className="game-hud-icon">
-                    <img src="/ui/inventory.png" alt="Inventario" className="game-hud-icon-img" />
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => void toggleFullscreen()}
-                    className="game-hud-icon"
-                    title={isFullscreen ? "Salir de pantalla completa" : "Pantalla completa"}
-                  >
-                    <img src="/ui/fullScene.png" alt="Pantalla Completa" className="game-hud-icon-img" />
-                  </button>
-                </div>
+                {playerCursor.visible && (
+                  <img
+                    src={effectivePlayerCursorSrc}
+                    alt=""
+                    aria-hidden="true"
+                    draggable={false}
+                    className={`pointer-events-none fixed z-999 object-contain select-none ${isUsingItem ? "" : "h-16 w-16"
+                      }`}
+                    style={
+                      isUsingItem
+                        ? {
+                          left: playerCursor.x,
+                          top: playerCursor.y,
+                          width: selectedItemCursorSize.width,
+                          height: selectedItemCursorSize.height,
+                          transform: "translate(-50%, -50%)",
+                        }
+                        : {
+                          left: playerCursor.x - 32,
+                          top: playerCursor.y - 32,
+                        }
+                    }
+                  />
+                )}
               </div>
-            </div>
 
-            <div className="game-scene-text">
-              {currentNode.text ? (
-                <p className="text-slate-100 text-sm whitespace-pre-line text-left leading-relaxed">
-                  {currentNode.text}
-                </p>
-              ) : (
-                <p className="text-slate-500 text-xs text-center">(Este nodo no tiene texto definido)</p>
+              {!isTextFirst && hasText && (
+                <div
+                  className="relative min-h-0 bg-slate-950/90 px-4 py-3 overflow-y-auto basis-1/4 border-t border-slate-800 select-none"
+                  style={{ cursor: "none", userSelect: "none" }}
+                  onMouseMove={updateTextCursor}
+                  onMouseEnter={updateTextCursor}
+                  onMouseLeave={() => setTextCursor((prev) => ({ ...prev, visible: false }))}
+                >
+                  <p className="text-slate-100 text-sm whitespace-pre-line text-left leading-relaxed select-none">
+                    {resolvedActiveText}
+                  </p>
+
+                  {textCursor.visible && (
+                    <img
+                      src="/cursor/idle.png"
+                      alt=""
+                      aria-hidden="true"
+                      draggable={false}
+                      className="pointer-events-none fixed z-40 h-16 w-16 object-contain select-none"
+                      style={{
+                        left: textCursor.x - 32,
+                        top: textCursor.y - 32,
+                        position: "fixed",
+                      }}
+                    />
+                  )}
+                </div>
               )}
             </div>
           </div>
         </main>
       </div>
-
-      <audio ref={audioRef} className="hidden" />
     </div>
   );
 }

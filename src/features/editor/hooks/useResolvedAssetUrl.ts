@@ -1,37 +1,54 @@
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import { useEditorStore } from "@/store/editorStore";
+import type { ID } from "@/domain/types";
 
-const urlCache = new Map<string, string>();
+type CacheEntry = { url: string; fileRef: File };
 
-export function useResolvedAssetUrl(logicalPath: string | undefined | null) {
+const urlCache = new Map<ID, CacheEntry>();
+
+function isAbsoluteUrl(s: string) {
+  return /^(https?:|data:|blob:)/.test(s);
+}
+
+export function useResolvedAssetUrl(assetId: ID | null | undefined) {
+  const project = useEditorStore((s) => s.project);
   const assetFiles = useEditorStore((s) => s.assetFiles);
 
-  const url = useMemo(() => {
-    if (!logicalPath) return undefined;
+  return useMemo(() => {
+    if (!assetId) return undefined;
+    if (!project) return undefined;
 
-    // Si ya es URL absoluta o data/blob, úsala tal cual
-    if (/^(https?:|data:|blob:)/.test(logicalPath)) return logicalPath;
+    const asset = (project.assets ?? []).find((a) => a.id === assetId) ?? null;
+    if (!asset) return undefined;
 
-    const file = assetFiles?.[logicalPath];
-    if (!file) return undefined;
+    const filePath = (asset.file ?? "").trim();
+    if (!filePath) return undefined;
 
-    const cached = urlCache.get(logicalPath);
-    if (cached) return cached;
+    if (isAbsoluteUrl(filePath)) return filePath;
 
-    const next = URL.createObjectURL(file);
-    urlCache.set(logicalPath, next);
-    return next;
-  }, [logicalPath, assetFiles]);
+    const file = assetFiles?.[asset.id];
 
-  // Limpieza cuando cambie el fichero (simple: limpia todo al salir)
-  useEffect(() => {
-    return () => {
-      // opcional: si quieres agresivo, revoca todo al desmontar
-      // (en apps largas quizá prefieras una cache más fina)
-      for (const u of urlCache.values()) URL.revokeObjectURL(u);
-      urlCache.clear();
-    };
-  }, []);
 
-  return url;
+    if (!file) {
+      const cached = urlCache.get(asset.id);
+      if (cached) {
+        try { URL.revokeObjectURL(cached.url);}
+        catch {}
+        urlCache.delete(asset.id);
+      }
+      return filePath;
+    }
+
+    const cached = urlCache.get(asset.id);
+    if (cached && cached.fileRef === file) return cached.url;
+
+    if (cached) {
+      try {URL.revokeObjectURL(cached.url);}
+      catch {}
+    }
+
+    const nextUrl = URL.createObjectURL(file);
+    urlCache.set(asset.id, { url: nextUrl, fileRef: file });
+    return nextUrl;
+  }, [assetId, project, assetFiles]);
 }

@@ -1,130 +1,122 @@
 import { create } from "zustand";
-import type { Project } from "@/domain/types";
-import { generateProjectId } from "@/utils/id";
+import type { Project, ID, AssetDef } from "@/domain/types";
+import { downloadProjectJsonFile, exportProjectAsZip } from "@/store/utils/editorPersistence";
+import { resolveDirectoryImport } from "@/shared/directoryImport";
+import { buildBaseEditorState, clamp, DEFAULT_ZOOM, MAX_ZOOM, MIN_ZOOM, STEP_ZOOM } from "@/store/utils/editorStoreUtils";
+import { generateId } from "@/utils/id";
+import { buildAssetPath } from "@/store/assets/assetPath";
+import { removeAsset, removeAssetFile } from "@/features/editor/core/editorGenericSlice";
 import { type EditorPrimaryMode, type EditorSecondaryMode, getDefaultSecondaryMode } from "@/features/editor/core/editorModes";
-import { type EditorSceneSlice, createEditorSceneSlice } from "@/features/editor/core/editorSceneSlice";
-import { type EditorMusicSlice, createEditorMusicSlice } from "@/features/editor/core/editorMusicSlice";
-import { type EditorItemsSlice, createEditorItemsSlice } from "@/features/editor/core/editorItemsSlice";
+import { type EditorHistoryViewSlice, createEditorHistoryViewSlice } from "@/features/editor/history/view/editorHistoryViewSlice";
+import { type EditorMusicSlice, createEditorMusicSlice } from "@/features/editor/history/music/editorMusicSlice";
+import { type EditorSfxSlice, createEditorSfxSlice } from "@/features/editor/history/sfx/editorSfxSlice";
+import { type EditorItemsSlice, createEditorItemsSlice } from "@/features/editor/history/items/editorItemsSlice";
+import { type EditorNpcSlice, createEditorNpcSlice } from "@/features/editor/history/npcs/editorNpcSlice";
+import { type EditorPlayerSlice, createEditorPlayerSlice } from "@/features/editor/history/players/editorPlayersSlice";
+import { type EditorMapsSlice, createEditorMapsSlice } from "@/features/editor/history/maps/editorMapsSlice";
+import { type EditorMapRegionsSlice, createEditorMapRegionsSlice } from "@/features/editor/history/maps/editorMapRegionSlice";
+import { type EditorNodesSlice, createEditorNodesSlice } from "@/features/editor/scene/node/editorNodeSlice";
+import { type EditorLayerSlice, createEditorLayerSlice } from "@/features/editor/scene/layer/editorLayerSlice";
+import { type EditorLayerInteractionsSlice, createEditorLayerInteractionsSlice } from "@/features/editor/scene/layer/editorLayerInteractionSlice";
+import { type EditorHotspotsSlice, createEditorHotspotsSlice } from "@/features/editor/scene/hotspots/editorHotspotsSlice";
+import { type EditorPlacedItemsSlice, createEditorPlacedItemsSlice } from "@/features/editor/scene/placedItems/editorPlacedItemSlice";
+import { type EditorPlacedPlayersSlice, createEditorPlacedPlayersSlice } from "@/features/editor/scene/placedPlayers/editorPlacedPlayerSlice";
+import { type EditorPlacedNpcsSlice, createEditorPlacedNpcsSlice } from "@/features/editor/scene/placedNpcs/editorPlacedNpcslice";
+import { type EditorDialoguesSlice, createEditorDialoguesSlice } from "@/features/editor/scene/dialogues/editorDialogueSlice";
 
-type ValidationStatus = "idle" | "ok" | "warning" | "error";
-
-interface EditorStoreState extends EditorSceneSlice, EditorMusicSlice, EditorItemsSlice {
+export interface EditorStore extends EditorMusicSlice, EditorSfxSlice, EditorItemsSlice, EditorPlayerSlice, EditorNpcSlice,EditorHistoryViewSlice, EditorNodesSlice,
+  EditorLayerSlice, EditorLayerInteractionsSlice, EditorHotspotsSlice, EditorPlacedItemsSlice, EditorPlacedPlayersSlice, EditorPlacedNpcsSlice, EditorDialoguesSlice,
+  EditorMapsSlice, EditorMapRegionsSlice {
   project: Project | null;
   primaryMode: EditorPrimaryMode;
   secondaryMode: EditorSecondaryMode;
-  isDirty: boolean;
-  validationStatus: ValidationStatus;
-  errorCount: number;
-  assetFiles: Record<string, File>;
+  assetFiles: Record<ID, File>;
+  zoom: number;
 
   initNewProject: (title: string) => void;
   loadProjectFromDirectory: (project: Project, files: File[]) => void;
   updateProjectTitle: (title: string) => void;
   setPrimaryMode: (mode: EditorPrimaryMode) => void;
   setSecondaryMode: (mode: EditorSecondaryMode) => void;
-  markSaved: () => void;
-  setValidationResult: (status: ValidationStatus, errorCount: number) => void;
   resetEditor: () => void;
-  registerAssetFile: (path: string, file: File) => void;
-  clearStartFlagFromAllNodes: () => void;
-
-  zoom: number;
+  registerAssetFile: (assetId: ID, file: File) => void;
+  upsertBackgroundAsset: (assetId: ID, file: File) => void;
+  removeBackgroundAsset: (assetId: ID) => void;
+  downloadProjectJson: () => void;
+  exportProject: () => Promise<void>;
   setZoom: (zoom: number) => void;
   zoomIn: () => void;
   zoomOut: () => void;
   zoomReset: () => void;
 }
 
-const initialUIState = {
-  primaryMode: "historia" as EditorPrimaryMode,
-  secondaryMode: getDefaultSecondaryMode("historia") as EditorSecondaryMode,
-  isDirty: false,
-  validationStatus: "idle" as ValidationStatus,
-  errorCount: 0,
-  zoom: 100,
-};
-
-const MIN_ZOOM = 50;
-const MAX_ZOOM = 200;
-const STEP_ZOOM = 25;
-const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
-
-type EditorStore = EditorStoreState;
-
-function normalizeAssetPath(rawPath: string): string {
-  const unix = rawPath.replace(/\\/g, "/");
-  const parts = unix.split("/");
-
-  if (parts.length > 1) return parts.slice(1).join("/");
-
-  return unix;
-}
-
 export const useEditorStore = create<EditorStore>()((set, get) => ({
   project: null,
-  assetFiles: {},
-  ...initialUIState,
 
-  ...createEditorSceneSlice(set, get),
+  assetFiles: {},
+
+  primaryMode: "historia",
+
+  secondaryMode: "vista",
+
+  zoom: 100,
+
+  ...createEditorSfxSlice(set, get),
   ...createEditorMusicSlice(set, get),
   ...createEditorItemsSlice(set, get),
+  ...createEditorNpcSlice(set, get),
+  ...createEditorPlayerSlice(set, get),
+
+  ...createEditorMapsSlice(set, get),
+  ...createEditorMapRegionsSlice(set, get),
+
+  ...createEditorNodesSlice(set, get),
+  ...createEditorLayerSlice(set, get),
+  ...createEditorLayerInteractionsSlice(set, get),
+
+  ...createEditorHotspotsSlice(set, get),
+  ...createEditorPlacedItemsSlice(set, get),
+  ...createEditorPlacedPlayersSlice(set, get),
+  ...createEditorPlacedNpcsSlice(set, get),
+
+  ...createEditorDialoguesSlice(set, get),
+
+  ...createEditorHistoryViewSlice(set, get),
 
   initNewProject: (title: string) => {
-    const id = generateProjectId(title);
+    const projectId = generateId.project();
+    const normalizedTitle = title.trim() || "Nuevo proyecto";
 
     const newProject: Project = {
-      id,
-      title: title.trim(),
-      nodes: [],
+      id: projectId,
+      title: normalizedTitle,
+      assets: [],
       items: [],
       npcs: [],
+      players: [],
       musicTracks: [],
+      soundEffects: [],
       maps: [],
-      meta: {},
+      nodes: [],
     };
 
     set({
+      ...buildBaseEditorState(),
       project: newProject,
       assetFiles: {},
-      ...initialUIState,
-
-      selectedNodeId: null,
-      sceneMode: "creating",
-      selectedMusicTrackId: null,
-      selectedItemId: null,
-
-      isDirty: true,
     });
   },
 
   loadProjectFromDirectory: (project: Project, files: File[]) => {
-    const assetFiles: Record<string, File> = {};
+    const { normalizedAssets, assetFilesById } = resolveDirectoryImport(project, files);
 
-    for (const raw of files) {
-      const anyFile = raw as any;
-
-      const relPath: string =
-        typeof anyFile.webkitRelativePath === "string" &&
-          anyFile.webkitRelativePath.length > 0
-          ? anyFile.webkitRelativePath
-          : raw.name;
-
-      const normalized = normalizeAssetPath(relPath);
-
-      if (normalized.toLowerCase().endsWith(".json")) continue;
-
-      assetFiles[normalized] = raw;
-    }
+    const nextProject: Project = { ...project, assets: normalizedAssets };
 
     set({
-      project,
-      assetFiles,
-      ...initialUIState,
+      ...buildBaseEditorState(),
+      project: nextProject,
+      assetFiles: assetFilesById,
 
-      selectedNodeId: null,
-      sceneMode: "creating",
-      selectedMusicTrackId: null,
-      selectedItemId: null,
     });
   },
 
@@ -132,106 +124,134 @@ export const useEditorStore = create<EditorStore>()((set, get) => ({
     set((state) => {
       if (!state.project) return state;
 
+      const nextTitle = title.trim();
+      if (!nextTitle) return state;
+
       return {
         ...state,
-        project: {
-          ...state.project,
-          title: title.trim() || state.project.title,
-        },
-        isDirty: true,
+        project: { ...state.project, title: nextTitle },
       };
     });
   },
 
-  setPrimaryMode: (mode: EditorPrimaryMode) => {
+  setPrimaryMode: (mode) => {
     set((state) => ({
-      ...state,
       primaryMode: mode,
       secondaryMode: getDefaultSecondaryMode(mode),
+      selectedNodeId: state.selectedNodeId,
     }));
+
+    if (mode !== "escena") return;
+
+    const s = get();
+
+    if (s.nodeDraft) return;
+
+    if (s.selectedNodeId == null) {
+      s.enterCreateNodeMode?.();
+      return;
+    }
+
+    s.enterEditNodeMode?.(s.selectedNodeId);
   },
 
   setSecondaryMode: (mode: EditorSecondaryMode) => {
-    set((state) => ({
-      ...state,
-      secondaryMode: mode,
-    }));
-  },
+    set(() => ({ secondaryMode: mode }));
 
-  markSaved: () => {
-    set((state) => ({
-      ...state,
-      isDirty: false,
-    }));
-  },
-
-  setValidationResult: (status: ValidationStatus, errorCount: number) => {
-    set((state) => ({
-      ...state,
-      validationStatus: status,
-      errorCount,
-    }));
   },
 
   resetEditor: () => {
     set({
+      ...buildBaseEditorState(),
       project: null,
-      ...initialUIState,
-
-      selectedNodeId: null,
-      sceneMode: "creating",
-      selectedMusicTrackId: null,
-      selectedItemId: null,
+      assetFiles: {},
     });
   },
 
-  registerAssetFile: (path: string, file: File) => {
-    set((state) => ({
-      ...state,
-      assetFiles: {
-        ...state.assetFiles,
-        [path]: file,
+  registerAssetFile: (assetId: ID, file: File) => {
+    set((state) => ({ assetFiles: { ...state.assetFiles, [assetId]: file } }));
+  },
+
+  upsertBackgroundAsset: (assetId, file) => {
+    const s = get();
+    const proj = s.project;
+    if (!proj) return;
+
+    s.registerAssetFile(assetId, file);
+
+    const relativePath = buildAssetPath("backgrounds", file.name);
+
+    const assets0 = proj.assets ?? [];
+    const existing = assets0.find((a) => a.kind === "backgrounds" && a.id === assetId);
+
+    const nextAsset: AssetDef = {
+      id: assetId,
+      kind: "backgrounds",
+      name: (existing?.name ?? "").trim() !== "" ? existing!.name : (file.name ?? "Background"),
+      file: relativePath,
+    };
+
+    const nextAssets = existing
+      ? assets0.map((a) => (a.kind === "backgrounds" && a.id === assetId ? nextAsset : a))
+      : [...assets0, nextAsset];
+
+    set({
+      project: {
+        ...proj,
+        assets: nextAssets,
       },
-      isDirty: true,
-    }));
-  },
-
-  clearStartFlagFromAllNodes: () => {
-    set((state) => {
-      if (!state.project) return state;
-
-      return {
-        ...state,
-        project: {
-          ...state.project,
-          nodes: state.project.nodes.map((node) =>
-            node.isStart ? { ...node, isStart: false } : node
-          ),
-        },
-        isDirty: true,
-      };
     });
   },
 
-  zoom: initialUIState.zoom,
+  removeBackgroundAsset: (id: ID) =>
+  set((state) => {
+    if (!state.project) return state;
+
+    const project0 = state.project;
+
+    const remA = removeAsset(project0.assets ?? [], { id, kind: "backgrounds" });
+    const remF = removeAssetFile(state.assetFiles, id);
+
+    if (!remA.touched && !remF.touched) return state;
+
+    return {
+      ...state,
+      project: { ...project0, assets: remA.assets },
+      assetFiles: remF.assetFiles,
+    };
+  }),
+
+    downloadProjectJson: () => {
+    const project = get().project;
+    if (!project) return;
+
+    downloadProjectJsonFile(project);
+  },
+
+  exportProject: async () => {
+    const { project, assetFiles } = get();
+    if (!project) return;
+
+    await exportProjectAsZip(project, assetFiles);
+  },
 
   setZoom: (zoom) =>
-    set((state) => ({
-      ...state,
-      zoom: clamp(zoom, MIN_ZOOM, MAX_ZOOM),
-    })),
+    set((s) => (s.primaryMode === "historia" && s.secondaryMode === "vista"
+      ? { zoom: clamp(zoom, MIN_ZOOM, MAX_ZOOM) }
+      : s)),
 
   zoomIn: () =>
-    set((state) => ({
-      ...state,
-      zoom: clamp(state.zoom + STEP_ZOOM, MIN_ZOOM, MAX_ZOOM),
-    })),
+    set((s) => (s.primaryMode === "historia" && s.secondaryMode === "vista"
+      ? { zoom: clamp(s.zoom + STEP_ZOOM, MIN_ZOOM, MAX_ZOOM) }
+      : s)),
 
   zoomOut: () =>
-    set((state) => ({
-      ...state,
-      zoom: clamp(state.zoom - STEP_ZOOM, MIN_ZOOM, MAX_ZOOM),
-    })),
+    set((s) => (s.primaryMode === "historia" && s.secondaryMode === "vista"
+      ? { zoom: clamp(s.zoom - STEP_ZOOM, MIN_ZOOM, MAX_ZOOM) }
+      : s)),
 
-  zoomReset: () => set((state) => ({ ...state, zoom: 100 })),
+  zoomReset: () =>
+    set((s) => (s.primaryMode === "historia" && s.secondaryMode === "vista"
+      ? { zoom: DEFAULT_ZOOM }
+      : s)),
 }));

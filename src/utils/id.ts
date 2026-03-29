@@ -1,29 +1,57 @@
 import type { ID } from "@/domain/types";
 
-const timestamp = () => Date.now().toString(36);
-const random = (size = 4) => Math.random().toString(36).slice(2, 2 + size);
+const PREFIX = {
+  project: "project",
+  node: "node",
+  layer: "layer",
+  background: "background",
+  hotspot: "hs",
+  hotspotAction: "hs-act",
+  hotspotInteraction: "hs-int",
+  rule: "rule",
+  player: "player",
+  playerImage: "player-img",
+  playerVariable: "player-var",
+  playerPlaced: "player-placed",
+  item: "item",
+  itemPlaced: "item-placed",
+  itemAction: "item-act",
+  itemInteraction: "item-int",
+  npc: "npc",
+  npcPlaced: "npc-placed",
+  npcAction: "npc-act",
+  npcInteraction: "npc-int",
+  var: "var",
+  music: "music",
+  sfx: "sfx",
+  map: "map",
+  mapRegion: "map-region",
+  asset: "asset",
+  text: "text",
+  base: "base",
+  variant: "variant",
+  condition: "condition",
+  conditionGroup: "condgroup",
+  effect: "effect",
+  interactionLayer: "int-layer",
+  dialogue: "dialogue",
+  dialogueRoot: "dialogue-root",
+  dialogueLine: "dialogue-line",
+} as const;
 
-/** ID genérico */
-export const generateId = (prefix: string): ID => {
-  const safePrefix = prefix.trim() || "id";
-  return `${safePrefix}-${timestamp()}-${random()}`;
-};
+type PrefixKey = keyof typeof PREFIX;
 
-export const generateNodeId = (): ID => generateId("node");
-export const generateHotspotId = (): ID => generateId("hs");
-export const generateHotspotInteraction = (): ID => generateId("int");
-export const generateTagMusicId = (): ID => generateId("music");
-export const generateTagItemId = (): ID => generateId("item");
-export const generateTagMapId = (): ID => generateId("map");
-export const generateTagPnjId = (): ID => generateId("pnj");
+function uuid(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  throw new Error("crypto.randomUUID() no está disponible en este entorno.");
+}
 
-/** ID para proyectos (slug + timestamp) */
-export const generateProjectId = (title: string): ID => {
-  const slug = title
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, "-")
-    .replace(/[^a-z0-9-]/g, "");
+function generateIdGeneral(key: PrefixKey): ID {
+  return `${PREFIX[key]}-${uuid()}`;
+}
 
-  return `${slug || "project"}-${timestamp()}`;
-};
+export const generateId = Object.freeze(
+  Object.fromEntries(Object.keys(PREFIX).map((k) => [k, () => generateIdGeneral(k as PrefixKey)])) as {
+    [K in PrefixKey]: () => ID;
+  }
+);

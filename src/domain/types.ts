@@ -1,189 +1,308 @@
+import type { Condition } from "@/domain/conditions";
+import type { Effect } from "@/domain/effects";
+
 /* Identificador genérico */
 export type ID = string;
 
-/* Visor de nodos*/
+/* Assets (catálogo global) */
+export type AssetKind = "backgrounds" | "players" | "npcs" | "items" | "music" | "sfx" | "maps";
+
+export interface AssetDef {
+  id: ID;
+  kind: AssetKind;
+  name: string;
+  file: string;
+}
+
+/* Visor de nodos (solo editor) */
 export interface NodeLayout {
-    x: number;
-    y: number;
+  x: number;
+  y: number;
 }
 
 export interface NodeMeta {
-    layout?: NodeLayout;
+  layout?: NodeLayout;
 }
 
-/* Zona del hotspot / entidad */
-export type HotspotShape =
-    | {
-        type: "rect";
-        x: number;
-        y: number;
-        w: number;
-        h: number;
-    };
+/* Geometría */
+export type RegionShape = {
+  type: "rect";
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+};
 
-/* Condiciones */
-export type Condition =
-    | { type: "hasItem"; itemId: ID }
-    | { type: "flagIsTrue"; flag: string }
-    | { type: "flagIsFalse"; flag: string };
+/* Variables (dominio) */
+export type VarType = "number" | "boolean";
 
-/* Efectos*/
-export type Effect =
-    // Navegación
-    | { type: "goToNode"; targetNodeId: ID }
-
-    // Inventario / flags
-    | { type: "addItem"; itemId: ID }
-    | { type: "removeItem"; itemId: ID }
-    | { type: "setFlag"; flag: string; value: boolean }
-
-    // Diálogo / PNJ
-    | { type: "startDialogue"; npcId: ID }
-    | { type: "giveItemToNpc"; npcId: ID; itemId: ID }
-
-    // Feedback
-    | { type: "showText"; text: string }
-    | { type: "showMessage"; text: string }
-
-    // Estado de entidades colocadas en escena
-    | { type: "setPlacedItemVisible"; placedItemId: ID; value: boolean }
-    | { type: "setPlacedItemReachable"; placedItemId: ID; value: boolean };
-
-export type EffectType = Effect["type"];
-
-/* Efectos permitidos solo en hotspots libres */
-export type FreeHotspotEffect =
-  | Extract<Effect, { type: "goToNode" }>
-  | Extract<Effect, { type: "setFlag" }>
-  | Extract<Effect, { type: "showText" }>
-  | Extract<Effect, { type: "showMessage" }>;
-
-export type FreeHotspotEffectType = FreeHotspotEffect["type"];
-
-/* Verbos permitidos para zonas del escenario (hotspots "free") */
-export type HotspotVerb = "go" | "look" | "use";
-
-/* Interacción de un hotspot */
-export interface HotspotInteraction {
-    id: ID;
-    verb: HotspotVerb;
-    label?: string;
-    cursor?: string;
-    conditions?: Condition[];
-    effects: FreeHotspotEffect[];
+export interface VarDefBase {
+  id: ID;
+  name: string;
+  type: VarType;
 }
 
-/* Zona interactiva del escenario */
-export interface Hotspot {
-    id: ID;
-    shape: HotspotShape;
-    label?: string;
-    interactions: HotspotInteraction[];
+export interface VarDefNumber extends VarDefBase {
+  type: "number";
+  min: number;
+  max: number;
+  initial: number;
 }
 
-/* Ítems */
-export interface ItemDef {
-    id: ID;
-    name: string;
-    description: string;
-    image: string;
+export interface VarDefBoolean extends VarDefBase {
+  type: "boolean";
+  initial: boolean;
 }
 
-/* Estado del ítem colocado en escena */
-export interface PlacedItemState {
-    visible: boolean;
-    reachable: boolean;
-    notReachableText?: string;
+export type VarDef = VarDefNumber | VarDefBoolean;
+
+/* ENTIDADES (catálogo global) */
+export interface EntityBase {
+  id: ID;
+  name: string;
+  description?: string;
 }
 
-/* Ítem colocado en una escena (instancia en un nodo) */
-export interface PlacedItem {
-    id: ID;
-    itemId: ID;
-    shape: HotspotShape;
-    state: PlacedItemState;
-    interactions?: ItemInteraction[];
+/* Items */
+export interface ItemDef extends EntityBase {}
+
+/* Players */
+export interface PlayerImage {
+  id: ID;
+  name: string;
 }
 
-/* Verbos del item */
-export type ItemVerb = "look" | "take" | "use";
-
-export interface ItemInteraction {
-    id: ID;
-    verb: ItemVerb;
-    label?: string;
-    cursor?: string;
-    conditions?: Condition[];
-    effects: Effect[];
+export interface PlayerDef {
+  id: ID;
+  name: string;
+  description?: string;
+  images: PlayerImage[];
+  defaultImageId?: ID;
+  vars?: VarDef[];
 }
 
 /* PNJs */
-export interface NpcDef {
-    id: ID;
-    name: string;
-    description: string;
-    image: string;
+export interface NpcDef extends EntityBase {
+  vars?: VarDef[];
 }
 
-/* PNJ colocado en una escena (instancia en un nodo) */
-export interface PlacedNpc {
-    id: ID;
-    npcId: ID;
-    shape: HotspotShape;
-    interactions?: NpcInteraction[];
-}
-
-/* Verbos del PNJ */
-export type NpcVerb = "look" | "talk" | "use" | "give";
-
-export interface NpcInteraction {
-    id: ID;
-    verb: NpcVerb;
-    label?: string;
-    cursor?: string;
-    conditions?: Condition[];
-    effects: Effect[];
+/* Audio (catálogo global) */
+export interface AudioDefBase {
+  id: ID;
+  name: string;
 }
 
 /* Música */
-export interface MusicTrack {
-    id: ID;
-    name: string;
-    file: string;
-    loop: boolean;
+export interface MusicTrackDef extends AudioDefBase {}
+
+/* Sfx */
+export interface SoundEffectDef extends AudioDefBase {}
+
+type ResolvedMusicBase = {
+  trackId: ID;
+  sourceId: ID;
+};
+
+export type ResolvedMusic =
+  | ( ResolvedMusicBase & { sourceType: "layer" })
+  | ( ResolvedMusicBase & { sourceType: "scene" })
+  | ( ResolvedMusicBase & { sourceType: "region" })
+
+/* INTERACCIONES */
+export type BaseInteractionRule = {
+  id: ID;
+  when?: Condition;
+  phrase?: string;
+  effects: Effect[];
+};
+
+export type ClickRule = BaseInteractionRule;
+
+export type UseItemRule = BaseInteractionRule & {
+  placedItemId: ID;
+};
+
+export type InteractionRules = {
+  onClick?: ClickRule[];
+  onUseItem?: UseItemRule[];
+};
+
+/* Instancias en escena */
+export interface PlaceableState {
+  visible: boolean;
+  reachable: boolean;
+  notReachableText?: string;
 }
 
-/* Mapa */
+/* Player (solo necesita visible) */
+export type PlacedPlayerState = Pick<PlaceableState, "visible">;
+
+/* Items (multi-instancia) */
+export interface PlacedEntityBase<S = PlaceableState> {
+  id: ID;
+  shape: RegionShape;
+  initialState: S;
+}
+
+/* Player/Npc (singleton) */
+export interface PlacedSingletonBase<S = PlaceableState> {
+  shape: RegionShape;
+  initialState: S;
+}
+
+/* Hotspots */
+export interface Hotspot {
+  id: ID;
+  label: string;
+  shape: RegionShape;
+  initialState: PlaceableState;
+  vars: VarDef[];
+  rules: InteractionRules;
+}
+
+/* Item colocados */
+export interface PlacedItem extends PlacedEntityBase<PlaceableState> {
+  itemId: ID;
+  label: string;
+  rules: InteractionRules;
+}
+
+/* NPC colocados */
+export interface PlacedNpc extends PlacedSingletonBase<PlaceableState> {
+  npcId: ID;
+  rules: InteractionRules;
+}
+
+/* Player colocado */
+export interface PlacedPlayer extends PlacedSingletonBase<PlacedPlayerState> {
+  playerId: ID;
+  initialImageId: ID;
+}
+
+/* Posición del texto en la escena */
+export type TextDock = "bottom" | "top" | "left" | "right";
+
+/* Texto condicional */
+export type ConditionalTextEntry = {
+  id: ID;
+  label: string;
+  when?: Condition;
+  content: string;
+};
+
+export type ConditionalText = ConditionalTextEntry[];
+
+/* Diálogos */
+export interface Dialogue {
+  id: ID;
+  playerId: ID;
+  npcId: ID;
+  title?: string;
+  description?: string;
+  when?: Condition;
+  rootId: ID;
+  nodes: DialogueNode[];
+}
+
+export interface DialogueRootNode {
+  id: ID;
+  type: "root";
+  childrenIds: ID[];
+}
+
+export type DialogueSpeaker = "player" | "npc";
+
+export interface DialogueLineNode {
+  id: ID;
+  type: "line";
+  speaker: DialogueSpeaker;
+  text: string;
+  when?: Condition;
+  effects?: Effect[];
+  childrenIds: ID[];
+}
+
+export type DialogueNode = DialogueRootNode | DialogueLineNode;
+
+/* MAPAS */
+export interface MapSingleImageVisualSource {
+  type: "singleImage";
+  imageAssetId: ID;
+}
+
+export interface MapComposedVisualSource {
+  type: "composed";
+  backgroundAssetId: ID;
+}
+
+export type MapVisualSource =
+  | MapSingleImageVisualSource
+  | MapComposedVisualSource;
+
+export interface MapRegion {
+  id: ID;
+  label: string;
+  shape: RegionShape;
+  visible: boolean;
+  imageAssetId?: ID;
+  musicTrackId?: ID;
+  subMapId?: ID;
+  entrySceneId?: ID;
+  sceneIds: ID[];
+}
+
 export interface WorldMap {
-    id: ID;
-    name: string;
-    image: string;
+  id: ID;
+  name: string;
+  visual: MapVisualSource;
+  regions: MapRegion[];
 }
 
-/* Escena */
-export interface Node {
-    id: ID;
-    title: string;
-    text: string;
-    image: string;
-    hotspots: Hotspot[];
-    musicId?: ID;
-    mapId?: ID;
-    placedItems?: PlacedItem[];
-    placedNpcs?: PlacedNpc[];
-    isStart?: boolean;
-    isFinal?: boolean;
-    meta?: NodeMeta;
+export interface NodeMapLocation {
+  mapId: ID;
+  regionId: ID;
+  isEntry?: boolean;
 }
+
+/* Capa visual de escena: imagen + textos asociados */
+export type SceneImageLayer = {
+  id: ID;
+  assetId: ID;
+  label: string;
+  when?: Condition;
+  dock: TextDock;
+  text: ConditionalText;
+  hotspots?: Hotspot[];
+  placedItems?: PlacedItem[];
+  placedNpcs?: PlacedNpc[];
+  placedPlayers?: PlacedPlayer[];
+  musicTrackId?: ID;
+};
+
+/* Core de la escena (visual) */
+export type Node = {
+  id: ID;
+  title: string;
+  layers: SceneImageLayer[];
+  dialogues?: Dialogue[];
+  musicTrackId?: ID;
+  mapLocation?: NodeMapLocation;
+  isStart?: boolean;
+  isFinal?: boolean;
+  meta?: NodeMeta;
+};
+
 
 /* Proyecto */
 export interface Project {
-    id: ID;
-    title: string;
-    nodes: Node[];
-    items: ItemDef[];
-    npcs: NpcDef[];
-    musicTracks: MusicTrack[];
-    maps: WorldMap[];
-    meta?: Record<string, unknown>;
+  id: ID;
+  title: string;
+  assets: AssetDef[];
+  items: ItemDef[];
+  npcs: NpcDef[];
+  players: PlayerDef[];
+  musicTracks: MusicTrackDef[];
+  soundEffects: SoundEffectDef[];
+  maps: WorldMap[];
+  nodes: Node[];
 }

@@ -1,11 +1,9 @@
-import type { ID } from "@/domain/types"
-import type { Effect, EffectType} from "@/domain/effects";
+import type { ID } from "@/domain/types";
+import type { Effect, EffectType } from "@/domain/effects";
 
 type OwnerVarRef = Readonly<{ ownerId: ID; varId: ID }>;
-type RelationVarRef = Readonly<{ playerId: ID; targetId: ID; varId: ID }>;
 
 export type EffectRefs = Partial<{
-  itemIds: readonly ID[];
   npcIds: readonly ID[];
   playerIds: readonly ID[];
   nodeIds: readonly ID[];
@@ -15,18 +13,11 @@ export type EffectRefs = Partial<{
   imageAssetIds: readonly ID[];
   sfxIds: readonly ID[];
   musicTrackIds: readonly ID[];
-  hotspotVars: readonly OwnerVarRef[]; 
-  playerVars: readonly OwnerVarRef[]; 
-  npcVars: readonly OwnerVarRef[];    
-  relationVars: readonly RelationVarRef[];
-
-  // (Opcional) relations/targets si luego quieres refIndex/GC fino
-  targetIds: readonly ID[];
-
-  // ...maps/regions/connectors si lo modelas:
-  // mapIds: readonly ID[];
-  // mapRegionIds: readonly ID[];
-  // mapConnectorIds: readonly ID[];
+  hotspotVars: readonly OwnerVarRef[];
+  playerVars: readonly OwnerVarRef[];
+  npcVars: readonly OwnerVarRef[];
+  mapIds: readonly ID[];
+  mapRegionIds: readonly ID[];
 }>;
 
 /* Helper para crear extractores por type manteniendo tipado por unión discriminada */
@@ -36,39 +27,83 @@ type ExtractorMap = { [T in EffectType]: (e: Extract<Effect, { type: T }>) => Ef
 const EXTRACT_REFS: ExtractorMap = {
   goToNode: (e) => ({ nodeIds: [e.targetNodeId] }),
 
-  addItem: (e) => ({ itemIds: [e.placedItemId] }),
-  removeItem: (e) => ({ itemIds: [e.placedItemId] }),
+  addItem: (e) => ({ placedItemIds: [e.placedItemId] }),
+  removeItem: (e) => ({ placedItemIds: [e.placedItemId] }),
 
   startDialogue: (e) => ({ dialogueIds: [e.nodeDialogueId] }),
+  endDialogue: (_e) => ({}),
 
-  giveItemToNpc: (e) => ({ npcIds: [e.npcId], itemIds: [e.placedItemId] }),
-  receiveItemFromNpc: (e) => ({ npcIds: [e.npcId], itemIds: [e.placedItemId] }),
+  giveItemToNpc: (e) => ({ npcIds: [e.npcId], placedItemIds: [e.placedItemId] }),
+  receiveItemFromNpc: (e) => ({ npcIds: [e.npcId], placedItemIds: [e.placedItemId] }),
 
   showMessage: (_e) => ({}),
 
-  setPlacedItemVisible: (e) => ({ placedItemIds: [e.placedItemId] }),
-  setPlacedItemReachable: (e) => ({ placedItemIds: [e.placedItemId] }),
+  setPlacedItemVisible: (e) => ({ nodeIds: [e.nodeId], placedItemIds: [e.placedItemId] }),
+  setPlacedItemReachable: (e) => ({ nodeIds: [e.nodeId], placedItemIds: [e.placedItemId] }),
 
   setHotspotVisible: (e) => ({ hotspotIds: [e.hotspotId] }),
   setHotspotReachable: (e) => ({ hotspotIds: [e.hotspotId] }),
 
-  setHotspotVar: (e) => ({ hotspotIds: [e.hotspotId], hotspotVars: [{ ownerId: e.hotspotId, varId: e.varId }] }),
-  toggleHotspotVar: (e) => ({ hotspotIds: [e.hotspotId], hotspotVars: [{ ownerId: e.hotspotId, varId: e.varId }] }),
-  incHotspotVar: (e) => ({ hotspotIds: [e.hotspotId], hotspotVars: [{ ownerId: e.hotspotId, varId: e.varId }] }),
-  decHotspotVar: (e) => ({ hotspotIds: [e.hotspotId], hotspotVars: [{ ownerId: e.hotspotId, varId: e.varId }] }),
+  setHotspotVar: (e) => ({
+    hotspotIds: [e.hotspotId],
+    hotspotVars: [{ ownerId: e.hotspotId, varId: e.varId }],
+  }),
+  toggleHotspotVar: (e) => ({
+    hotspotIds: [e.hotspotId],
+    hotspotVars: [{ ownerId: e.hotspotId, varId: e.varId }],
+  }),
+  incHotspotVar: (e) => ({
+    hotspotIds: [e.hotspotId],
+    hotspotVars: [{ ownerId: e.hotspotId, varId: e.varId }],
+  }),
+  decHotspotVar: (e) => ({
+    hotspotIds: [e.hotspotId],
+    hotspotVars: [{ ownerId: e.hotspotId, varId: e.varId }],
+  }),
 
-  setPlacedPlayerVisible: (e) => ({ playerIds: [e.playerId] }),
-  setPlacedPlayerImage: (e) => ({ playerIds: [e.playerId], imageAssetIds: [e.imageId] }),
+  setPlacedPlayerVisible: (e) => ({ nodeIds: [e.nodeId], playerIds: [e.playerId] }),
+  setPlacedPlayerImage: (e) => ({
+    nodeIds: [e.nodeId],
+    playerIds: [e.playerId],
+    imageAssetIds: [e.imageId],
+  }),
 
-  setPlayerVar: (e) => ({ playerIds: [e.playerId], playerVars: [{ ownerId: e.playerId, varId: e.varId }] }),
-  togglePlayerVar: (e) => ({ playerIds: [e.playerId], playerVars: [{ ownerId: e.playerId, varId: e.varId }] }),
-  incPlayerVar: (e) => ({ playerIds: [e.playerId], playerVars: [{ ownerId: e.playerId, varId: e.varId }] }),
-  decPlayerVar: (e) => ({ playerIds: [e.playerId], playerVars: [{ ownerId: e.playerId, varId: e.varId }] }),
+  setPlacedNpcVisible: (e) => ({ nodeIds: [e.nodeId], npcIds: [e.npcId] }),
+  setPlacedNpcReachable: (e) => ({ nodeIds: [e.nodeId], npcIds: [e.npcId] }),
 
-  setNpcVar: (e) => ({ npcIds: [e.npcId], npcVars: [{ ownerId: e.npcId, varId: e.varId }] }),
-  toggleNpcVar: (e) => ({ npcIds: [e.npcId], npcVars: [{ ownerId: e.npcId, varId: e.varId }] }),
-  incNpcVar: (e) => ({ npcIds: [e.npcId], npcVars: [{ ownerId: e.npcId, varId: e.varId }] }),
-  decNpcVar: (e) => ({ npcIds: [e.npcId], npcVars: [{ ownerId: e.npcId, varId: e.varId }] }),
+  setPlayerVar: (e) => ({
+    playerIds: [e.playerId],
+    playerVars: [{ ownerId: e.playerId, varId: e.varId }],
+  }),
+  togglePlayerVar: (e) => ({
+    playerIds: [e.playerId],
+    playerVars: [{ ownerId: e.playerId, varId: e.varId }],
+  }),
+  incPlayerVar: (e) => ({
+    playerIds: [e.playerId],
+    playerVars: [{ ownerId: e.playerId, varId: e.varId }],
+  }),
+  decPlayerVar: (e) => ({
+    playerIds: [e.playerId],
+    playerVars: [{ ownerId: e.playerId, varId: e.varId }],
+  }),
+
+  setNpcVar: (e) => ({
+    npcIds: [e.npcId],
+    npcVars: [{ ownerId: e.npcId, varId: e.varId }],
+  }),
+  toggleNpcVar: (e) => ({
+    npcIds: [e.npcId],
+    npcVars: [{ ownerId: e.npcId, varId: e.varId }],
+  }),
+  incNpcVar: (e) => ({
+    npcIds: [e.npcId],
+    npcVars: [{ ownerId: e.npcId, varId: e.varId }],
+  }),
+  decNpcVar: (e) => ({
+    npcIds: [e.npcId],
+    npcVars: [{ ownerId: e.npcId, varId: e.varId }],
+  }),
 
   playSfx: (e) => ({ sfxIds: [e.sfxId] }),
 
@@ -76,18 +111,19 @@ const EXTRACT_REFS: ExtractorMap = {
   pauseMusic: (_e) => ({}),
   stopMusic: (_e) => ({}),
 
+  setMapRegionAvailable: (e) => ({
+    mapIds: [e.mapId],
+    mapRegionIds: [e.regionId],
+  }),
+
+  endGame: (_e) => ({}),
 };
 
 function getEffectRefs(e: Effect): EffectRefs {
-  return EXTRACT_REFS[e.type](e as any);
+  return EXTRACT_REFS[e.type](e as never);
 }
 
 /* Predicados listos para slices */
-export function effectReferencesItem(e: Effect, itemId: ID): boolean {
-  const refs = getEffectRefs(e);
-  return (refs.itemIds ?? []).includes(itemId);
-}
-
 export function effectReferencesNpc(e: Effect, npcId: ID): boolean {
   const refs = getEffectRefs(e);
   return (refs.npcIds ?? []).includes(npcId);
@@ -133,6 +169,16 @@ export function effectReferencesMusicTrack(e: Effect, trackId: ID): boolean {
   return (refs.musicTrackIds ?? []).includes(trackId);
 }
 
+export function effectReferencesMap(e: Effect, mapId: ID): boolean {
+  const refs = getEffectRefs(e);
+  return (refs.mapIds ?? []).includes(mapId);
+}
+
+export function effectReferencesMapRegion(e: Effect, regionId: ID): boolean {
+  const refs = getEffectRefs(e);
+  return (refs.mapRegionIds ?? []).includes(regionId);
+}
+
 export function effectReferencesNpcVar(e: Effect, input: { npcId: ID; varId: ID }): boolean {
   const refs = getEffectRefs(e);
   return (refs.npcVars ?? []).some((r) => r.ownerId === input.npcId && r.varId === input.varId);
@@ -146,11 +192,4 @@ export function effectReferencesPlayerVar(e: Effect, input: { playerId: ID; varI
 export function effectReferencesHotspotVar(e: Effect, input: { hotspotId: ID; varId: ID }): boolean {
   const refs = getEffectRefs(e);
   return (refs.hotspotVars ?? []).some((r) => r.ownerId === input.hotspotId && r.varId === input.varId);
-}
-
-export function effectReferencesRelationVar(e: Effect, input: { playerId: ID; targetId: ID; varId: ID }): boolean {
-  const refs = getEffectRefs(e);
-  return (refs.relationVars ?? []).some(
-    (r) => r.playerId === input.playerId && r.targetId === input.targetId && r.varId === input.varId
-  );
 }

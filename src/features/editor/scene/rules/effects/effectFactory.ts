@@ -203,9 +203,37 @@ export type EnabledEffect =
 export type EnabledEffectType = EnabledEffect["type"];
 
 export function enabledEffectTypes(factory: FactoryCtx): EnabledEffectType[] {
-  const out: EnabledEffectType[] = ["showMessage", "goToNode", "endGame"];
+  const out: EnabledEffectType[] = [
+    "showMessage",
+    "goToNode",
+    "removeItem",
+    "startDialogue",
+    "setPlacedItemVisible",
+    "setPlacedItemReachable",
+    "setHotspotVisible",
+    "setHotspotReachable",
+    "setPlacedPlayerVisible",
+    "setPlacedNpcVisible",
+    "setPlacedNpcReachable",
+    "setPlayerVar",
+    "togglePlayerVar",
+    "incPlayerVar",
+    "decPlayerVar",
+    "setNpcVar",
+    "toggleNpcVar",
+    "incNpcVar",
+    "decNpcVar",
+    "playSfx",
+    "playMusic",
+    "pauseMusic",
+    "stopMusic",
+    "setMapRegionAvailable",
+    "endGame",
+  ];
 
-  const hasItems = factory.idx.getPlacedItems().length > 0;
+  const ownerKind = factory.ctx.owner.kind;
+
+  const hasPlacedItems = factory.idx.getPlacedItems().length > 0;
   const hasHotspots = factory.idx.getNodeHotspots(factory.ctx.nodeId).length > 0;
   const hasHotspotVars = factory.idx
     .getNodeHotspots(factory.ctx.nodeId)
@@ -224,61 +252,62 @@ export function enabledEffectTypes(factory: FactoryCtx): EnabledEffectType[] {
     .some((player) => factory.idx.getPlayerImageOptions(player.playerId).length > 1);
 
   const hasPlayers = factory.idx.getPlayerOptions().length > 0;
-  const hasPlayerVars = factory.idx
-    .getPlayerOptions()
-    .some((player) => factory.idx.getPlayerVarOptions(player.id).length > 0);
-
+  const hasPlayerVars = factory.idx.getPlacedPlayerOptions().some((player) => factory.idx.getPlayerVarOptions(player.id).length > 0);
   const hasNpcs = factory.idx.getNpcOptions().length > 0;
   const hasMaps = factory.idx.getMapOptions().length > 0;
   const hasSfx = factory.idx.getSfxOptions().length > 0;
   const hasMusic = factory.idx.getMusicOptions().length > 0;
 
-  if (hasItems) {
-    out.push("addItem", "removeItem", "setPlacedItemVisible", "setPlacedItemReachable");
+  const canUseAudio = hasSfx || hasMusic;
+  const canUseProgress = hasMaps || factory.idx.getNodeOptions({ excludeNodeId: factory.ctx.nodeId }).length > 0;
+
+  const filtered = out.filter((type) => {
+    if (!canUseProgress && (type === "goToNode" || type === "setMapRegionAvailable")) return false;
+    if (!hasPlacedItems && (type === "removeItem" || type === "setPlacedItemVisible" || type === "setPlacedItemReachable")) return false;
+    if (!hasHotspots && (type === "setHotspotVisible" || type === "setHotspotReachable")) return false;
+    if (!hasHotspotVars && (type === "setHotspotVar" || type === "toggleHotspotVar" || type === "incHotspotVar" || type === "decHotspotVar")) return false;
+    if (!hasDialogues && type === "startDialogue") return false;
+    if (!hasPlacedNpcs && (type === "setPlacedNpcVisible" || type === "setPlacedNpcReachable")) return false;
+    if (!hasPlacedPlayers && type === "setPlacedPlayerVisible") return false;
+    if (!hasPlacedPlayersWithMultipleImages && type === "setPlacedPlayerImage") return false;
+    if (!(hasPlayers && hasPlayerVars) && (type === "setPlayerVar" || type === "togglePlayerVar" || type === "incPlayerVar" || type === "decPlayerVar")) return false;
+    if (!(hasNpcs && hasNpcVars) && (type === "setNpcVar" || type === "toggleNpcVar" || type === "incNpcVar" || type === "decNpcVar")) return false;
+    if (!hasMaps && type === "setMapRegionAvailable") return false;
+    if (!hasSfx && type === "playSfx") return false;
+    if (!hasMusic && (type === "playMusic" || type === "pauseMusic" || type === "stopMusic")) return false;
+    if (!canUseAudio && (type === "playSfx" || type === "playMusic" || type === "pauseMusic" || type === "stopMusic")) return false;
+    return true;
+  });
+
+  switch (ownerKind) {
+    case "hotspot": {
+      if (hasHotspotVars) filtered.push("setHotspotVar", "toggleHotspotVar", "incHotspotVar", "decHotspotVar");
+      return Array.from(new Set(filtered));
+    }
+
+    case "placedItem": {
+      if (hasPlacedItems) filtered.push("addItem");
+      return Array.from(new Set(filtered));
+    }
+
+    case "placedNpc": {
+      if (hasPlacedNpcs) filtered.push("giveItemToNpc");
+      return Array.from(new Set(filtered));
+    }
+
+    case "dialogueLine": {
+      const dialogueOnly: EnabledEffectType[] = [...filtered, "endDialogue"];
+
+      if (hasPlacedNpcs) {
+        dialogueOnly.push("giveItemToNpc", "receiveItemFromNpc");
+      }
+
+      return Array.from(new Set(dialogueOnly));
+    }
+
+    default:
+      return Array.from(new Set(filtered));
   }
-
-  if (hasHotspots) {
-    out.push("setHotspotVisible", "setHotspotReachable");
-  }
-
-  if (hasHotspotVars) {
-    out.push("setHotspotVar", "toggleHotspotVar", "incHotspotVar", "decHotspotVar");
-  }
-
-  if (hasDialogues && factory.ctx.owner.kind !== "dialogueLine") out.push("startDialogue");
-  if (factory.ctx.owner.kind === "dialogueLine") out.push("endDialogue");
-
-  if (hasPlacedNpcs) {
-    out.push("setPlacedNpcVisible", "setPlacedNpcReachable", "giveItemToNpc", "receiveItemFromNpc");
-  }
-
-  if (hasPlacedPlayers) {
-    out.push("setPlacedPlayerVisible");
-  }
-
-  if (hasPlacedPlayersWithMultipleImages) {
-    out.push("setPlacedPlayerImage");
-  }
-
-  if (hasPlayers && hasPlayerVars) {
-    out.push("setPlayerVar", "togglePlayerVar", "incPlayerVar", "decPlayerVar");
-  }
-
-  if (hasNpcs && hasNpcVars) {
-    out.push("setNpcVar", "toggleNpcVar", "incNpcVar", "decNpcVar");
-  }
-
-  if (hasSfx) {
-    out.push("playSfx");
-  }
-
-  if (hasMusic) {
-    out.push("playMusic", "pauseMusic", "stopMusic");
-  }
-
-  if (hasMaps) out.push("setMapRegionAvailable");
-
-  return out;
 }
 
 /* UI spec */

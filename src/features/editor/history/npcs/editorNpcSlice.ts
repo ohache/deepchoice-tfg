@@ -1,12 +1,14 @@
-import type { AssetDef, ID, NpcDef, Project, VarDef } from "@/domain/types";
-import type { Condition } from "@/domain/conditions";
 import { effectReferencesNpc, effectReferencesNpcVar } from "@/domain/effectRefs";
+import { conditionReferencesNpc, conditionReferencesNpcVar } from "@/domain/conditionRefs";
 import { generateId } from "@/utils/id";
 import { buildAssetPath } from "@/store/assets/assetPath";
-import { safeTrim, upsertAsset, upsertAssetFile, removeAsset, removeAssetFile, removeEffectsInProject, stripNpcVarFromCondition, stripNpcFromCondition, sameVarDef } from "@/features/editor/core/editorGenericSlice";
-import { collectDialogueIds, effectIsStartDialogueForAnyOf, isEntityReferenced, mapAllWhensInProject, removePlacedNpcs,
-  somePlacedNpc, someDialogue, removeDialogues, someWhenReferences } from "@/features/editor/core/editorProjectWalkers";
+import { safeTrim, upsertAsset, upsertAssetFile, removeAsset, removeAssetFile, removeEffectsInProject, sameVarDef } from "@/features/editor/core/editorGenericSlice";
+import {
+  collectDialogueIds, effectIsStartDialogueForAnyOf, isEntityReferenced, mapAllWhensInProject, mapCondition, removePlacedNpcs,
+  somePlacedNpc, someDialogue, removeDialogues
+} from "@/features/editor/core/editorProjectWalkers";
 import { hasDuplicateName } from "@/validation/genericValidator";
+import type { ID, NpcDef, Project, VarDef, AssetDef } from "@/domain/types";
 
 /* Contrato mínimo del store que necesita este slice */
 type EditorStoreLike = {
@@ -25,6 +27,27 @@ export interface EditorNpcSlice {
   removeNpcVar: (npcId: ID, varId: ID) => void;
   removeNpc: (id: ID) => void;
   isNpcReferenced: (id: ID) => boolean;
+}
+
+
+function removeNpcVarFromConditionsInProject(project: Project, npcId: ID, varId: ID): Project {
+  return mapAllWhensInProject(project, (when) =>
+    mapCondition(when, (c) => {
+      if (c.type === "npcVar" && c.npcId === npcId && c.varId === varId) return undefined;
+      return c;
+    })
+  );
+}
+
+function removeNpcFromConditionsInProject(project: Project, npcId: ID): Project {
+  return mapAllWhensInProject(project, (when) =>
+    mapCondition(when, (c) => {
+      if (c.type === "npcVar" && c.npcId === npcId) return undefined;
+      if (c.type === "placedNpcVisible" && c.npcId === npcId) return undefined;
+      if (c.type === "placedNpcReachable" && c.npcId === npcId) return undefined;
+      return c;
+    })
+  );
 }
 
 export function createEditorNpcSlice(set: (partial: Partial<EditorStoreLike> | ((state: EditorStoreLike) => Partial<EditorStoreLike> | EditorStoreLike)) => void,
@@ -191,7 +214,7 @@ export function createEditorNpcSlice(set: (partial: Partial<EditorStoreLike> | (
         const nextNpcs = npcs0.map((n) => (n.id === npcId ? nextNpc : n));
         project = { ...project, npcs: nextNpcs };
 
-        project = mapAllWhensInProject(project, (when) => stripNpcVarFromCondition(when, npcId, varId));
+        project = removeNpcVarFromConditionsInProject(project, npcId, varId);
 
         project = removeEffectsInProject(project, (e) => effectReferencesNpcVar(e, { npcId, varId }));
 
@@ -214,7 +237,7 @@ export function createEditorNpcSlice(set: (partial: Partial<EditorStoreLike> | (
           return false;
         });
 
-        project = mapAllWhensInProject(project, (when) => stripNpcFromCondition(when, id));
+        project = removeNpcFromConditionsInProject(project, id);
 
         project = removePlacedNpcs(project, (pn) => pn.npcId === id);
         project = removeDialogues(project, (d) => d.npcId === id);
@@ -240,9 +263,17 @@ export function createEditorNpcSlice(set: (partial: Partial<EditorStoreLike> | (
       const dialogueIds = collectDialogueIds(project, (d) => d.npcId === npcId);
 
       return isEntityReferenced(project, {
-        someSceneRef: (p) => somePlacedNpc(p, (pn) => pn.npcId === npcId) || someDialogue(p, (d) => d.npcId === npcId),
-        someWhenRef: (when) => someWhenReferences(when, (c: Condition) => c.type === "npcVar" && c.npcId === npcId),
-        someEffectRef: (e) => effectReferencesNpc(e, npcId) || effectIsStartDialogueForAnyOf(e, dialogueIds),
+        someSceneRef: (p) =>
+          somePlacedNpc(p, (pn) => pn.npcId === npcId) ||
+          someDialogue(p, (d) => d.npcId === npcId),
+        someWhenRef: (when) =>
+          conditionReferencesNpc(when, npcId) ||
+          (project.npcs ?? [])
+            .find((n) => n.id === npcId)
+            ?.vars?.some((v) => conditionReferencesNpcVar(when, { npcId, varId: v.id })) === true,
+        someEffectRef: (e) =>
+          effectReferencesNpc(e, npcId) ||
+          effectIsStartDialogueForAnyOf(e, dialogueIds),
       });
     },
   };

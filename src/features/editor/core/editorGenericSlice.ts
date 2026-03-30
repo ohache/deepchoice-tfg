@@ -1,18 +1,6 @@
-import type {
-  AssetDef,
-  ID,
-  Node,
-  Project,
-  VarDef,
-  InteractionRules,
-  PlayerDef,
-  SceneImageLayer,
-  NodeMeta,
-  ConditionalTextEntry,
-} from "@/domain/types";
+import type { AssetDef, ID, Node, Project, VarDef, InteractionRules, PlayerDef, SceneImageLayer,
+  NodeMeta, ConditionalTextEntry } from "@/domain/types";
 import type { Effect } from "@/domain/effects";
-import type { Condition } from "@/domain/conditions";
-import { mapAllWhensInProject, mapCondition } from "./editorProjectWalkers";
 import { buildAssetPath } from "@/store/assets/assetPath";
 import type { NodeDraftDTO } from "../scene/node/nodeSchemas";
 import { generateId } from "@/utils/id";
@@ -291,91 +279,6 @@ function removeEffectsInNode(node: Node, predicate: (e: Effect) => boolean): { n
     },
     touched: true,
   };
-}
-
-export function stripItemFromCondition(cond: Condition | undefined, placedItemId: ID): Condition | undefined {
-  if (!cond) return undefined;
-
-  switch (cond.type) {
-    case "hasItem":
-      return cond.placedItemId === placedItemId ? undefined : cond;
-
-    case "and": {
-      const all = (cond.all ?? [])
-        .map((c) => stripItemFromCondition(c, placedItemId))
-        .filter(Boolean) as Condition[];
-      if (all.length === 0) return undefined;
-      if (all.length === 1) return all[0];
-      return { ...cond, all };
-    }
-
-    case "or": {
-      const any = (cond.any ?? [])
-        .map((c) => stripItemFromCondition(c, placedItemId))
-        .filter(Boolean) as Condition[];
-      if (any.length === 0) return undefined;
-      if (any.length === 1) return any[0];
-      return { ...cond, any };
-    }
-
-    case "not": {
-      const inner = stripItemFromCondition(cond.cond, placedItemId);
-      if (!inner) return undefined;
-      return { ...cond, cond: inner };
-    }
-
-    default:
-      return cond;
-  }
-}
-
-export function removeItemFromConditionsInProject(project: Project, itemId: ID): Project {
-  return mapAllWhensInProject(project, (when) => {
-    const next = stripItemFromCondition(when, itemId);
-    return { when: next, touched: next !== when };
-  });
-}
-
-export function conditionReferencesItem(cond: Condition | undefined, placedItemId: ID): boolean {
-  if (!cond) return false;
-
-  switch (cond.type) {
-    case "hasItem":
-      return cond.placedItemId === placedItemId;
-
-    case "and":
-      return (cond.all ?? []).some((c) => conditionReferencesItem(c, placedItemId));
-
-    case "or":
-      return (cond.any ?? []).some((c) => conditionReferencesItem(c, placedItemId));
-
-    case "not":
-      return conditionReferencesItem(cond.cond, placedItemId);
-
-    default:
-      return false;
-  }
-}
-
-export function stripNpcVarFromCondition(when: Condition | undefined, npcId: ID, varId: ID): { when: Condition | undefined; touched: boolean } {
-  return mapCondition(when, (c: Condition) => {
-    if (c.type === "npcVar" && c.npcId === npcId && c.varId === varId) return undefined;
-    return c;
-  });
-}
-
-export function stripPlayerVarFromCondition(when: Condition | undefined, playerId: ID, varId: ID): { when: Condition | undefined; touched: boolean } {
-  return mapCondition(when, (c: Condition) => {
-    if (c.type === "playerVar" && c.playerId === playerId && c.varId === varId) return undefined;
-    return c;
-  });
-}
-
-export function stripNpcFromCondition(when: Condition | undefined, npcId: ID): { when: Condition | undefined; touched: boolean } {
-  return mapCondition(when, (c: Condition) => {
-    if (c.type === "npcVar" && c.npcId === npcId) return undefined;
-    return c;
-  });
 }
 
 export function sameVarDef(a: VarDef, b: VarDef): boolean {

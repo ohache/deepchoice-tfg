@@ -1,18 +1,12 @@
 import type { ID, PlayerDef, PlayerImage, Project, SceneImageLayer, VarDef, Node as StoryNode, PlacedPlayer } from "@/domain/types";
-import type { Condition } from "@/domain/conditions";
+import { conditionReferencesPlayer, conditionReferencesPlayerVar } from "@/domain/conditionRefs";
 import { effectReferencesPlayer, effectReferencesPlayerVar } from "@/domain/effectRefs";
 import { generateId } from "@/utils/id";
 import {
   safeTrim, upsertAsset, upsertAssetFile, removeAsset, removeAssetFile, removeEffectsInProject, ensureDefaultImageId, sameVarDef,
-  stripPlayerVarFromCondition,
-  fileExtFromName,
-  buildPlayerImageFilePath,
-  fileExtFromAssetPath
+  fileExtFromName, buildPlayerImageFilePath, fileExtFromAssetPath
 } from "@/features/editor/core/editorGenericSlice";
-import {
-  isEntityReferenced, mapAllWhensInProject, someWhenReferences, removePlayerFromConditionsInProject,
-  removePlacedPlayers, removeDialogues
-} from "@/features/editor/core/editorProjectWalkers";
+import { isEntityReferenced, mapAllWhensInProject, mapCondition, removePlacedPlayers, removeDialogues } from "@/features/editor/core/editorProjectWalkers";
 import { hasDuplicateName } from "@/validation/genericValidator";
 
 /* Contrato mínimo del store que necesita este slice */
@@ -36,6 +30,25 @@ export interface EditorPlayerSlice {
   removePlayerVar: (playerId: ID, varId: ID) => void;
   removePlayer: (playerId: ID) => void;
   isPlayerReferenced: (playerId: ID) => boolean;
+}
+
+function removePlayerVarFromConditionsInProject(project: Project, playerId: ID, varId: ID): Project {
+  return mapAllWhensInProject(project, (when) =>
+    mapCondition(when, (c) => {
+      if (c.type === "playerVar" && c.playerId === playerId && c.varId === varId) return undefined;
+      return c;
+    })
+  );
+}
+
+function removePlayerFromConditionsInProject(project: Project, playerId: ID): Project {
+  return mapAllWhensInProject(project, (when) =>
+    mapCondition(when, (c) => {
+      if (c.type === "playerVar" && c.playerId === playerId) return undefined;
+      if (c.type === "placedPlayerVisible" && c.playerId === playerId) return undefined;
+      return c;
+    })
+  );
 }
 
 export function createEditorPlayerSlice(set: (partial: Partial<EditorStoreLike> | ((state: EditorStoreLike) => Partial<EditorStoreLike> | EditorStoreLike)) => void,
@@ -85,8 +98,8 @@ export function createEditorPlayerSlice(set: (partial: Partial<EditorStoreLike> 
         const resA = upsertAsset(nextAssets, {
           id: imageId,
           kind: "players",
-          name: im.name,        
-          file: filePath,    
+          name: im.name,
+          file: filePath,
         });
         nextAssets = resA.assets;
 
@@ -155,8 +168,8 @@ export function createEditorPlayerSlice(set: (partial: Partial<EditorStoreLike> 
             const resA = upsertAsset(nextAssets, {
               id: assetId,
               kind: "players",
-              name: img.name,  
-              file: newPath, 
+              name: img.name,
+              file: newPath,
             });
 
             nextAssets = resA.assets;
@@ -276,8 +289,8 @@ export function createEditorPlayerSlice(set: (partial: Partial<EditorStoreLike> 
           nextAssets = upsertAsset(nextAssets, {
             id: assetId,
             kind: "players",
-            name: nextImg.name,  
-            file: newPath,      
+            name: nextImg.name,
+            file: newPath,
           }).assets;
         }
 
@@ -288,8 +301,8 @@ export function createEditorPlayerSlice(set: (partial: Partial<EditorStoreLike> 
           nextAssets = upsertAsset(nextAssets, {
             id: assetId,
             kind: "players",
-            name: nextImg.name, 
-            file: newPath,      
+            name: nextImg.name,
+            file: newPath,
           }).assets;
 
           nextAssetFiles = upsertAssetFile(nextAssetFiles, assetId, nextFile).assetFiles;
@@ -475,24 +488,9 @@ export function createEditorPlayerSlice(set: (partial: Partial<EditorStoreLike> 
         const nextPlayers = players0.map((pl) => (pl.id === playerId ? nextPlayer : pl));
         project = { ...project, players: nextPlayers };
 
-        // conditions
-        project = mapAllWhensInProject(project, (when) => stripPlayerVarFromCondition(when, playerId, varId));
+        project = removePlayerVarFromConditionsInProject(project, playerId, varId);
 
-        // effects (player var + relation var)
-        project = removeEffectsInProject(project, (e) => {
-          if (effectReferencesPlayerVar(e, { playerId, varId })) return true;
-
-          if (
-            e.type === "setRelationVar" ||
-            e.type === "toggleRelationVar" ||
-            e.type === "incRelationVar" ||
-            e.type === "decRelationVar"
-          ) {
-            return e.playerId === playerId && e.varId === varId;
-          }
-
-          return false;
-        });
+        project = removeEffectsInProject(project, (e) => effectReferencesPlayerVar(e, { playerId, varId }));
 
         return { ...state, project };
       }),
@@ -549,22 +547,13 @@ export function createEditorPlayerSlice(set: (partial: Partial<EditorStoreLike> 
 
       return isEntityReferenced(project, {
         someSceneRef: (p) =>
-          // placedPlayers en layers
           (p.nodes ?? []).some((n) =>
             (n.layers ?? []).some((layer) => (layer.placedPlayers ?? []).some((pp) => pp.playerId === playerId))
           ) ||
-          // diálogos
-          (p.nodes ?? []).some((n) => (n.layers ?? []).some((layer) => (layer.dialogues ?? []).some((d) => d.playerId === playerId))) ||
-          // diálogos globales (si los tienes fuera de layers; en tu types están en layer.dialogues)
-          false,
+          (p.nodes ?? []).some((n) => (n.dialogues ?? []).some((d) => d.playerId === playerId)),
 
-        someWhenRef: (when) =>
-          someWhenReferences(when, (c: Condition) => {
-            if (c.type === "playerVar" && c.playerId === playerId) return true;
-            if (c.type === "playerMemory" && c.playerId === playerId) return true;
-            if (c.type === "relationVar" && c.playerId === playerId) return true;
-            return false;
-          }),
+        someWhenRef: (when) => conditionReferencesPlayer(when, playerId) ||
+          (project.players ?? []).find((p) => p.id === playerId)?.vars?.some((v) => conditionReferencesPlayerVar(when, { playerId, varId: v.id })) === true,
 
         someEffectRef: (e) => effectReferencesPlayer(e, playerId),
       });

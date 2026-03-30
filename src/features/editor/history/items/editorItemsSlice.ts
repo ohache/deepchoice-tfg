@@ -1,9 +1,11 @@
 import type { ID, Project, ItemDef, AssetDef } from "@/domain/types";
-import { effectReferencesItem } from "@/domain/effectRefs";
+import { effectReferencesPlacedItem } from "@/domain/effectRefs";
 import { hasDuplicateName } from "@/validation/genericValidator";
 import { generateId } from "@/utils/id";
 import { buildAssetPath } from "@/store/assets/assetPath";
-import { safeTrim, upsertAsset, upsertAssetFile, removeAsset, removeAssetFile, removeEffectsInProject, removeItemFromConditionsInProject, conditionReferencesItem } from "@/features/editor/core/editorGenericSlice";
+import { safeTrim, upsertAsset, upsertAssetFile, removeAsset, removeAssetFile, removeEffectsInProject } from "@/features/editor/core/editorGenericSlice";
+import { conditionReferencesPlacedItem } from "@/domain/conditionRefs";
+import { mapAllWhensInProject, mapCondition } from "@/features/editor/core/editorProjectWalkers";
 import { removePlacedItems, somePlacedItem, isEntityReferenced } from "@/features/editor/core/editorProjectWalkers";
 
 /* Mínimo contrato del store que necesita este slice */
@@ -20,6 +22,19 @@ export interface EditorItemsSlice {
   updateItem: (id: ID, changes: { name?: string; description?: string; file?: File | null }) => void;
   removeItem: (id: ID) => void;
   isItemReferenced: (id: ID) => boolean;
+}
+
+function removePlacedItemsFromConditionsInProject(project: Project, placedItemIds: Set<ID>): Project {
+  return mapAllWhensInProject(project, (when) => {
+    const res = mapCondition(when, (c) => {
+      if (c.type === "hasItem" && placedItemIds.has(c.placedItemId)) return undefined;
+      if (c.type === "placedItemVisible" && placedItemIds.has(c.placedItemId)) return undefined;
+      if (c.type === "placedItemReachable" && placedItemIds.has(c.placedItemId)) return undefined;
+      return c;
+    });
+
+    return res;
+  });
 }
 
 export function createEditorItemsSlice(set: (partial: Partial<EditorStoreLike> | ((state: EditorStoreLike) => Partial<EditorStoreLike> | EditorStoreLike)) => void,
@@ -126,9 +141,21 @@ export function createEditorItemsSlice(set: (partial: Partial<EditorStoreLike> |
         const exists = items0.some((x) => x.id === id);
         if (!exists) return state;
 
-        let project = removeEffectsInProject(project0, (e) => effectReferencesItem(e, id));
+        const placedItemIdsToRemove = new Set(
+          (project0.nodes ?? []).flatMap((node) =>
+            (node.layers ?? []).flatMap((layer) =>
+              (layer.placedItems ?? [])
+                .filter((pi) => pi.itemId === id)
+                .map((pi) => pi.id)
+            )
+          )
+        );
 
-        project = removeItemFromConditionsInProject(project, id);
+        let project = removeEffectsInProject(project0, (e) =>
+          Array.from(placedItemIdsToRemove).some((placedItemId) => effectReferencesPlacedItem(e, placedItemId))
+        );
+
+        project = removePlacedItemsFromConditionsInProject(project, placedItemIdsToRemove);
 
         project = removePlacedItems(project, (pi) => pi.itemId === id);
 
@@ -150,10 +177,20 @@ export function createEditorItemsSlice(set: (partial: Partial<EditorStoreLike> |
       const { project } = get();
       if (!project) return false;
 
+      const placedItemIds = new Set(
+        (project.nodes ?? []).flatMap((node) =>
+          (node.layers ?? []).flatMap((layer) =>
+            (layer.placedItems ?? [])
+              .filter((pi) => pi.itemId === itemId)
+              .map((pi) => pi.id)
+          )
+        )
+      );
+
       return isEntityReferenced(project, {
         someSceneRef: (p) => somePlacedItem(p, (pi) => pi.itemId === itemId),
-        someWhenRef: (when) => conditionReferencesItem(when, itemId),
-        someEffectRef: (e) => effectReferencesItem(e, itemId),
+        someWhenRef: (when) => Array.from(placedItemIds).some((placedItemId) => conditionReferencesPlacedItem(when, placedItemId)),
+        someEffectRef: (e) => Array.from(placedItemIds).some((placedItemId) => effectReferencesPlacedItem(e, placedItemId)),
       });
     },
   };

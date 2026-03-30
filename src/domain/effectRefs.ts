@@ -1,5 +1,5 @@
-import type { ID } from "@/domain/types";
-import type { Effect, EffectType } from "@/domain/effects";
+import type { ID } from "@/domain/types"
+import type { Effect, EffectType} from "@/domain/effects";
 
 type OwnerVarRef = Readonly<{ ownerId: ID; varId: ID }>;
 
@@ -16,8 +16,6 @@ export type EffectRefs = Partial<{
   hotspotVars: readonly OwnerVarRef[];
   playerVars: readonly OwnerVarRef[];
   npcVars: readonly OwnerVarRef[];
-  mapIds: readonly ID[];
-  mapRegionIds: readonly ID[];
 }>;
 
 /* Helper para crear extractores por type manteniendo tipado por unión discriminada */
@@ -38,72 +36,32 @@ const EXTRACT_REFS: ExtractorMap = {
 
   showMessage: (_e) => ({}),
 
-  setPlacedItemVisible: (e) => ({ nodeIds: [e.nodeId], placedItemIds: [e.placedItemId] }),
-  setPlacedItemReachable: (e) => ({ nodeIds: [e.nodeId], placedItemIds: [e.placedItemId] }),
+  setPlacedItemVisible: (e) => ({ placedItemIds: [e.placedItemId] }),
+  setPlacedItemReachable: (e) => ({ placedItemIds: [e.placedItemId] }),
 
   setHotspotVisible: (e) => ({ hotspotIds: [e.hotspotId] }),
   setHotspotReachable: (e) => ({ hotspotIds: [e.hotspotId] }),
 
-  setHotspotVar: (e) => ({
-    hotspotIds: [e.hotspotId],
-    hotspotVars: [{ ownerId: e.hotspotId, varId: e.varId }],
-  }),
-  toggleHotspotVar: (e) => ({
-    hotspotIds: [e.hotspotId],
-    hotspotVars: [{ ownerId: e.hotspotId, varId: e.varId }],
-  }),
-  incHotspotVar: (e) => ({
-    hotspotIds: [e.hotspotId],
-    hotspotVars: [{ ownerId: e.hotspotId, varId: e.varId }],
-  }),
-  decHotspotVar: (e) => ({
-    hotspotIds: [e.hotspotId],
-    hotspotVars: [{ ownerId: e.hotspotId, varId: e.varId }],
-  }),
+  setHotspotVar: (e) => ({ hotspotIds: [e.hotspotId], hotspotVars: [{ ownerId: e.hotspotId, varId: e.varId }] }),
+  toggleHotspotVar: (e) => ({ hotspotIds: [e.hotspotId], hotspotVars: [{ ownerId: e.hotspotId, varId: e.varId }] }),
+  incHotspotVar: (e) => ({ hotspotIds: [e.hotspotId], hotspotVars: [{ ownerId: e.hotspotId, varId: e.varId }] }),
+  decHotspotVar: (e) => ({ hotspotIds: [e.hotspotId], hotspotVars: [{ ownerId: e.hotspotId, varId: e.varId }] }),
 
-  setPlacedPlayerVisible: (e) => ({ nodeIds: [e.nodeId], playerIds: [e.playerId] }),
-  setPlacedPlayerImage: (e) => ({
-    nodeIds: [e.nodeId],
-    playerIds: [e.playerId],
-    imageAssetIds: [e.imageId],
-  }),
+  setPlacedPlayerVisible: (e) => ({ playerIds: [e.playerId] }),
+  setPlacedPlayerImage: (e) => ({ playerIds: [e.playerId], imageAssetIds: [e.imageId] }),
 
-  setPlacedNpcVisible: (e) => ({ nodeIds: [e.nodeId], npcIds: [e.npcId] }),
-  setPlacedNpcReachable: (e) => ({ nodeIds: [e.nodeId], npcIds: [e.npcId] }),
+  setPlacedNpcVisible: (e) => ({ npcIds: [e.npcId] }),
+  setPlacedNpcReachable: (e) => ({ npcIds: [e.npcId] }),
 
-  setPlayerVar: (e) => ({
-    playerIds: [e.playerId],
-    playerVars: [{ ownerId: e.playerId, varId: e.varId }],
-  }),
-  togglePlayerVar: (e) => ({
-    playerIds: [e.playerId],
-    playerVars: [{ ownerId: e.playerId, varId: e.varId }],
-  }),
-  incPlayerVar: (e) => ({
-    playerIds: [e.playerId],
-    playerVars: [{ ownerId: e.playerId, varId: e.varId }],
-  }),
-  decPlayerVar: (e) => ({
-    playerIds: [e.playerId],
-    playerVars: [{ ownerId: e.playerId, varId: e.varId }],
-  }),
+  setPlayerVar: (e) => ({ playerIds: [e.playerId], playerVars: [{ ownerId: e.playerId, varId: e.varId }] }),
+  togglePlayerVar: (e) => ({ playerIds: [e.playerId], playerVars: [{ ownerId: e.playerId, varId: e.varId }] }),
+  incPlayerVar: (e) => ({ playerIds: [e.playerId], playerVars: [{ ownerId: e.playerId, varId: e.varId }] }),
+  decPlayerVar: (e) => ({ playerIds: [e.playerId], playerVars: [{ ownerId: e.playerId, varId: e.varId }] }),
 
-  setNpcVar: (e) => ({
-    npcIds: [e.npcId],
-    npcVars: [{ ownerId: e.npcId, varId: e.varId }],
-  }),
-  toggleNpcVar: (e) => ({
-    npcIds: [e.npcId],
-    npcVars: [{ ownerId: e.npcId, varId: e.varId }],
-  }),
-  incNpcVar: (e) => ({
-    npcIds: [e.npcId],
-    npcVars: [{ ownerId: e.npcId, varId: e.varId }],
-  }),
-  decNpcVar: (e) => ({
-    npcIds: [e.npcId],
-    npcVars: [{ ownerId: e.npcId, varId: e.varId }],
-  }),
+  setNpcVar: (e) => ({ npcIds: [e.npcId], npcVars: [{ ownerId: e.npcId, varId: e.varId }] }),
+  toggleNpcVar: (e) => ({ npcIds: [e.npcId], npcVars: [{ ownerId: e.npcId, varId: e.varId }] }),
+  incNpcVar: (e) => ({ npcIds: [e.npcId], npcVars: [{ ownerId: e.npcId, varId: e.varId }] }),
+  decNpcVar: (e) => ({ npcIds: [e.npcId], npcVars: [{ ownerId: e.npcId, varId: e.varId }] }),
 
   playSfx: (e) => ({ sfxIds: [e.sfxId] }),
 
@@ -111,23 +69,15 @@ const EXTRACT_REFS: ExtractorMap = {
   pauseMusic: (_e) => ({}),
   stopMusic: (_e) => ({}),
 
-  setMapRegionAvailable: (e) => ({
-    mapIds: [e.mapId],
-    mapRegionIds: [e.regionId],
-  }),
-
+  setMapRegionAvailable: (_e) => ({}),
   endGame: (_e) => ({}),
 };
 
 function getEffectRefs(e: Effect): EffectRefs {
-  return EXTRACT_REFS[e.type](e as never);
+  return EXTRACT_REFS[e.type](e as any);
 }
 
 /* Predicados listos para slices */
-export function effectReferencesItem(e: Effect, itemId: ID): boolean {
-  const refs = getEffectRefs(e);
-  return (refs.placedItemIds ?? []).includes(itemId);
-}
 
 export function effectReferencesNpc(e: Effect, npcId: ID): boolean {
   const refs = getEffectRefs(e);
@@ -172,16 +122,6 @@ export function effectReferencesSfx(e: Effect, sfxId: ID): boolean {
 export function effectReferencesMusicTrack(e: Effect, trackId: ID): boolean {
   const refs = getEffectRefs(e);
   return (refs.musicTrackIds ?? []).includes(trackId);
-}
-
-export function effectReferencesMap(e: Effect, mapId: ID): boolean {
-  const refs = getEffectRefs(e);
-  return (refs.mapIds ?? []).includes(mapId);
-}
-
-export function effectReferencesMapRegion(e: Effect, regionId: ID): boolean {
-  const refs = getEffectRefs(e);
-  return (refs.mapRegionIds ?? []).includes(regionId);
 }
 
 export function effectReferencesNpcVar(e: Effect, input: { npcId: ID; varId: ID }): boolean {

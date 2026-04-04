@@ -1,12 +1,13 @@
-import type { ID, Project, ItemDef, AssetDef } from "@/domain/types";
+import type { ID, Project, ItemDef } from "@/domain/types";
+import { conditionReferencesPlacedItem } from "@/domain/conditionRefs";
 import { effectReferencesPlacedItem } from "@/domain/effectRefs";
 import { hasDuplicateName } from "@/validation/genericValidator";
 import { generateId } from "@/utils/id";
 import { buildAssetPath } from "@/store/assets/assetPath";
-import { safeTrim, upsertAsset, upsertAssetFile, removeAsset, removeAssetFile, removeEffectsInProject } from "@/features/editor/core/editorGenericSlice";
-import { conditionReferencesPlacedItem } from "@/domain/conditionRefs";
-import { mapAllWhensInProject, mapCondition } from "@/features/editor/core/editorProjectWalkers";
-import { removePlacedItems, somePlacedItem, isEntityReferenced } from "@/features/editor/core/editorProjectWalkers";
+import { safeTrim, upsertAsset, upsertAssetFile, removeAsset, removeAssetFile } from "@/features/editor/core/editorGenericSlice";
+import { removePlacedItems, somePlacedItem, isEntityReferenced, removeEffectsInProject, removeConditionsInProject, collectPlaced } from "@/features/editor/core/editorProjectWalkers";
+import { findAssetByIdAndKind, removeById, replaceById } from "@/features/editor/history/shared/assetBackedEntityHelpers";
+import { collectIds, someReferenceForIds, nextSelectedAfterRemoval } from "@/features/editor/history/shared/genericHelpers";
 
 /* Mínimo contrato del store que necesita este slice */
 type EditorStoreLike = {
@@ -24,19 +25,6 @@ export interface EditorItemsSlice {
   isItemReferenced: (id: ID) => boolean;
 }
 
-function removePlacedItemsFromConditionsInProject(project: Project, placedItemIds: Set<ID>): Project {
-  return mapAllWhensInProject(project, (when) => {
-    const res = mapCondition(when, (c) => {
-      if (c.type === "hasItem" && placedItemIds.has(c.placedItemId)) return undefined;
-      if (c.type === "placedItemVisible" && placedItemIds.has(c.placedItemId)) return undefined;
-      if (c.type === "placedItemReachable" && placedItemIds.has(c.placedItemId)) return undefined;
-      return c;
-    });
-
-    return res;
-  });
-}
-
 export function createEditorItemsSlice(set: (partial: Partial<EditorStoreLike> | ((state: EditorStoreLike) => Partial<EditorStoreLike> | EditorStoreLike)) => void,
   get: () => EditorStoreLike): EditorItemsSlice {
   return {
@@ -44,153 +32,154 @@ export function createEditorItemsSlice(set: (partial: Partial<EditorStoreLike> |
 
     setSelectedItemId: (id) => set({ selectedItemId: id }),
 
+    /* Añade item */
     addItem: (input) => {
       const { project, assetFiles } = get();
       if (!project) return null;
 
-      const safeName = safeTrim(input?.name);
-      const safeDesc = safeTrim(input?.description);
-
-      if (!safeName) return null;
-
+      const nextName = safeTrim(input?.name);
+      const nextDescription = safeTrim(input?.description);
       const file = input?.file;
+
+      if (!nextName) return null;
       if (!(file instanceof File)) return null;
 
-      const currentItems = project.items ?? [];
-      if (hasDuplicateName({ list: currentItems, incomingName: safeName })) return null;
+      if (hasDuplicateName({ list: project.items, incomingName: nextName })) return null;
 
       const id = generateId.item();
       const filePath = buildAssetPath("items", file.name);
 
-      const newItem: ItemDef = { id, name: safeName, ...(safeDesc ? { description: safeDesc } : null) };
+      const newItem: ItemDef = {
+        id,
+        name: nextName,
+        ...(nextDescription ? { description: nextDescription } : null),
+      };
 
-      const assets0: AssetDef[] = project.assets ?? [];
-      const resA = upsertAsset(assets0, { id, kind: "items", name: safeName, file: filePath });
-      const resF = upsertAssetFile(assetFiles, id, file);
+      const assetResult = upsertAsset(project.assets, { id, kind: "items", name: nextName, file: filePath });
+
+      const fileResult = upsertAssetFile(assetFiles, id, file);
 
       set({
-        project: { ...project, items: [...currentItems, newItem], assets: resA.assets },
-        assetFiles: resF.assetFiles,
+        project: {
+          ...project,
+          items: [...project.items, newItem],
+          assets: assetResult.assets,
+        },
+        assetFiles: fileResult.assetFiles,
         selectedItemId: id,
       });
 
       return id;
     },
 
+    /* Actualiza nombre, descripción y/o fichero */
     updateItem: (id, changes) =>
       set((state) => {
         if (!state.project) return state;
+
         const project = state.project;
+        const prevItem = project.items.find((item) => item.id === id);
+        if (!prevItem) return state;
 
-        const itemList = project.items ?? [];
-        const prev = itemList.find((x) => x.id === id);
-        if (!prev) return state;
+        const nextName = typeof changes.name === "string" ? safeTrim(changes.name) : "";
+        const nameChanged = Boolean(nextName) && nextName !== prevItem.name;
 
-        const nextNameRaw = typeof changes.name === "string" ? changes.name.trim() : "";
-        const nameChanged = Boolean(nextNameRaw) && nextNameRaw !== prev.name;
+        if (nameChanged && hasDuplicateName({ list: project.items, incomingName: nextName, ignoreId: id })) return state;
 
-        if (nameChanged) {
-          if (hasDuplicateName({ list: itemList, incomingName: nextNameRaw, ignoreId: id })) return state;
-        }
+        const nextDescription = typeof changes.description === "string" ? safeTrim(changes.description) : "";
 
-        const nextDescRaw = typeof changes.description === "string" ? changes.description.trim() : "";
-        const prevDescRaw = String(prev.description ?? "").trim();
-        const descChanged = typeof changes.description === "string" && nextDescRaw !== prevDescRaw;
+        const prevDescription = safeTrim(prevItem.description);
+        const descriptionChanged = typeof changes.description === "string" && nextDescription !== prevDescription;
 
         const nextFile = changes.file instanceof File ? changes.file : null;
         const fileChanged = Boolean(nextFile);
 
-        if (!nameChanged && !descChanged && !fileChanged) return state;
+        if (!nameChanged && !descriptionChanged && !fileChanged) return state;
 
         const nextItem: ItemDef = {
-          ...prev,
-          ...(nameChanged ? { name: nextNameRaw } : null),
-          ...(descChanged ? { description: nextDescRaw || undefined } : null),
+          ...prevItem,
+          ...(nameChanged ? { name: nextName } : null),
+          ...(descriptionChanged ? { description: nextDescription || undefined } : null),
         };
 
-        let nextAssets = project.assets ?? [];
-        const existingAsset = nextAssets.find((a) => a.id === id && a.kind === "items") ?? null;
-
-        if (nameChanged && existingAsset) {
-          nextAssets = upsertAsset(nextAssets, { id, kind: "items", name: nextItem.name, file: String(existingAsset.file ?? "").trim() }).assets;
-        }
-
+        let nextAssets = project.assets;
         let nextAssetFiles = state.assetFiles;
 
+        const existingAsset = findAssetByIdAndKind(nextAssets, id, "items");
+
+        if (nameChanged && existingAsset) {
+          const assetResult = upsertAsset(nextAssets, { id, kind: "items", name: nextItem.name, file: safeTrim(existingAsset.file) });
+          nextAssets = assetResult.assets;
+        }
+
         if (fileChanged && nextFile) {
-          const newPath = buildAssetPath("items", nextFile.name);
+          const filePath = buildAssetPath("items", nextFile.name);
 
-          nextAssets = upsertAsset(nextAssets, { id, kind: "items", name: nextItem.name, file: newPath }).assets;
+          const assetResult = upsertAsset(nextAssets, { id, kind: "items", name: nextItem.name, file: filePath });
+          nextAssets = assetResult.assets;
 
-          nextAssetFiles = upsertAssetFile(nextAssetFiles, id, nextFile).assetFiles;
+          const fileResult = upsertAssetFile(nextAssetFiles, id, nextFile);
+          nextAssetFiles = fileResult.assetFiles;
         }
 
         return {
           ...state,
-          project: { ...project, items: itemList.map((x) => (x.id === id ? nextItem : x)), assets: nextAssets },
+          project: {
+            ...project,
+            items: replaceById(project.items, id, nextItem),
+            assets: nextAssets,
+          },
           assetFiles: nextAssetFiles,
         };
       }),
 
+    /* Elimina un item */
     removeItem: (id) =>
       set((state) => {
         if (!state.project) return state;
-        const project0 = state.project;
+        if (!state.project.items.some((item) => item.id === id)) return state;
 
-        const items0 = project0.items ?? [];
-        const exists = items0.some((x) => x.id === id);
-        if (!exists) return state;
+        const placedItemIds = collectIds(collectPlaced(state.project, "placedItems", (placedItem) => placedItem.itemId === id), (placedItem) => placedItem.id);
 
-        const placedItemIdsToRemove = new Set(
-          (project0.nodes ?? []).flatMap((node) =>
-            (node.layers ?? []).flatMap((layer) =>
-              (layer.placedItems ?? [])
-                .filter((pi) => pi.itemId === id)
-                .map((pi) => pi.id)
-            )
-          )
+        let project = removeEffectsInProject(state.project, (effect) => someReferenceForIds(placedItemIds, effect, effectReferencesPlacedItem));
+
+        project = removeConditionsInProject(project,
+          (condition) =>
+            (condition.type === "hasItem" && placedItemIds.has(condition.placedItemId)) ||
+            (condition.type === "placedItemVisible" && placedItemIds.has(condition.placedItemId)) ||
+            (condition.type === "placedItemReachable" && placedItemIds.has(condition.placedItemId)),
         );
 
-        let project = removeEffectsInProject(project0, (e) =>
-          Array.from(placedItemIdsToRemove).some((placedItemId) => effectReferencesPlacedItem(e, placedItemId))
-        );
+        project = removePlacedItems(project, (placedItem) => placedItem.itemId === id);
 
-        project = removePlacedItemsFromConditionsInProject(project, placedItemIdsToRemove);
-
-        project = removePlacedItems(project, (pi) => pi.itemId === id);
-
-        const remainingItems = (project.items ?? []).filter((x) => x.id !== id);
-
-        const nextSelected = state.selectedItemId === id ? null : state.selectedItemId;
-
-        const remA = removeAsset(project.assets ?? [], { id, kind: "items" });
-        const remF = removeAssetFile(state.assetFiles, id);
+        const assetResult = removeAsset(project.assets, { id, kind: "items" });
+        const fileResult = removeAssetFile(state.assetFiles, id);
 
         return {
-          project: { ...project, items: remainingItems, assets: remA.assets },
-          assetFiles: remF.assetFiles,
-          selectedItemId: nextSelected,
+          ...state,
+          project: {
+            ...project,
+            items: removeById(project.items, id),
+            assets: assetResult.assets,
+          },
+          assetFiles: fileResult.assetFiles,
+          selectedItemId: nextSelectedAfterRemoval(state.selectedItemId, id),
         };
       }),
 
+    /* Comprueba si un item global está referenciado */
     isItemReferenced: (itemId: ID) => {
       const { project } = get();
       if (!project) return false;
 
-      const placedItemIds = new Set(
-        (project.nodes ?? []).flatMap((node) =>
-          (node.layers ?? []).flatMap((layer) =>
-            (layer.placedItems ?? [])
-              .filter((pi) => pi.itemId === itemId)
-              .map((pi) => pi.id)
-          )
-        )
-      );
+      const placedItemIds = collectIds(collectPlaced(project, "placedItems", (placedItem) => placedItem.itemId === itemId), (placedItem) => placedItem.id);
 
       return isEntityReferenced(project, {
-        someSceneRef: (p) => somePlacedItem(p, (pi) => pi.itemId === itemId),
-        someWhenRef: (when) => Array.from(placedItemIds).some((placedItemId) => conditionReferencesPlacedItem(when, placedItemId)),
-        someEffectRef: (e) => Array.from(placedItemIds).some((placedItemId) => effectReferencesPlacedItem(e, placedItemId)),
+        someSceneRef: (currentProject) => somePlacedItem(currentProject, (placedItem) => placedItem.itemId === itemId),
+
+        someWhenRef: (when) => someReferenceForIds(placedItemIds, when, conditionReferencesPlacedItem),
+
+        someEffectRef: (effect) => someReferenceForIds(placedItemIds, effect, effectReferencesPlacedItem),
       });
     },
   };

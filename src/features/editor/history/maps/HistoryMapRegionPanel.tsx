@@ -1,10 +1,9 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { ID, MapRegion } from "@/domain/types";
 import { useEditorStore } from "@/store/editorStore";
 import { RegionStatusNotice } from "@/features/editor/scene/interactiveComponents/RegionStatusNotice";
 import { Pencil, ImageIcon } from "lucide-react";
 import { toast } from "@/shared/toast/toastStore";
-
 
 type HistoryMapRegionsPanelProps = {
   mapId: ID;
@@ -43,19 +42,30 @@ export function HistoryMapRegionsPanel({ mapId, mapVisualType, isRegionMode, pan
 
   const addMapRegionImageAsset = useEditorStore((s) => s.addMapRegionImageAsset);
 
-  const selectedMap = (project?.maps ?? []).find((m) => m.id === mapId) ?? null;
-
-  const musicTracks = project?.musicTracks ?? [];
-  const allMaps = project?.maps ?? [];
-  const regions = selectedMap?.regions ?? [];
-  const subMapOptions = allMaps.filter((map) => map.id !== mapId);
-
-  const selectedRegionId = mapRegionEditor.selection.regionId;
-  const selectedRegion = selectedRegionId && selectedMap ? regions.find((r) => r.id === selectedRegionId) ?? null : null;
-
-  const draft = mapRegionEditor.draft;
   const labelInputRef = useRef<HTMLInputElement | null>(null);
   const regionImageInputRef = useRef<HTMLInputElement | null>(null);
+
+  const selectedMap = useMemo(
+    () => (project?.maps ?? []).find((map) => map.id === mapId) ?? null,
+    [project, mapId],
+  );
+
+  const musicTracks = useMemo(() => project?.musicTracks ?? [], [project]);
+  const allMaps = useMemo(() => project?.maps ?? [], [project]);
+  const regions = useMemo(() => selectedMap?.regions ?? [], [selectedMap]);
+  const subMapOptions = useMemo(
+    () => allMaps.filter((map) => map.id !== mapId),
+    [allMaps, mapId],
+  );
+
+  const selectedRegionId = mapRegionEditor.selection.regionId;
+
+  const selectedRegion = useMemo(() => {
+    if (!selectedRegionId || !selectedMap) return null;
+    return regions.find((region) => region.id === selectedRegionId) ?? null;
+  }, [selectedRegionId, selectedMap, regions]);
+
+  const draft = mapRegionEditor.draft;
 
   const isEditing = mapRegionEditor.mode.type !== "idle" && !!draft;
   const isDrawing = mapRegionEditor.mode.type === "drawing";
@@ -64,12 +74,18 @@ export function HistoryMapRegionsPanel({ mapId, mapVisualType, isRegionMode, pan
   const isComposedMap = mapVisualType === "composed";
 
   useEffect(() => {
-    if (mapRegionEditor.mode.type === "editing" && draft?.shape) labelInputRef.current?.focus();
+    if (mapRegionEditor.mode.type === "editing" && draft?.shape) {
+      labelInputRef.current?.focus();
+    }
   }, [mapRegionEditor.mode.type, draft?.id, draft?.shape]);
 
-  const openRegionImagePicker = () => {
-    regionImageInputRef.current?.click();
+  const resetRegionEditor = () => {
+    cancelMapRegionDraft();
+    clearMapRegionEditor();
+    setMapRegionSelection({ regionId: null });
   };
+
+  const openRegionImagePicker = () => { regionImageInputRef.current?.click() };
 
   const handleRegionImageSelected = (file?: File | null) => {
     if (!file) return;
@@ -92,7 +108,9 @@ export function HistoryMapRegionsPanel({ mapId, mapVisualType, isRegionMode, pan
 
   const handleStartNew = () => {
     setPanelError(null);
+
     if (selectedMapId !== mapId) setSelectedMapId(mapId);
+
     onEnterRegionMode();
 
     if (isComposedMap) {
@@ -106,15 +124,11 @@ export function HistoryMapRegionsPanel({ mapId, mapVisualType, isRegionMode, pan
   const handleSelectRegion = (region: MapRegion) => {
     if (selectedMapId !== mapId) setSelectedMapId(mapId);
 
-    const isSameRegionOpen = isRegionMode &&
-      mapRegionEditor.mode.type === "editing" &&
-      mapRegionEditor.selection.regionId === region.id;
+    const isSameRegionOpen = isRegionMode && mapRegionEditor.mode.type === "editing" && mapRegionEditor.selection.regionId === region.id;
 
     if (isSameRegionOpen) {
       setPanelError(null);
-      cancelMapRegionDraft();
-      clearMapRegionEditor();
-      setMapRegionSelection({ regionId: null });
+      resetRegionEditor();
       return;
     }
 
@@ -143,13 +157,13 @@ export function HistoryMapRegionsPanel({ mapId, mapVisualType, isRegionMode, pan
       return;
     }
 
-    clearMapRegionEditor();
-    setMapRegionSelection({ regionId: null });
+    resetRegionEditor();
     toast.success("Región guardada", "La región del mapa se ha guardado correctamente.");
   };
 
   const handleDelete = () => {
     if (!selectedRegionId) return;
+
     const deletedName = selectedRegion?.label ?? "Región";
     removeMapRegion(selectedRegionId);
     toast.success("Región eliminada", `“${deletedName}”`);
@@ -157,9 +171,7 @@ export function HistoryMapRegionsPanel({ mapId, mapVisualType, isRegionMode, pan
 
   const handleCancel = () => {
     setPanelError(null);
-    cancelMapRegionDraft();
-    clearMapRegionEditor();
-    setMapRegionSelection({ regionId: null });
+    resetRegionEditor();
   };
 
   if (!project || !selectedMap) return null;
@@ -211,8 +223,8 @@ export function HistoryMapRegionsPanel({ mapId, mapVisualType, isRegionMode, pan
           {regions.length > 0 ? (
             <div className="pt-1 flex flex-col items-center gap-2">
               {regions.map((region) => {
-
-                const isSelected = isRegionMode &&
+                const isSelected =
+                  isRegionMode &&
                   mapRegionEditor.mode.type === "editing" &&
                   mapRegionEditor.selection.regionId === region.id;
 
@@ -224,12 +236,10 @@ export function HistoryMapRegionsPanel({ mapId, mapVisualType, isRegionMode, pan
                       e.stopPropagation();
                       handleSelectRegion(region);
                     }}
-                    className={
-                      "flex items-center gap-2 rounded-md border px-3 py-2 select-none w-full text-left transition-colors " +
+                    className={"flex items-center gap-2 rounded-md border px-3 py-2 select-none w-full text-left transition-colors " +
                       (isSelected
                         ? "border-amber-500 bg-amber-900/40 text-white"
-                        : "border-slate-700 bg-slate-900 hover:bg-amber-900/40 text-slate-200")
-                    }
+                        : "border-slate-700 bg-slate-900 hover:bg-amber-900/40 text-slate-200")}
                     title={isSelected ? "Click: colapsar" : "Click: editar región"}
                   >
                     <div className="flex-1 min-w-0">
@@ -281,7 +291,7 @@ export function HistoryMapRegionsPanel({ mapId, mapVisualType, isRegionMode, pan
                   />
 
                   {isComposedMap ? (
-                  <button
+                    <button
                       type="button"
                       disabled={isDrawing}
                       className="btn border-2 border-slate-700 bg-slate-900 hover:bg-slate-800 text-[11px] text-white disabled:opacity-40"
@@ -296,11 +306,9 @@ export function HistoryMapRegionsPanel({ mapId, mapVisualType, isRegionMode, pan
                     type="button"
                     className="btn border-2 border-slate-700 bg-slate-900 hover:bg-slate-800 text-xs text-white"
                     onClick={startRedrawMapRegionShape}
-                    title={
-                      isDrawing
-                        ? "Termina o cancela el dibujo actual antes de editar la región"
-                        : "Editar región"
-                    }
+                    title={isDrawing
+                      ? "Termina o cancela el dibujo actual antes de editar la región"
+                      : "Editar región"}
                     disabled={isDrawing}
                   >
                     <Pencil className="w-4 h-4" />
@@ -389,15 +397,9 @@ export function HistoryMapRegionsPanel({ mapId, mapVisualType, isRegionMode, pan
                     type="button"
                     onClick={handleSave}
                     className="px-2 py-1 rounded-md border border-emerald-700 bg-emerald-800/30 text-emerald-100 hover:bg-emerald-700/40 text-[11px]"
-                    title={
-                      isDrawing
-                        ? "Termina o cancela el dibujo actual antes de guardar"
-                        : !hasShape
-                          ? "Dibuja una región válida antes de guardar"
-                          : !(draft?.label ?? "").trim()
-                            ? "La etiqueta es obligatoria"
-                            : undefined
-                    }
+                    title={isDrawing ? "Termina o cancela el dibujo actual antes de guardar" : !hasShape
+                      ? "Dibuja una región válida antes de guardar" : !(draft?.label ?? "").trim()
+                        ? "La etiqueta es obligatoria" : undefined}
                   >
                     Guardar
                   </button>

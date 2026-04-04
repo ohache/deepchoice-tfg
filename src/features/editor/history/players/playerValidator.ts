@@ -18,11 +18,10 @@ function ensureImgErr(errors: PlayerFieldErrors, imgId: ID): AssetDraftFieldErro
 }
 
 function pickPlayerCoverFile(input: PlayerDraftInput): File | undefined {
-  const imgs = input.images ?? [];
-  if (imgs.length === 0) return undefined;
+  if (input.images.length === 0) return undefined;
 
-  const def = imgs.find((i) => i.id === input.defaultImageId);
-  return (def?.file ?? imgs[0]?.file ?? undefined);
+  const defaultImage = input.images.find((i) => i.id === input.defaultImageId);
+  return defaultImage?.file ?? input.images[0]?.file ?? undefined;
 }
 
 function validatePlayerImagesDraft(args: { input: PlayerDraftInput; project: Project }): ImageErrors {
@@ -30,11 +29,13 @@ function validatePlayerImagesDraft(args: { input: PlayerDraftInput; project: Pro
   const out: ImageErrors = {};
 
   const ids = input.images.map((i) => i.id);
-  const set = new Set(ids);
-  if (set.size !== ids.length) out.images = out.images ?? "Hay imágenes con id repetido.";
+  if (new Set(ids).size !== ids.length) out.images = out.images ?? "Hay imágenes con id repetido.";
 
-  const imageList: Array<{ id: ID; name: string }> = (project.players ?? []).flatMap((p) =>
-    (p.images ?? []).map((img) => ({ id: img.id, name: img.name }))
+  const normalizedNames = input.images.map((i) => i.name.trim().toLowerCase());
+  if (new Set(normalizedNames).size !== normalizedNames.length) out.images = out.images ?? "Hay imágenes con nombre repetido.";
+
+  const imageList: Array<{ id: ID; name: string }> = project.players.flatMap((p) =>
+    p.images.map((img) => ({ id: img.id, name: img.name }))
   );
 
     for (const img of input.images) {
@@ -52,17 +53,13 @@ function validatePlayerImagesDraft(args: { input: PlayerDraftInput; project: Pro
       },
     });
 
-    if (Object.keys(base.errors).length) {
-      const bag = ensureImgErr(out, img.id);
-      Object.assign(bag, base.errors);
-    }
+    if (Object.keys(base.errors).length > 0) Object.assign(ensureImgErr(out, img.id), base.errors);
   }
 
   return out;
 }
 
 export function validatePlayerDraft( input: PlayerDraftInput, opts: { mode: "new" | "edit"; project: Project; currentPlayerId?: ID }): { ok: boolean; errors: PlayerFieldErrors } {
-  const playerList = opts.project.players ?? [];
   const errors: PlayerFieldErrors = {};
 
   const parsedBase = PlayerBaseDraftSchema.safeParse({
@@ -81,7 +78,7 @@ export function validatePlayerDraft( input: PlayerDraftInput, opts: { mode: "new
     }
   }
 
-  if (hasDuplicateName({list: playerList, incomingName: String(input.name ?? "").trim(), ignoreId: opts.mode === "edit" ? opts.currentPlayerId : undefined }))
+  if (hasDuplicateName({list: opts.project.players, incomingName: String(input.name ?? "").trim(), ignoreId: opts.mode === "edit" ? opts.currentPlayerId : undefined }))
     {errors.name = errors.name ?? "Ya existe otro personaje con ese nombre." }
 
   const full = PlayerDraftSchema.safeParse(input);
@@ -96,7 +93,7 @@ export function validatePlayerDraft( input: PlayerDraftInput, opts: { mode: "new
 
   Object.assign(errors, validatePlayerImagesDraft({ input, project: opts.project }));
 
-  Object.assign( errors, validateVarsDraft({ vars: input.vars, zodError: fullZodError ?? baseZodError }));
+  Object.assign(errors, validateVarsDraft({ vars: input.vars, zodError: fullZodError ?? baseZodError }));
 
   return { ok: Object.keys(errors).length === 0, errors };
 }

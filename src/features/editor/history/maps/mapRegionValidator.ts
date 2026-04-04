@@ -28,10 +28,10 @@ function hasDuplicateRegionLabel(region: MapRegionLike, project?: Project | null
   const labelKey = region.label?.trim().toLowerCase();
   if (!labelKey) return false;
 
-  const map = (project.maps ?? []).find((m) => m.id === mapId);
+  const map = project.maps.find((m) => m.id === mapId);
   if (!map) return false;
 
-  return (map.regions ?? []).some((other) => other.id !== region.id && (other.label ?? "").trim().toLowerCase() === labelKey);
+  return map.regions.some((other) => other.id !== region.id && (other.label ?? "").trim().toLowerCase() === labelKey);
 }
 
 function hasDuplicateSceneIds(region: MapRegionLike): boolean {
@@ -43,29 +43,29 @@ function hasValidSubMap(region: MapRegionLike, project?: Project | null, mapId?:
   if (!project) return true;
   if (mapId && region.subMapId === mapId) return false;
 
-  return (project.maps ?? []).some((m) => m.id === region.subMapId);
+  return project.maps.some((m) => m.id === region.subMapId);
 }
 
 function hasValidRegionImage(region: MapRegionLike, project?: Project | null, mapId?: string): boolean {
   if (!region.imageAssetId) return true;
   if (!project || !mapId) return true;
 
-  const map = (project.maps ?? []).find((m) => m.id === mapId);
+  const map = project.maps.find((m) => m.id === mapId);
   if (!map) return true;
 
   if (map.visual?.type !== "composed") return false;
 
-  return (project.assets ?? []).some((asset) => asset.id === region.imageAssetId);
+  return project.assets.some((asset) => asset.id === region.imageAssetId);
 }
 
 function hasRegionCollisions(region: MapRegionLike, project?: Project | null, mapId?: string): boolean {
   if (!project || !mapId) return false;
   if (!isValidRect01(region.shape, { min: 0.02 })) return false;
 
-  const map = (project.maps ?? []).find((m) => m.id === mapId);
+  const map = project.maps.find((m) => m.id === mapId);
   if (!map) return false;
 
-  return (map.regions ?? []).some((other) => {
+  return map.regions.some((other) => {
     if (other.id === region.id) return false;
     if (!region.shape || !isValidRect01(region.shape, { min: 0.02 })) return false;
     if (!isValidRect01(other.shape, { min: 0.02 })) return false;
@@ -83,7 +83,7 @@ function applyBusinessRules(region: MapRegionLike, errors: MapRegionFieldErrors,
   if (!hasValidSubMap(region, ctx?.project, ctx?.mapId)) errors.subMapId ??= invalidSubMapError;
 
   if (!hasValidRegionImage(region, ctx?.project, ctx?.mapId)) {
-    const map = (ctx?.project?.maps ?? []).find((m) => m.id === ctx?.mapId);
+    const map = ctx?.project?.maps.find((m) => m.id === ctx?.mapId);
 
     errors.imageAssetId ??= map?.visual?.type === "composed" ? invalidRegionImageError : regionImageOnlyForComposedError;
   }

@@ -33,9 +33,28 @@ function superRefineOpValue(ctx: z.RefinementCtx, op: unknown, value: unknown) {
 
   if (isNumValue) {
     const ok = op === "==" || op === "!=" || op === ">" || op === ">=" || op === "<" || op === "<=";
+
     if (!ok) ctx.addIssue({ code: "custom", message: varCondMismatch });
   }
 }
+
+const playerVarConditionSchema = z.object({
+    type: z.literal("playerVar"),
+    playerId: IdSchema,
+    ...varCompareSchemaBase.shape,
+  }).superRefine((value, ctx) => superRefineOpValue(ctx, value.op, value.value));
+
+const npcVarConditionSchema = z.object({
+    type: z.literal("npcVar"),
+    npcId: IdSchema,
+    ...varCompareSchemaBase.shape,
+  }).superRefine((value, ctx) => superRefineOpValue(ctx, value.op, value.value));
+
+const hotspotVarConditionSchema = z.object({
+    type: z.literal("hotspotVar"),
+    hotspotId: IdSchema,
+    ...varCompareSchemaBase.shape,
+  }).superRefine((value, ctx) => superRefineOpValue(ctx, value.op, value.value));
 
 export const conditionSchema: z.ZodType<any> = z.lazy(() =>
   z.discriminatedUnion("type", [
@@ -50,15 +69,9 @@ export const conditionSchema: z.ZodType<any> = z.lazy(() =>
     z.object({ type: z.literal("hasItem"), placedItemId: IdSchema, op: boolOpSchema, value: z.boolean() }),
 
     // Variables
-    z.object({ type: z.literal("playerVar"), playerId: IdSchema, ...varCompareSchemaBase.shape }).superRefine((v, ctx) =>
-      superRefineOpValue(ctx, v.op, v.value),
-    ),
-    z.object({ type: z.literal("npcVar"), npcId: IdSchema, ...varCompareSchemaBase.shape }).superRefine((v, ctx) =>
-      superRefineOpValue(ctx, v.op, v.value),
-    ),
-    z.object({ type: z.literal("hotspotVar"), hotspotId: IdSchema, ...varCompareSchemaBase.shape }).superRefine((v, ctx) =>
-      superRefineOpValue(ctx, v.op, v.value),
-    ),
+    playerVarConditionSchema,
+    npcVarConditionSchema,
+    hotspotVarConditionSchema,
 
     // Hotspots
     z.object({ type: z.literal("hotspotVisible"), hotspotId: IdSchema, op: boolOpSchema, value: z.boolean() }),
@@ -77,7 +90,6 @@ export const conditionSchema: z.ZodType<any> = z.lazy(() =>
 
     // Map
     z.object({ type: z.literal("mapRegionVisited"), mapId: IdSchema, regionId: IdSchema, op: boolOpSchema, value: z.boolean() }),
-
   ]),
 );
 
@@ -99,7 +111,7 @@ export const effectSchema: z.ZodType<Effect> = z.discriminatedUnion("type", [
   z.object({ type: z.literal("receiveItemFromNpc"), npcId: IdSchema, placedItemId: IdSchema }),
 
   // Feedback
-  z.object({ type: z.literal("showMessage"), text: z.string().min(1, "El texto no puede estar vacío") }),
+  z.object({ type: z.literal("showMessage"), text: z.string().trim().min(1, "El texto no puede estar vacío") }),
 
   // Estado de placed items
   z.object({ type: z.literal("setPlacedItemVisible"), nodeId: IdSchema, placedItemId: IdSchema, value: z.boolean() }),
@@ -145,48 +157,27 @@ export const effectSchema: z.ZodType<Effect> = z.discriminatedUnion("type", [
   z.object({ type: z.literal("setMapRegionAvailable"), mapId: IdSchema, regionId: IdSchema, value: z.boolean() }),
 
   // Finalizar juego
-  z.object({ type: z.literal("endGame"), message: z.string().optional() }),
+  z.object({ type: z.literal("endGame"), message: z.string().trim().optional() }),
 ]);
 
 export type EffectInput = z.input<typeof effectSchema>;
 export type EffectOutput = z.output<typeof effectSchema>;
 
-
 /* Interaction Rules */
 export const baseInteractionRuleSchema = z.object({
   id: IdSchema,
   when: conditionSchema.optional(),
-  phrase: z.string().max(200).optional(),
+  phrase: z.string().trim().max(200).optional(),
   effects: z.array(effectSchema).default([]),
 });
 
 export const clickRuleSchema = baseInteractionRuleSchema;
 
-export const useItemRuleSchema = baseInteractionRuleSchema.extend({placedItemId: IdSchema});
+export const useItemRuleSchema = baseInteractionRuleSchema.extend({ placedItemId: IdSchema });
 
 export const interactionRulesSchema = z.object({
-    onClick: z.array(clickRuleSchema).optional(),
-    onUseItem: z.array(useItemRuleSchema).optional(),
-  })
-  .superRefine((rules, ctx) => {
-    const click = rules.onClick ?? [];
-    if (click.length === 0) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["onClick"],
-        message: "Debe existir al menos una regla de click.",
-      });
-      return;
-    }
-
-    const totalClickEffects = click.reduce((acc, r) => acc + (r.effects?.length ?? 0), 0);
-    if (totalClickEffects === 0) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["onClick"],
-        message: "Al menos una regla de click debe tener algún efecto.",
-      });
-    }
-  });
+  onClick: z.array(clickRuleSchema).optional(),
+  onUseItem: z.array(useItemRuleSchema).optional(),
+});
 
 export type InteractionRulesDTO = z.infer<typeof interactionRulesSchema>;

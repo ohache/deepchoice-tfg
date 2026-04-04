@@ -3,10 +3,10 @@ interface ExitWithoutSaveModalProps {
     onCancel: () => void;
     onExit: () => void;
     onExitAndDownloadJSON: () => void;
-    onExitAndDownloadpROJECT: () => void;
+    onExitAndDownloadProject: () => void;
 }
 
-export function ExitWithoutSaveModal({ open, onCancel, onExit, onExitAndDownloadJSON, onExitAndDownloadpROJECT }: ExitWithoutSaveModalProps) {
+export function ExitWithoutSaveModal({ open, onCancel, onExit, onExitAndDownloadJSON, onExitAndDownloadProject }: ExitWithoutSaveModalProps) {
     if (!open) return null;
 
     return (
@@ -27,7 +27,7 @@ export function ExitWithoutSaveModal({ open, onCancel, onExit, onExitAndDownload
                     </button>
                     <button
                         type="button"
-                        onClick={onExitAndDownloadpROJECT}
+                        onClick={onExitAndDownloadProject}
                         className="btn btn-add-condition min-w-[200px]"
                     >
                         Descargar proyecto

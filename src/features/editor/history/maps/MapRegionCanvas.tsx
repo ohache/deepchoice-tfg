@@ -41,33 +41,21 @@ function RegionImageOverlay({ assetId, style, alt }: RegionImageOverlayProps) {
   );
 }
 
-function DraftRegionImagePreview({
-  assetId,
-  shape,
-  contentRectInContainer,
-}: DraftRegionImagePreviewProps) {
+function DraftRegionImagePreview({ assetId, shape, contentRectInContainer }: DraftRegionImagePreviewProps) {
   const imageUrl = useResolvedAssetUrl(assetId);
-  const st = rectStyleFromShape(shape ?? null, contentRectInContainer);
+  const style = rectStyleFromShape(shape ?? null, contentRectInContainer);
 
-  if (!imageUrl || !st) return null;
+  if (!imageUrl || !style) return null;
 
   return (
     <img
       src={imageUrl}
       alt="Preview de región"
-      style={st}
+      style={style}
       className="absolute pointer-events-none select-none object-fill"
       draggable={false}
     />
   );
-}
-
-function shapeKey(shape: unknown): string {
-  try {
-    return JSON.stringify(shape ?? null);
-  } catch {
-    return String(shape ?? "");
-  }
 }
 
 export function MapRegionCanvas({ mapId, mapVisualType, setPanelError }: MapRegionCanvasProps) {
@@ -83,11 +71,11 @@ export function MapRegionCanvas({ mapId, mapVisualType, setPanelError }: MapRegi
   const startRedrawMapRegionShape = useEditorStore((s) => s.startRedrawMapRegionShape);
 
   const selectedMap = useMemo(
-    () => (project?.maps ?? []).find((m) => m.id === mapId) ?? null,
-    [project, mapId]
+    () => (project?.maps ?? []).find((map) => map.id === mapId) ?? null,
+    [project, mapId],
   );
 
-  const effectiveAssetId: ID | null = useMemo(() => {
+  const effectiveAssetId = useMemo<ID | null>(() => {
     if (!selectedMap) return null;
 
     return selectedMap.visual.type === "singleImage"
@@ -96,89 +84,73 @@ export function MapRegionCanvas({ mapId, mapVisualType, setPanelError }: MapRegi
   }, [selectedMap]);
 
   const imageUrl = useResolvedAssetUrl(effectiveAssetId);
-
-  const regions = useMemo<MapRegion[]>(() => {
-    if (!selectedMap) return [];
-    return selectedMap.regions ?? [];
-  }, [selectedMap]);
+  const regions: MapRegion[] = selectedMap?.regions ?? [];
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
-  const lastRejectedShapeKeyRef = useRef<string>("");
+  const lastRejectedShapeKeyRef = useRef("");
 
   const { contentRectInContainer, toContainerPx } = useObjectContainRect({ containerRef, imgRef });
 
-  const isDraftOnActiveMap =
-    mapRegionEditor.context?.mapId != null &&
-    selectedMapId != null &&
-    String(mapRegionEditor.context.mapId) === String(selectedMapId) &&
-    String(selectedMapId) === String(mapId);
+  const draft = mapRegionEditor.draft;
+  const draftShape = draft?.shape ?? null;
+  const selectedRegionId = mapRegionEditor.selection.regionId;
+
+  const isDraftOnActiveMap = mapRegionEditor.context?.mapId != null && selectedMapId != null &&
+    String(mapRegionEditor.context.mapId) === String(selectedMapId) && String(selectedMapId) === String(mapId);
 
   const isDrawing = mapRegionEditor.mode.type === "drawing" && isDraftOnActiveMap;
 
-  const draftShapeStyle = rectStyleFromShape(
-    isDraftOnActiveMap ? (mapRegionEditor.draft?.shape ?? null) : null,
-    contentRectInContainer
-  );
+  const draftShapeStyle = rectStyleFromShape(isDraftOnActiveMap ? draftShape : null, contentRectInContainer);
+
+  const showDraftRegionImagePreview = mapVisualType === "composed" && isDraftOnActiveMap && !!draft?.imageAssetId;
 
   const resetKey = [
     selectedMapId ?? "",
     mapId,
     mapRegionEditor.mode.type,
-    mapRegionEditor.selection.regionId ?? "",
-    mapRegionEditor.draft?.id ?? "",
+    selectedRegionId ?? "",
+    draft?.id ?? "",
   ].join(":");
 
   useEffect(() => {
     lastRejectedShapeKeyRef.current = "";
   }, [resetKey, setPanelError]);
 
-  const collisionSummary = useMemo(() => {
-    if (!isDraftOnActiveMap || isDrawing) return "";
-
-    const draftShape = mapRegionEditor.draft?.shape;
-    const draftId = mapRegionEditor.draft?.id;
-
-    if (!isValidRect01(draftShape, { min: 0.02 })) return "";
-
-    const collisions = regions.filter((region) => {
-      if (region.id === draftId) return false;
-      if (!draftShape || !isValidRect01(draftShape, { min: 0.02 })) return false;
+  const collidingRegions = useMemo(() => {
+    if (!isDraftOnActiveMap || isDrawing) return [];
+    if (!draftShape) return [];
+    if (!isValidRect01(draftShape, { min: 0.02 })) return [];
+  
+    return regions.filter((region) => {
+      if (region.id === draft?.id) return false;
       if (!isValidRect01(region.shape, { min: 0.02 })) return false;
       return rect01Intersects(draftShape, region.shape);
     });
+  }, [isDraftOnActiveMap, isDrawing, draftShape, draft?.id, regions]);
 
-    if (!collisions.length) return "";
+  const collisionSummary = useMemo(() => {
+    if (!collidingRegions.length) return "";
 
-    return collisions
-      .map((region) => region.label?.trim() || "Región sin etiqueta")
-      .slice(0, 2)
-      .join(", ");
-  }, [isDraftOnActiveMap, isDrawing, mapRegionEditor.draft?.shape, mapRegionEditor.draft?.id, regions]);
+    return collidingRegions.map((region) => region.label?.trim() || "Región sin etiqueta").slice(0, 2).join(", ");
+  }, [collidingRegions]);
 
   useEffect(() => {
     if (!isDraftOnActiveMap || isDrawing) return;
-
-    const draftShape = mapRegionEditor.draft?.shape;
     if (!isValidRect01(draftShape, { min: 0.02 })) return;
     if (!collisionSummary) return;
 
-    const key = shapeKey(draftShape);
-    if (lastRejectedShapeKeyRef.current === key) return;
-    lastRejectedShapeKeyRef.current = key;
+    let shapeKey = "";
+    try { shapeKey = JSON.stringify(draftShape); } 
+    catch { shapeKey = String(draftShape ?? ""); }
+
+    if (lastRejectedShapeKeyRef.current === shapeKey) return;
+    lastRejectedShapeKeyRef.current = shapeKey;
 
     clearMapRegionDraftShape();
     startRedrawMapRegionShape();
     setPanelError(`Colisión con: ${collisionSummary}. Dibuja otra región o pulsa “Cancelar”.`);
-  }, [
-    isDraftOnActiveMap,
-    isDrawing,
-    mapRegionEditor.draft?.shape,
-    collisionSummary,
-    clearMapRegionDraftShape,
-    startRedrawMapRegionShape,
-    setPanelError,
-  ]);
+  }, [isDraftOnActiveMap, isDrawing, draftShape, collisionSummary, clearMapRegionDraftShape, startRedrawMapRegionShape, setPanelError]);
 
   const draw = useRegionShapeRectDrawing({
     contentRect: contentRectInContainer,
@@ -192,12 +164,9 @@ export function MapRegionCanvas({ mapId, mapVisualType, setPanelError }: MapRegi
     resetKey,
   });
 
-  const handleSelectRegion = (regionId: ID) => {
-    setMapRegionSelection({ regionId });
-    editMapRegion(regionId);
-  };
-
   const drawingCursorClass = isDrawing ? "cursor-crosshair" : "";
+
+  if (!selectedMap) return null;
 
   return (
     <div className="rounded-lg border-2 border-slate-700 bg-slate-900/40 p-3 h-full">
@@ -224,7 +193,7 @@ export function MapRegionCanvas({ mapId, mapVisualType, setPanelError }: MapRegi
               <img
                 ref={imgRef}
                 src={imageUrl}
-                alt={selectedMap?.name ?? "Mapa"}
+                alt={selectedMap.name ?? "Mapa"}
                 className="w-full h-full object-contain select-none"
                 draggable={false}
               />
@@ -235,49 +204,50 @@ export function MapRegionCanvas({ mapId, mapVisualType, setPanelError }: MapRegi
                 ? regions.map((region) => {
                     if (!region.imageAssetId) return null;
 
-                    const st = rectStyleFromShape(region.shape ?? null, contentRectInContainer);
-                    if (!st) return null;
+                    const style = rectStyleFromShape(region.shape ?? null, contentRectInContainer);
+                    if (!style) return null;
 
                     return (
                       <RegionImageOverlay
                         key={`region-image:${region.id}:${region.imageAssetId}`}
                         assetId={region.imageAssetId}
-                        style={st}
+                        style={style}
                         alt={region.label || "Región"}
                       />
                     );
                   })
                 : null}
 
-              {mapVisualType === "composed" && isDraftOnActiveMap && mapRegionEditor.draft?.imageAssetId ? (
+              {showDraftRegionImagePreview ? (
                 <DraftRegionImagePreview
-                  assetId={mapRegionEditor.draft.imageAssetId}
-                  shape={mapRegionEditor.draft.shape ?? null}
+                  assetId={draft?.imageAssetId ?? null}
+                  shape={draftShape}
                   contentRectInContainer={contentRectInContainer}
                 />
               ) : null}
 
               {regions.map((region) => {
-                const st = rectStyleFromShape(region.shape ?? null, contentRectInContainer);
-                if (!st) return null;
+                const style = rectStyleFromShape(region.shape ?? null, contentRectInContainer);
+                if (!style) return null;
 
-                const isSelected = region.id === mapRegionEditor.selection.regionId;
-                const w = Number(String((st as CSSProperties).width ?? "0").replace("px", "")) || 0;
-                const h = Number(String((st as CSSProperties).height ?? "0").replace("px", "")) || 0;
-                const canShowLabel = !!region.label?.trim() && w >= 60 && h >= 22;
+                const isSelected = region.id === selectedRegionId;
+                const width = Number(String(style.width ?? "0").replace("px", "")) || 0;
+                const height = Number(String(style.height ?? "0").replace("px", "")) || 0;
+                const canShowLabel = !!region.label?.trim() && width >= 60 && height >= 22;
 
                 return (
                   <button
                     key={region.id}
                     type="button"
-                    style={st}
-                    onClick={() => handleSelectRegion(region.id)}
-                    className={[
-                      "absolute rounded-sm transition-colors",
-                      isSelected
+                    style={style}
+                    onClick={() => {
+                      setMapRegionSelection({ regionId: region.id });
+                      editMapRegion(region.id);
+                    }}
+                    className={ "absolute rounded-sm transition-colors " +
+                      (isSelected
                         ? "border-2 border-amber-300 bg-amber-500/20"
-                        : "border-2 border-amber-500/70 bg-amber-500/10 hover:bg-amber-500/20",
-                    ].join(" ")}
+                        : "border-2 border-amber-500/70 bg-amber-500/10 hover:bg-amber-500/20")}
                     title={region.label}
                   >
                     {canShowLabel ? (

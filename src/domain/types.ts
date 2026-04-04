@@ -72,10 +72,7 @@ export interface PlayerImage {
   name: string;
 }
 
-export interface PlayerDef {
-  id: ID;
-  name: string;
-  description?: string;
+export interface PlayerDef extends EntityBase {
   images: PlayerImage[];
   defaultImageId?: ID;
   vars?: VarDef[];
@@ -92,11 +89,11 @@ export interface AudioDefBase {
   name: string;
 }
 
-/* Música */
-export interface MusicTrackDef extends AudioDefBase {}
-
 /* Sfx */
 export interface SoundEffectDef extends AudioDefBase {}
+
+/* Música */
+export interface MusicTrackDef extends AudioDefBase {}
 
 type ResolvedMusicBase = {
   trackId: ID;
@@ -104,9 +101,9 @@ type ResolvedMusicBase = {
 };
 
 export type ResolvedMusic =
-  | ( ResolvedMusicBase & { sourceType: "layer" })
-  | ( ResolvedMusicBase & { sourceType: "scene" })
-  | ( ResolvedMusicBase & { sourceType: "region" })
+  | (ResolvedMusicBase & { sourceType: "layer" })
+  | (ResolvedMusicBase & { sourceType: "scene" })
+  | (ResolvedMusicBase & { sourceType: "region" })
 
 /* INTERACCIONES */
 export type BaseInteractionRule = {
@@ -150,7 +147,7 @@ export interface PlacedSingletonBase<S = PlaceableState> {
   initialState: S;
 }
 
-/* Hotspots */
+/* Hotspot */
 export interface Hotspot {
   id: ID;
   label: string;
@@ -160,14 +157,14 @@ export interface Hotspot {
   rules: InteractionRules;
 }
 
-/* Item colocados */
+/* Item colocado */
 export interface PlacedItem extends PlacedEntityBase<PlaceableState> {
   itemId: ID;
   label: string;
   rules: InteractionRules;
 }
 
-/* NPC colocados */
+/* NPC colocado */
 export interface PlacedNpc extends PlacedSingletonBase<PlaceableState> {
   npcId: ID;
   rules: InteractionRules;
@@ -224,7 +221,7 @@ export interface DialogueLineNode {
 
 export type DialogueNode = DialogueRootNode | DialogueLineNode;
 
-/* MAPAS */
+/* Mapas */
 export interface MapSingleImageVisualSource {
   type: "singleImage";
   imageAssetId: ID;
@@ -279,7 +276,7 @@ export type SceneImageLayer = {
   musicTrackId?: ID;
 };
 
-/* Core de la escena (visual) */
+/* Core de la escena */
 export type Node = {
   id: ID;
   title: string;

@@ -43,9 +43,8 @@ export function ScenePlacedPlayerField({
   const setPlacedPlayerDraftInitialImageId = useEditorStore((s) => s.setPlacedPlayerDraftInitialImageId);
   const setPlacedPlayerDraftInitialState = useEditorStore((s) => s.setPlacedPlayerDraftInitialState);
   const setPlacedPlayerDraftShape = useEditorStore((s) => s.setPlacedPlayerDraftShape);
-  const validatePlacedPlayerDraft = useEditorStore((s) => s.validatePlacedPlayerDraft);
+  const commitPlacedPlayerDraft = useEditorStore((s) => s.commitPlacedPlayerDraft);
 
-  const upsertPlacedPlayer = useEditorStore((s) => s.upsertPlacedPlayer);
   const removePlacedPlayer = useEditorStore((s) => s.removePlacedPlayer);
   const setActivePlacedPlayers = useEditorStore((s) => s.setActivePlacedPlayers);
 
@@ -58,7 +57,7 @@ export function ScenePlacedPlayerField({
   const projectPlayers = useMemo<PlayerDef[]>(() => project?.players ?? [], [project?.players]);
 
   const [selectedCatalogPlayerId, setSelectedCatalogPlayerId] = useState<string>("");
-    const [isCreatingPlacedPlayer, setIsCreatingPlacedPlayer] = useState(false);
+  const [isCreatingPlacedPlayer, setIsCreatingPlacedPlayer] = useState(false);
 
   useEffect(() => {
     if (!projectPlayers.length) {
@@ -91,7 +90,7 @@ export function ScenePlacedPlayerField({
 
   const draft = placedPlayerEditor.draft;
   const isDrawing = placedPlayerEditor.mode.type === "drawing";
-  const isEditing = placedPlayerEditor.mode.type !== "idle";
+  const isDraftActive = placedPlayerEditor.mode.type !== "idle";
 
   const collisionResetKey = `${layerId}:${draft?.playerId ?? "none"}:${placedPlayerEditor.mode.type}`;
 
@@ -192,7 +191,7 @@ export function ScenePlacedPlayerField({
 
     if (!playerId) return;
     if (!isCreatingPlacedPlayer) return;
-    if (isEditing) return;
+    if (isDraftActive) return;
 
     beginPlacedPlayerPlacement(playerId);
   };
@@ -210,29 +209,17 @@ export function ScenePlacedPlayerField({
       return;
     }
 
-    const validation = validatePlacedPlayerDraft();
-    if (!validation.ok) {
-      toast.error("No se ha podido guardar", validation.error ?? "Revisa el player.");
+    const result = commitPlacedPlayerDraft();
+    if (!result.ok) {
+      toast.error("No se ha podido guardar", result.error ?? "Revisa el player.");
       return;
     }
 
-    if (!draft.shape) {
-      toast.error("No se ha podido guardar", "Debes dibujar un área válida antes de guardar el player.");
-      return;
+    if (result.playerId) {
+      setSelectedInteractionKind("placedPlayer");
+      setSelectedInteractionId(result.playerId);
     }
 
-    const candidate: PlacedPlayer = {
-      playerId: draft.playerId,
-      initialImageId: draft.initialImageId,
-      shape: draft.shape,
-      initialState: draft.initialState,
-    };
-
-    upsertPlacedPlayer(candidate);
-
-    setSelectedInteractionKind("placedPlayer");
-    setSelectedInteractionId(candidate.playerId);
-    cancelPlacedPlayerDraft();
     setEditorError(null);
     setIsCreatingPlacedPlayer(false);
     setSelectedCatalogPlayerId("");
@@ -349,20 +336,30 @@ export function ScenePlacedPlayerField({
 
       <ToggleFieldBlock label={label} active={active} onToggle={onToggle}>
         <div className="space-y-3">
-                    {!isEditing && !isCreatingPlacedPlayer ? (
-            <div className="flex justify-center">
-              <button
-                type="button"
-                className="btn btn-create-condition mt-2"
-                onClick={handleStartAddingPlacedPlayer}
-                title="Añadir player"
-              >
-                + Añadir player
-              </button>
-            </div>
+          {!isDraftActive && !isCreatingPlacedPlayer ? (
+            <>
+              <div className="flex justify-center">
+                <button
+                  type="button"
+                  className="btn btn-create-condition mt-2"
+                  onClick={handleStartAddingPlacedPlayer}
+                  title="Añadir player"
+                >
+                  + Añadir player
+                </button>
+              </div>
+
+              <PlacedPlayerListPanel
+                placedPlayers={placedPlayerListEntries}
+                selectedId={selectedId}
+                onEdit={handleEditPlacedPlayer}
+                onDelete={handleDelete}
+                onDeleteAll={handleAskNukeAll}
+              />
+            </>
           ) : (
             <PlacedPlayerEditorPanel
-              draft={isEditing ? draft : null}
+              draft={draft ?? null}
               selectedCatalogPlayerId={selectedCatalogPlayerId}
               projectPlayers={projectPlayers}
               onSelectedCatalogPlayerIdChange={handleSelectedCatalogPlayerIdChange}
@@ -384,14 +381,6 @@ export function ScenePlacedPlayerField({
               onCommit={handleCommit}
             />
           )}
-
-          <PlacedPlayerListPanel
-            placedPlayers={placedPlayerListEntries}
-            selectedId={selectedId}
-            onEdit={handleEditPlacedPlayer}
-            onDelete={handleDelete}
-            onDeleteAll={handleAskNukeAll}
-          />
         </div>
       </ToggleFieldBlock>
     </>

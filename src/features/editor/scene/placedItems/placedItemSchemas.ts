@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { IdSchema } from "@/validation/genericSchemas";
-import { buildInteractiveEntitySchemas, InteractionRulesSchema, InteractiveClickRuleSchema, InteractiveUseItemRuleSchema } from "@/features/editor/scene/interactiveComponents/interactiveSchemas";
+import { buildInteractiveEntitySchemas, InteractionRulesSchema, InteractiveClickRuleSchema,
+  InteractiveUseItemRuleSchema } from "@/features/editor/scene/interactiveComponents/interactiveSchemas";
 
 export const PlacedItemClickRuleSchema = InteractiveClickRuleSchema;
 export const PlacedItemUseItemRuleSchema = InteractiveUseItemRuleSchema;

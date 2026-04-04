@@ -376,10 +376,12 @@ export function EffectLeafEditor({
   const showOptionField =
     family === "progress"
       ? filteredFamilyTypeOptions.length > 1
-      : (topLevelFamilyTypeOptions.length > 1 ||
-        (family === "player" && topLevelFamilyTypeOptions.length === 1)) &&
-      family !== "message" &&
-      family !== "ending";
+      : family === "dialogue"
+        ? filteredFamilyTypeOptions.length >= 1
+        : (topLevelFamilyTypeOptions.length > 1 ||
+            (family === "player" && topLevelFamilyTypeOptions.length === 1)) &&
+          family !== "message" &&
+          family !== "ending";
 
   const isUnselectedProgress =
     family === "progress" &&

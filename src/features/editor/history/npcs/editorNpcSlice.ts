@@ -1,14 +1,16 @@
-import { effectReferencesNpc, effectReferencesNpcVar } from "@/domain/effectRefs";
+import type { ID, NpcDef, Project, VarDef } from "@/domain/types";
 import { conditionReferencesNpc, conditionReferencesNpcVar } from "@/domain/conditionRefs";
-import { generateId } from "@/utils/id";
-import { buildAssetPath } from "@/store/assets/assetPath";
-import { safeTrim, upsertAsset, upsertAssetFile, removeAsset, removeAssetFile, removeEffectsInProject, sameVarDef } from "@/features/editor/core/editorGenericSlice";
-import {
-  collectDialogueIds, effectIsStartDialogueForAnyOf, isEntityReferenced, mapAllWhensInProject, mapCondition, removePlacedNpcs,
-  somePlacedNpc, someDialogue, removeDialogues
-} from "@/features/editor/core/editorProjectWalkers";
+import { effectReferencesNpc, effectReferencesNpcVar } from "@/domain/effectRefs";
 import { hasDuplicateName } from "@/validation/genericValidator";
-import type { ID, NpcDef, Project, VarDef, AssetDef } from "@/domain/types";
+import { buildAssetPath } from "@/store/assets/assetPath";
+import { generateId } from "@/utils/id";
+import { removeAsset, removeAssetFile, safeTrim, sameVarDef, upsertAsset, upsertAssetFile } from "@/features/editor/core/editorGenericSlice";
+import {
+  collectDialogueIds, effectIsStartDialogueForAnyOf, isEntityReferenced, removeConditionsInProject, removeDialogues, removeEffectsInProject,
+  removePlacedNpcs, someDialogue, somePlacedNpc
+} from "@/features/editor/core/editorProjectWalkers";
+import { findAssetByIdAndKind, findEntityById, removeById, replaceById } from "@/features/editor/history/shared/assetBackedEntityHelpers";
+import { nextSelectedAfterRemoval } from "@/features/editor/history/shared/genericHelpers";
 
 /* Contrato mínimo del store que necesita este slice */
 type EditorStoreLike = {
@@ -29,251 +31,261 @@ export interface EditorNpcSlice {
   isNpcReferenced: (id: ID) => boolean;
 }
 
-
-function removeNpcVarFromConditionsInProject(project: Project, npcId: ID, varId: ID): Project {
-  return mapAllWhensInProject(project, (when) =>
-    mapCondition(when, (c) => {
-      if (c.type === "npcVar" && c.npcId === npcId && c.varId === varId) return undefined;
-      return c;
-    })
-  );
-}
-
-function removeNpcFromConditionsInProject(project: Project, npcId: ID): Project {
-  return mapAllWhensInProject(project, (when) =>
-    mapCondition(when, (c) => {
-      if (c.type === "npcVar" && c.npcId === npcId) return undefined;
-      if (c.type === "placedNpcVisible" && c.npcId === npcId) return undefined;
-      if (c.type === "placedNpcReachable" && c.npcId === npcId) return undefined;
-      return c;
-    })
-  );
-}
-
-export function createEditorNpcSlice(set: (partial: Partial<EditorStoreLike> | ((state: EditorStoreLike) => Partial<EditorStoreLike> | EditorStoreLike)) => void,
+export function createEditorNpcSlice(set: (partial: | Partial<EditorStoreLike> | ((state: EditorStoreLike) => Partial<EditorStoreLike> | EditorStoreLike)) => void,
   get: () => EditorStoreLike): EditorNpcSlice {
   return {
     selectedNpcId: null,
 
     setSelectedNpcId: (id) => set({ selectedNpcId: id }),
 
+    /* Añade un NPC */
     addNpc: (input) => {
       const { project, assetFiles } = get();
       if (!project) return null;
 
-      const safeName = safeTrim(input?.name);
-      const safeDesc = safeTrim(input?.description);
-
-      if (!safeName) return null;
-
+      const nextName = safeTrim(input?.name);
+      const nextDescription = safeTrim(input?.description);
       const file = input?.file;
+
+      if (!nextName) return null;
       if (!(file instanceof File)) return null;
 
-      const currentNpcs = project.npcs ?? [];
-      if (hasDuplicateName({ list: currentNpcs, incomingName: safeName })) return null;
+      if (hasDuplicateName({ list: project.npcs, incomingName: nextName })) return null;
 
       const id = generateId.npc();
       const filePath = buildAssetPath("npcs", file.name);
 
       const newNpc: NpcDef = {
         id,
-        name: safeName,
-        ...(safeDesc ? { description: safeDesc } : null),
+        name: nextName,
+        ...(nextDescription ? { description: nextDescription } : null),
         vars: input.vars ?? [],
       };
 
-      const assets0: AssetDef[] = project.assets ?? [];
-      const resA = upsertAsset(assets0, { id, kind: "npcs", name: safeName, file: filePath });
-      const resF = upsertAssetFile(assetFiles, id, file);
+      const assetResult = upsertAsset(project.assets, { id, kind: "npcs", name: nextName, file: filePath });
+
+      const fileResult = upsertAssetFile(assetFiles, id, file);
 
       set({
-        project: { ...project, npcs: [...currentNpcs, newNpc], assets: resA.assets },
-        assetFiles: resF.assetFiles,
+        project: {
+          ...project,
+          npcs: [...project.npcs, newNpc],
+          assets: assetResult.assets,
+        },
+        assetFiles: fileResult.assetFiles,
         selectedNpcId: id,
       });
 
       return id;
     },
 
+    /* Actualiza nombre, descripción y/o fichero */
     updateNpc: (id, changes) =>
       set((state) => {
         if (!state.project) return state;
+
         const project = state.project;
+        const prevNpc = findEntityById(project.npcs, id);
+        if (!prevNpc) return state;
 
-        const npcList = project.npcs ?? [];
-        const prev = npcList.find((x) => x.id === id);
-        if (!prev) return state;
+        const nextName = typeof changes.name === "string" ? safeTrim(changes.name) : "";
+        const nameChanged = Boolean(nextName) && nextName !== prevNpc.name;
 
-        const nextNameRaw = typeof changes.name === "string" ? changes.name.trim() : "";
-        const nameChanged = Boolean(nextNameRaw) && nextNameRaw !== prev.name;
+        if (nameChanged && hasDuplicateName({ list: project.npcs, incomingName: nextName, ignoreId: id })) return state;
 
-        if (nameChanged) {
-          if (hasDuplicateName({ list: npcList, incomingName: nextNameRaw, ignoreId: id })) return state;
-        }
-
-        const nextDescRaw = typeof changes.description === "string" ? changes.description.trim() : "";
-        const prevDescRaw = String(prev.description ?? "").trim();
-        const descChanged = typeof changes.description === "string" && nextDescRaw !== prevDescRaw;
+        const nextDescription = typeof changes.description === "string" ? safeTrim(changes.description) : "";
+        const prevDescription = safeTrim(prevNpc.description);
+        const descriptionChanged = typeof changes.description === "string" && nextDescription !== prevDescription;
 
         const nextFile = changes.file instanceof File ? changes.file : null;
         const fileChanged = Boolean(nextFile);
 
-        if (!nameChanged && !descChanged && !fileChanged) return state;
+        if (!nameChanged && !descriptionChanged && !fileChanged) return state;
 
         const nextNpc: NpcDef = {
-          ...prev,
-          ...(nameChanged ? { name: nextNameRaw } : null),
-          ...(descChanged ? { description: nextDescRaw || undefined } : null),
+          ...prevNpc,
+          ...(nameChanged ? { name: nextName } : null),
+          ...(descriptionChanged ? { description: nextDescription || undefined } : null),
         };
 
-        let nextAssets = project.assets ?? [];
-        const existingAsset = nextAssets.find((a) => a.id === id && a.kind === "npcs") ?? null;
-
-        if (nameChanged && existingAsset) {
-          nextAssets = upsertAsset(nextAssets, { id, kind: "npcs", name: nextNpc.name, file: String(existingAsset.file ?? "").trim() }).assets;
-        }
-
+        let nextAssets = project.assets;
         let nextAssetFiles = state.assetFiles;
 
+        const existingAsset = findAssetByIdAndKind(nextAssets, id, "npcs");
+
+        if (nameChanged && existingAsset) {
+          const assetResult = upsertAsset(nextAssets, { id, kind: "npcs", name: nextNpc.name, file: safeTrim(existingAsset.file) });
+          nextAssets = assetResult.assets;
+        }
+
         if (fileChanged && nextFile) {
-          const newPath = buildAssetPath("npcs", nextFile.name);
+          const filePath = buildAssetPath("npcs", nextFile.name);
 
-          nextAssets = upsertAsset(nextAssets, { id, kind: "npcs", name: nextNpc.name, file: newPath }).assets;
+          const assetResult = upsertAsset(nextAssets, { id, kind: "npcs", name: nextNpc.name, file: filePath });
+          nextAssets = assetResult.assets;
 
-          nextAssetFiles = upsertAssetFile(nextAssetFiles, id, nextFile).assetFiles;
+          const fileResult = upsertAssetFile(nextAssetFiles, id, nextFile);
+          nextAssetFiles = fileResult.assetFiles;
         }
 
         return {
           ...state,
-          project: { ...project, npcs: npcList.map((x) => (x.id === id ? nextNpc : x)), assets: nextAssets },
+          project: {
+            ...project,
+            npcs: replaceById(project.npcs, id, nextNpc),
+            assets: nextAssets,
+          },
           assetFiles: nextAssetFiles,
         };
       }),
 
+    /* Añade una variable al NPC */
     addNpcVar: (npcId, variable) =>
       set((state) => {
         if (!state.project) return state;
-        const project = state.project
 
-        const npcs0 = project.npcs ?? [];
-        const idx = npcs0.findIndex((n) => n.id === npcId);
-        if (idx < 0) return state;
+        const project = state.project;
+        const prevNpc = findEntityById(project.npcs, npcId);
+        if (!prevNpc) return state;
 
-        const prevNpc = npcs0[idx]!;
-        const vars0 = prevNpc.vars ?? [];
+        const prevVars = prevNpc.vars ?? [];
 
-        if (vars0.some((v) => v.id === variable.id)) return state;
+        if (prevVars.some((existingVar) => existingVar.id === variable.id)) return state;
 
-        const nextNpc: NpcDef = { ...prevNpc, vars: [...vars0, variable] };
-        const nextNpcs = npcs0.map((n) => (n.id === npcId ? nextNpc : n));
+        const nextNpc: NpcDef = {
+          ...prevNpc,
+          vars: [...prevVars, variable],
+        };
 
-        return { ...state, project: { ...project, npcs: nextNpcs } };
+        return {
+          ...state,
+          project: {
+            ...project,
+            npcs: replaceById(project.npcs, npcId, nextNpc),
+          },
+        };
       }),
 
+    /* Actualiza una variable del NPC */
     updateNpcVar: (npcId, variable) =>
       set((state) => {
         if (!state.project) return state;
+
         const project = state.project;
+        const prevNpc = findEntityById(project.npcs, npcId);
+        if (!prevNpc) return state;
 
-        const npcs0 = project.npcs ?? [];
-        const idx = npcs0.findIndex((n) => n.id === npcId);
-        if (idx < 0) return state;
+        const prevVars = prevNpc.vars ?? [];
+        const varIndex = prevVars.findIndex((existingVar) => existingVar.id === variable.id);
+        if (varIndex < 0) return state;
 
-        const prevNpc = npcs0[idx]!;
-        const vars0 = prevNpc.vars ?? [];
-        const vIdx = vars0.findIndex((v) => v.id === variable.id);
-        if (vIdx < 0) return state;
-
-        const prevVar = vars0[vIdx]!;
+        const prevVar = prevVars[varIndex]!;
         if (sameVarDef(prevVar, variable)) return state;
 
-        const nextVars = vars0.slice();
-        nextVars[vIdx] = variable;
+        const nextVars = prevVars.slice();
+        nextVars[varIndex] = variable;
 
-        const nextNpc: NpcDef = { ...prevNpc, vars: nextVars };
-        const nextNpcs = npcs0.map((n) => (n.id === npcId ? nextNpc : n));
+        const nextNpc: NpcDef = {
+          ...prevNpc,
+          vars: nextVars,
+        };
 
-        return { ...state, project: { ...project, npcs: nextNpcs } };
+        return {
+          ...state,
+          project: {
+            ...project,
+            npcs: replaceById(project.npcs, npcId, nextNpc),
+          },
+        };
       }),
 
+    /* Elimina una variable del NPC */
     removeNpcVar: (npcId, varId) =>
       set((state) => {
         if (!state.project) return state;
+
         let project = state.project;
+        const prevNpc = findEntityById(project.npcs, npcId);
+        if (!prevNpc) return state;
 
-        const npcs0 = project.npcs ?? [];
-        const idx = npcs0.findIndex((n) => n.id === npcId);
-        if (idx < 0) return state;
-
-        const prevNpc = npcs0[idx]!;
-        const vars0 = prevNpc.vars ?? [];
-        const nextVars = vars0.filter((v) => v.id !== varId);
-        if (nextVars.length === vars0.length) return state;
+        const prevVars = prevNpc.vars ?? [];
+        const nextVars = prevVars.filter((variable) => variable.id !== varId);
+        if (nextVars.length === prevVars.length) return state;
 
         const nextNpc: NpcDef = { ...prevNpc, vars: nextVars };
-        const nextNpcs = npcs0.map((n) => (n.id === npcId ? nextNpc : n));
-        project = { ...project, npcs: nextNpcs };
 
-        project = removeNpcVarFromConditionsInProject(project, npcId, varId);
+        project = {
+          ...project,
+          npcs: replaceById(project.npcs, npcId, nextNpc),
+        };
 
-        project = removeEffectsInProject(project, (e) => effectReferencesNpcVar(e, { npcId, varId }));
+        project = removeConditionsInProject(project,
+          (condition) => condition.type === "npcVar" &&
+            condition.npcId === npcId && condition.varId === varId,
+        );
+
+        project = removeEffectsInProject(project, (effect) => effectReferencesNpcVar(effect, { npcId, varId }));
 
         return { ...state, project };
       }),
 
-    removeNpc: (id) =>
+    /* Elimina un NPC global */
+    removeNpc: (npcId) =>
       set((state) => {
         if (!state.project) return state;
-        const project0 = state.project;
 
-        const npc = (project0.npcs ?? []).find((x) => x.id === id);
+        const npc = findEntityById(state.project.npcs, npcId);
         if (!npc) return state;
 
-        const dialogueIds = collectDialogueIds(project0, (d) => d.npcId === id);
+        const dialogueIds = collectDialogueIds(state.project, (dialogue) => dialogue.npcId === npcId);
 
-        let project = removeEffectsInProject(project0, (e) => {
-          if (effectReferencesNpc(e, id)) return true;
-          if (effectIsStartDialogueForAnyOf(e, dialogueIds)) return true;
+        let project = removeEffectsInProject(state.project, (effect) => {
+          if (effectReferencesNpc(effect, npcId)) return true;
+          if (effectIsStartDialogueForAnyOf(effect, dialogueIds)) return true;
           return false;
         });
 
-        project = removeNpcFromConditionsInProject(project, id);
+        project = removeConditionsInProject(project,
+          (condition) => (condition.type === "npcVar" && condition.npcId === npcId) ||
+            (condition.type === "placedNpcVisible" && condition.npcId === npcId) ||
+            (condition.type === "placedNpcReachable" && condition.npcId === npcId),
+        );
 
-        project = removePlacedNpcs(project, (pn) => pn.npcId === id);
-        project = removeDialogues(project, (d) => d.npcId === id);
+        project = removePlacedNpcs(project, (placedNpc) => placedNpc.npcId === npcId);
+        project = removeDialogues(project, (dialogue) => dialogue.npcId === npcId);
 
-        const remainingNpcs = (project.npcs ?? []).filter((x) => x.id !== id);
-        const nextSelected = state.selectedNpcId === id ? null : state.selectedNpcId;
-
-        const remA = removeAsset(project.assets ?? [], { id, kind: "npcs" });
-        const remF = removeAssetFile(state.assetFiles, id);
+        const assetResult = removeAsset(project.assets, { id: npcId, kind: "npcs" });
+        const fileResult = removeAssetFile(state.assetFiles, npcId);
 
         return {
           ...state,
-          project: { ...project, npcs: remainingNpcs, assets: remA.assets },
-          assetFiles: remF.assetFiles,
-          selectedNpcId: nextSelected,
+          project: {
+            ...project,
+            npcs: removeById(project.npcs, npcId),
+            assets: assetResult.assets,
+          },
+          assetFiles: fileResult.assetFiles,
+          selectedNpcId: nextSelectedAfterRemoval(state.selectedNpcId, npcId),
         };
       }),
 
+    /* Comprueba si un NPC está referenciado */
     isNpcReferenced: (npcId: ID) => {
       const { project } = get();
       if (!project) return false;
 
-      const dialogueIds = collectDialogueIds(project, (d) => d.npcId === npcId);
+      const dialogueIds = collectDialogueIds(project, (dialogue) => dialogue.npcId === npcId);
+      const npcVars = findEntityById(project.npcs, npcId)?.vars ?? [];
 
       return isEntityReferenced(project, {
-        someSceneRef: (p) =>
-          somePlacedNpc(p, (pn) => pn.npcId === npcId) ||
-          someDialogue(p, (d) => d.npcId === npcId),
-        someWhenRef: (when) =>
-          conditionReferencesNpc(when, npcId) ||
-          (project.npcs ?? [])
-            .find((n) => n.id === npcId)
-            ?.vars?.some((v) => conditionReferencesNpcVar(when, { npcId, varId: v.id })) === true,
-        someEffectRef: (e) =>
-          effectReferencesNpc(e, npcId) ||
-          effectIsStartDialogueForAnyOf(e, dialogueIds),
+        someSceneRef: (currentProject) =>
+          somePlacedNpc(currentProject, (placedNpc) => placedNpc.npcId === npcId) ||
+          someDialogue(currentProject, (dialogue) => dialogue.npcId === npcId),
+
+        someWhenRef: (when) => conditionReferencesNpc(when, npcId) ||
+          npcVars.some((variable) => conditionReferencesNpcVar(when, { npcId, varId: variable.id })),
+
+        someEffectRef: (effect) => effectReferencesNpc(effect, npcId) || effectIsStartDialogueForAnyOf(effect, dialogueIds)
       });
     },
   };

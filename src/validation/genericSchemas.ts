@@ -17,8 +17,7 @@ export const regionRectSchema = z.object({
   y: z.number(),
   w: z.number(),
   h: z.number(),
-})
-  .refine((r) => r.w > 0 && r.h > 0, { message: "La región debe tener un tamaño mayor que 0." });
+}).refine((r) => r.w > 0 && r.h > 0, { message: "La región debe tener un tamaño mayor que 0." });
 
 export const regionShapeSchema = z.discriminatedUnion("type", [regionRectSchema]);
 
@@ -26,32 +25,42 @@ export const placeableStateSchema = z.object({
   visible: z.boolean(),
   reachable: z.boolean(),
   notReachableText: z.string().max(400).optional(),
-})
-  .refine((state) =>
-    state.reachable
-      ? state.notReachableText === undefined
-      : typeof state.notReachableText === "string" && state.notReachableText.trim().length > 0,
-    {
-      message: "Si el elemento no es alcanzable debe definirse notReachableText, y si es alcanzable no debe existir.",
-      path: ["notReachableText"],
-    }
-  );
+}).refine((state) => state.reachable ? state.notReachableText === undefined : typeof state.notReachableText === "string" && state.notReachableText.trim().length > 0,
+  { message: "Si el elemento no es alcanzable debe definirse notReachableText, y si es alcanzable no debe existir.",
+    path: ["notReachableText"] }
+);
 
+/* Vars */
+export const VarDefSchema = z.discriminatedUnion("type", [
+  z.object({
+    id: IdSchema,
+    name: z.string().trim().min(1).max(60),
+    type: z.literal("number"),
+    min: z.number(),
+    max: z.number(),
+    initial: z.number(),
+  })
+    .superRefine((v, ctx) => {
+      if (v.min > v.max) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["min"],
+          message: "El mínimo no puede ser mayor que el máximo.",
+        });
+      }
 
- /* Vars */
- export const VarDefSchema = z.discriminatedUnion("type", [
-   z.object({
-     id: IdSchema,
-     name: z.string().trim().min(1).max(60),
-     type: z.literal("number"),
-     min: z.number(),
-     max: z.number(),
-     initial: z.number(),
-   }),
-   z.object({
-     id: IdSchema,
-     name: z.string().trim().min(1).max(60),
-     type: z.literal("boolean"),
-     initial: z.boolean(),
-   }),
- ]) satisfies z.ZodType<VarDef>; 
+      if (v.initial < v.min || v.initial > v.max) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["initial"],
+          message: "El valor inicial debe estar entre el mínimo y el máximo.",
+        });
+      }
+    }),
+  z.object({
+    id: IdSchema,
+    name: z.string().trim().min(1).max(60),
+    type: z.literal("boolean"),
+    initial: z.boolean(),
+  }),
+]) satisfies z.ZodType<VarDef>;

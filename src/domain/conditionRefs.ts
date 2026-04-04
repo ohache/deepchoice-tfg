@@ -16,6 +16,45 @@ export type ConditionRefs = Partial<{
   playerVars: readonly OwnerVarRef[];
 }>;
 
+type ConditionLeaf = Exclude<Condition, { type: "and" } | { type: "or" } | { type: "not" }>;
+type ConditionLeafType = ConditionLeaf["type"];
+
+type ExtractorMap = { [T in ConditionLeafType]: (cond: Extract<ConditionLeaf, { type: T }>) => ConditionRefs };
+
+const EXTRACT_REFS: ExtractorMap = {
+  nodeVisited: (cond) => ({ nodeIds: [cond.nodeId] }),
+
+  hasItem: (cond) => ({ placedItemIds: [cond.placedItemId] }),
+
+  playerVar: (cond) => ({
+    playerIds: [cond.playerId],
+    playerVars: [{ ownerId: cond.playerId, varId: cond.varId }],
+  }),
+
+  npcVar: (cond) => ({
+    npcIds: [cond.npcId],
+    npcVars: [{ ownerId: cond.npcId, varId: cond.varId }],
+  }),
+
+  hotspotVar: (cond) => ({
+    hotspotIds: [cond.hotspotId],
+    hotspotVars: [{ ownerId: cond.hotspotId, varId: cond.varId }],
+  }),
+
+  hotspotVisible: (cond) => ({ hotspotIds: [cond.hotspotId] }),
+  hotspotReachable: (cond) => ({ hotspotIds: [cond.hotspotId] }),
+
+  placedItemVisible: (cond) => ({ placedItemIds: [cond.placedItemId] }),
+  placedItemReachable: (cond) => ({ placedItemIds: [cond.placedItemId] }),
+
+  placedNpcVisible: (cond) => ({ npcIds: [cond.npcId] }),
+  placedNpcReachable: (cond) => ({ npcIds: [cond.npcId] }),
+
+  placedPlayerVisible: (cond) => ({ playerIds: [cond.playerId] }),
+
+  mapRegionVisited: (cond) => ({ mapRegions: [{ mapId: cond.mapId, regionId: cond.regionId }] }),
+};
+
 function mergeRefs(a: ConditionRefs, b: ConditionRefs): ConditionRefs {
   return {
     nodeIds: [...(a.nodeIds ?? []), ...(b.nodeIds ?? [])],
@@ -35,58 +74,52 @@ function getConditionRefs(cond: Condition | undefined): ConditionRefs {
 
   switch (cond.type) {
     case "and":
-      return (cond.all ?? []).reduce<ConditionRefs>((acc, c) => mergeRefs(acc, getConditionRefs(c)), {});
+      return cond.all.reduce<ConditionRefs>((acc, c) => mergeRefs(acc, getConditionRefs(c)), {});
 
     case "or":
-      return (cond.any ?? []).reduce<ConditionRefs>((acc, c) => mergeRefs(acc, getConditionRefs(c)), {});
+      return cond.any.reduce<ConditionRefs>((acc, c) => mergeRefs(acc, getConditionRefs(c)), {});
 
     case "not":
       return getConditionRefs(cond.cond);
 
     case "nodeVisited":
-      return { nodeIds: [cond.nodeId] };
+      return EXTRACT_REFS.nodeVisited(cond);
 
     case "hasItem":
-      return { placedItemIds: [cond.placedItemId] };
+      return EXTRACT_REFS.hasItem(cond);
 
     case "playerVar":
-      return {
-        playerIds: [cond.playerId],
-        playerVars: [{ ownerId: cond.playerId, varId: cond.varId }],
-      };
+      return EXTRACT_REFS.playerVar(cond);
 
     case "npcVar":
-      return {
-        npcIds: [cond.npcId],
-        npcVars: [{ ownerId: cond.npcId, varId: cond.varId }],
-      };
+      return EXTRACT_REFS.npcVar(cond);
 
     case "hotspotVar":
-      return {
-        hotspotIds: [cond.hotspotId],
-        hotspotVars: [{ ownerId: cond.hotspotId, varId: cond.varId }],
-      };
+      return EXTRACT_REFS.hotspotVar(cond);
 
     case "hotspotVisible":
+      return EXTRACT_REFS.hotspotVisible(cond);
+
     case "hotspotReachable":
-      return { hotspotIds: [cond.hotspotId] };
+      return EXTRACT_REFS.hotspotReachable(cond);
 
     case "placedItemVisible":
+      return EXTRACT_REFS.placedItemVisible(cond);
+
     case "placedItemReachable":
-      return { placedItemIds: [cond.placedItemId] };
+      return EXTRACT_REFS.placedItemReachable(cond);
 
     case "placedNpcVisible":
+      return EXTRACT_REFS.placedNpcVisible(cond);
+
     case "placedNpcReachable":
-      return { npcIds: [cond.npcId] };
+      return EXTRACT_REFS.placedNpcReachable(cond);
 
     case "placedPlayerVisible":
-      return { playerIds: [cond.playerId] };
+      return EXTRACT_REFS.placedPlayerVisible(cond);
 
     case "mapRegionVisited":
-      return { mapRegions: [{ mapId: cond.mapId, regionId: cond.regionId }] };
-
-    default:
-      return {};
+      return EXTRACT_REFS.mapRegionVisited(cond);
   }
 }
 

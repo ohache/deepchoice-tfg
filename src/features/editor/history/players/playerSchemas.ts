@@ -45,6 +45,17 @@ export const PlayerDraftSchema = z.object({
         message: "La imagen predeterminada debe existir dentro de las imágenes",
       });
     }
+
+  const normalizedNames = val.images.map((i) => i.name.trim().toLowerCase());
+    const nameSet = new Set(normalizedNames);
+
+    if (nameSet.size !== normalizedNames.length) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["images"],
+        message: "Hay imágenes con nombre repetido.",
+      });
+    }
   });
 
 export type PlayerDraftInput = z.input<typeof PlayerDraftSchema>;

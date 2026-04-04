@@ -7,13 +7,12 @@ type MusicDraftInput = z.input<typeof MusicDraftSchema>;
 
 /* Valida el draft del formulario de Music */
 export function validateMusicDraft( input: MusicDraftInput, opts: { mode: "new" | "edit"; project: Project; currentTrackId?: ID }) {
-  const trackList = opts.project.musicTracks ?? [];
 
   return validateAssetBackedDraft({
     input: { name: input.name, file: input.file ?? undefined },
     opts: { mode: opts.mode, project: opts.project, currentId: opts.currentTrackId },
     draftSchema: MusicDraftSchema,
-    list: trackList,
+    list: opts.project.musicTracks,
     assetKind: "music",
     messages: {
       duplicateName: "Ya existe otra pista de música con ese título.",

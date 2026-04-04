@@ -1,48 +1,55 @@
 import JSZip from "jszip";
-import type { Project, ID, AssetDef, ItemDef, NpcDef, PlayerDef, PlayerImage, MusicTrackDef, SoundEffectDef, VarDef, RegionShape, PlaceableState, Hotspot, PlacedItem, PlacedNpc,
-  PlacedPlayer, ConditionalTextEntry, Dialogue, DialogueNode, MapVisualSource, MapRegion, WorldMap, NodeMapLocation, SceneImageLayer, Node } from "@/domain/types";
+import type { AssetDef, ConditionalTextEntry, Dialogue, DialogueNode, Hotspot, ID, ItemDef, MapRegion, MapVisualSource, MusicTrackDef, Node, NodeMapLocation, NpcDef,
+  PlacedItem, PlacedNpc, PlacedPlayer, PlaceableState, PlayerDef, PlayerImage, Project, RegionShape, SceneImageLayer, SoundEffectDef, VarDef, WorldMap} from "@/domain/types";
 import { toast } from "@/shared/toast/toastStore";
 
-function isAbsoluteUrl(s: string) {
-  return /^(https?:|data:|blob:)/.test(s);
+/* Paths y nombres */
+function isAbsoluteUrl(value: string): boolean {
+  return /^(https?:|data:|blob:)/.test(value);
 }
 
 function cleanZipPath(raw: string): string {
-  const p = String(raw ?? "").trim().replaceAll("\\", "/");
-  if (!p) return "";
+  const normalized = String(raw ?? "").trim().replaceAll("\\", "/");
+  if (!normalized) return "";
 
-  const parts = p.replace(/^\.\/+/, "").replace(/^\/+/, "").split("/").filter(Boolean).filter((seg) => seg !== "." && seg !== "..");
+  const parts = normalized.replace(/^\.\/+/, "").replace(/^\/+/, "").split("/").filter(Boolean).filter((segment) => segment !== "." && segment !== "..");
 
   return parts.join("/");
 }
 
 /* Limpia un título para usarlo como nombre de archivo */
 function cleanFileName(title: string): string {
-  return (title ?? "").trim().toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_-]/g, "").replace(/^[_-]+|[_-]+$/g, "");
+  return String(title ?? "").trim().toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_-]/g, "").replace(/^[_-]+|[_-]+$/g, "");
 }
 
-/* Descarga un Blob como archivo */
-function downloadBlob(blob: Blob, fileName: string): void {
-  const url = URL.createObjectURL(blob);
-
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = fileName;
-
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-
-  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+function getProjectBaseName(project: Project): string {
+  return cleanFileName(project.title) || "project";
 }
 
 function toZipAssetPath(filePath: string): string {
   const trimmed = String(filePath ?? "").trim();
   if (!trimmed || isAbsoluteUrl(trimmed)) return "";
+
   const withPrefix = /^assets\//i.test(trimmed) ? trimmed : `assets/${trimmed}`;
   return cleanZipPath(withPrefix);
 }
 
+/* Descarga */
+function downloadBlob(blob: Blob, fileName: string): void {
+  const url = URL.createObjectURL(blob);
+
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+/* Serialización */
 function serializeAsset(asset: AssetDef) {
   return {
     id: asset.id,
@@ -52,23 +59,23 @@ function serializeAsset(asset: AssetDef) {
   };
 }
 
-function serializeVarDef(v: VarDef) {
-  if (v.type === "number") {
+function serializeVarDef(variable: VarDef) {
+  if (variable.type === "number") {
     return {
-      id: v.id,
-      name: v.name,
-      type: v.type,
-      min: v.min,
-      max: v.max,
-      initial: v.initial,
+      id: variable.id,
+      name: variable.name,
+      type: variable.type,
+      min: variable.min,
+      max: variable.max,
+      initial: variable.initial,
     };
   }
 
   return {
-    id: v.id,
-    name: v.name,
-    type: v.type,
-    initial: v.initial,
+    id: variable.id,
+    name: variable.name,
+    type: variable.type,
+    initial: variable.initial,
   };
 }
 
@@ -312,31 +319,31 @@ function serializeNode(node: Node) {
     mapLocation: node.mapLocation ? serializeNodeMapLocation(node.mapLocation) : undefined,
     isStart: node.isStart,
     isFinal: node.isFinal,
-    meta: node.meta ? { layout: node.meta.layout ? { x: node.meta.layout.x, y: node.meta.layout.y } : undefined } : undefined };
+    meta: node.meta ? { layout: node.meta.layout ? { x: node.meta.layout.x, y: node.meta.layout.y } : undefined } : undefined,
+  };
 }
 
 function serializeProject(project: Project) {
   return {
     id: project.id,
     title: project.title,
-    assets: (project.assets ?? []).map(serializeAsset),
-    items: (project.items ?? []).map(serializeItem),
-    npcs: (project.npcs ?? []).map(serializeNpc),
-    players: (project.players ?? []).map(serializePlayer),
-    musicTracks: (project.musicTracks ?? []).map(serializeMusicTrack),
-    soundEffects: (project.soundEffects ?? []).map(serializeSoundEffect),
-    maps: (project.maps ?? []).map(serializeWorldMap),
-    nodes: (project.nodes ?? []).map(serializeNode),
+    assets: project.assets.map(serializeAsset),
+    items: project.items.map(serializeItem),
+    npcs: project.npcs.map(serializeNpc),
+    players: project.players.map(serializePlayer),
+    musicTracks: project.musicTracks.map(serializeMusicTrack),
+    soundEffects: project.soundEffects.map(serializeSoundEffect),
+    maps: project.maps.map(serializeWorldMap),
+    nodes: project.nodes.map(serializeNode),
   };
 }
 
-/*Descarga únicamente el JSON actualizado del proyecto */
+/* Descarga únicamente el JSON actualizado del proyecto */
 export function downloadProjectJsonFile(project: Project): void {
   try {
-    const baseName = cleanFileName(project?.title ?? "") || "project";
+    const baseName = getProjectBaseName(project);
     const serializedProject = serializeProject(project);
-    const data = JSON.stringify(serializedProject, null, 2);
-    const blob = new Blob([data], { type: "application/json" });
+    const blob = new Blob([JSON.stringify(serializedProject, null, 2)], { type: "application/json" });
 
     downloadBlob(blob, `${baseName}.json`);
   } catch {
@@ -348,18 +355,18 @@ export function downloadProjectJsonFile(project: Project): void {
 export async function exportProjectAsZip(project: Project, assetFiles: Record<ID, File>): Promise<void> {
   try {
     const zip = new JSZip();
-    const baseName = cleanFileName(project?.title ?? "") || "project";
+    const baseName = getProjectBaseName(project);
     const serializedProject = serializeProject(project);
 
     zip.file(`${baseName}.json`, JSON.stringify(serializedProject, null, 2));
 
     let missingCount = 0;
 
-    for (const asset of project.assets ?? []) {
-      const zipPath = toZipAssetPath(asset.file as string);
+    for (const asset of project.assets) {
+      const zipPath = toZipAssetPath(asset.file);
       if (!zipPath) continue;
 
-      const file = assetFiles?.[asset.id];
+      const file = assetFiles[asset.id];
       if (!file) {
         missingCount++;
         continue;
@@ -368,9 +375,7 @@ export async function exportProjectAsZip(project: Project, assetFiles: Record<ID
       zip.file(zipPath, file);
     }
 
-    if (missingCount > 0) {
-      toast.warning("Exportación incompleta", `Faltan ${missingCount} archivos de assets en memoria (se exportó el JSON igualmente).`);
-    }
+    if (missingCount > 0) toast.warning("Exportación incompleta", `Faltan ${missingCount} archivos de assets en memoria (se exportó el JSON igualmente).`);
 
     const blob = await zip.generateAsync({ type: "blob" });
     downloadBlob(blob, `${baseName}.zip`);

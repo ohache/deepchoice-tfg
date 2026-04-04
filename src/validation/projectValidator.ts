@@ -1,7 +1,7 @@
 import type { z, ZodError } from "zod";
 import type { AssetDef, Project } from "@/domain/types";
-import { ProjectSchema } from "@/validation/projectSchemas";
 import { issuesToFieldErrors } from "@/shared/zodIssues";
+import { ProjectSchema } from "@/validation/projectSchemas";
 
 /* Errores por “campo top-level” del Project */
 export type ProjectFieldErrors = {
@@ -35,21 +35,23 @@ function createProjectFieldErrors(): ProjectFieldErrors {
 }
 
 function hasDuplicateIds(list: Array<{ id: string }>): boolean {
-  const set = new Set<string>();
-  for (const it of list) {
-    if (set.has(it.id)) return true;
-    set.add(it.id);
+  const seen = new Set<string>();
+
+  for (const item of list) {
+    if (seen.has(item.id)) return true;
+    seen.add(item.id);
   }
+
   return false;
 }
 
 function buildAssetIndex(assets: AssetDef[]) {
   const byKind = new Map<AssetDef["kind"], Map<string, AssetDef>>();
 
-  for (const a of assets) {
-    const m = byKind.get(a.kind) ?? new Map<string, AssetDef>();
-    m.set(a.id, a);
-    byKind.set(a.kind, m);
+  for (const asset of assets) {
+    const kindMap = byKind.get(asset.kind) ?? new Map<string, AssetDef>();
+    kindMap.set(asset.id, asset);
+    byKind.set(asset.kind, kindMap);
   }
 
   return {
@@ -63,16 +65,9 @@ function buildAssetIndex(assets: AssetDef[]) {
   };
 }
 
-/* Reglas de negocio (integridad/coherencia del proyecto) */
+/* Reglas de negocio */
 function applyBusinessRules(project: Project, errors: ProjectFieldErrors): void {
-  const assets = project.assets ?? [];
-  const items = project.items ?? [];
-  const npcs = project.npcs ?? [];
-  const players = project.players ?? [];
-  const nodes = project.nodes ?? [];
-  const maps = project.maps ?? [];
-  const musicTracks = project.musicTracks ?? [];
-  const sfx = project.soundEffects ?? [];
+  const { assets, items, npcs, players, nodes, maps, musicTracks, soundEffects } = project;
 
   if (hasDuplicateIds(assets)) errors.assets ??= "Hay assets con id repetido.";
   if (hasDuplicateIds(items)) errors.items ??= "Hay items con id repetido.";
@@ -81,44 +76,86 @@ function applyBusinessRules(project: Project, errors: ProjectFieldErrors): void 
   if (hasDuplicateIds(nodes)) errors.nodes ??= "Hay escenas (nodes) con id repetido.";
   if (hasDuplicateIds(maps)) errors.maps ??= "Hay mapas con id repetido.";
   if (hasDuplicateIds(musicTracks)) errors.musicTracks ??= "Hay pistas de música con id repetido.";
-  if (hasDuplicateIds(sfx)) errors.soundEffects ??= "Hay efectos de sonido con id repetido.";
+  if (hasDuplicateIds(soundEffects)) errors.soundEffects ??= "Hay efectos de sonido con id repetido.";
 
-  const startCount = nodes.reduce((acc, n) => acc + (n.isStart ? 1 : 0), 0);
+  const startCount = nodes.reduce((acc, node) => acc + (node.isStart ? 1 : 0), 0);
   if (startCount !== 1) {
     errors.nodes ??= startCount === 0
-      ? "Debe existir exactamente una escena inicial (isStart). Ahora mismo: ninguna."
-      : `Debe existir exactamente una escena inicial (isStart). Ahora mismo: ${startCount}.`;
+        ? "Debe existir exactamente una escena inicial (isStart). Ahora mismo: ninguna."
+        : `Debe existir exactamente una escena inicial (isStart). Ahora mismo: ${startCount}.`;
   }
 
   const assetIndex = buildAssetIndex(assets);
-  const musicIdSet = new Set(musicTracks.map((t) => t.id));
-  const sfxIdSet = new Set(sfx.map((x) => x.id));
-  const mapById = new Map(maps.map((m) => [m.id, m] as const));
-  const nodeIdSet = new Set(nodes.map((n) => n.id));
+  const musicIdSet = new Set(musicTracks.map((track) => track.id));
+  const sfxIdSet = new Set(soundEffects.map((sfx) => sfx.id));
+  const mapById = new Map(maps.map((map) => [map.id, map] as const));
+  const nodeIdSet = new Set(nodes.map((node) => node.id));
 
   /* Integridad asset-backed */
-  for (const t of musicTracks) {
-    if (!assetIndex.has("music", t.id)) {
+  for (const track of musicTracks) {
+    if (!assetIndex.has("music", track.id)) {
       errors.musicTracks ??= "Hay pistas de música sin asset asociado (assets.kind === 'music' con el mismo id).";
       break;
     }
   }
 
-  for (const e of sfx) {
-    if (!assetIndex.has("sfx", e.id)) {
+  for (const sfx of soundEffects) {
+    if (!assetIndex.has("sfx", sfx.id)) {
       errors.soundEffects ??= "Hay efectos de sonido sin asset asociado (assets.kind === 'sfx' con el mismo id).";
       break;
     }
   }
 
-  const orphanMusicAssets = assetIndex.ids("music").some((id) => !musicIdSet.has(id));
-  if (orphanMusicAssets) {
+  if (assetIndex.ids("music").some((id) => !musicIdSet.has(id))) {
     errors.assets ??= "Hay assets de tipo 'music' que no corresponden a ninguna pista en musicTracks.";
   }
 
-  const orphanSfxAssets = assetIndex.ids("sfx").some((id) => !sfxIdSet.has(id));
-  if (orphanSfxAssets) {
+  if (assetIndex.ids("sfx").some((id) => !sfxIdSet.has(id))) {
     errors.assets ??= "Hay assets de tipo 'sfx' que no corresponden a ningún efecto en soundEffects.";
+  }
+
+  /* Integridad players */
+  for (const player of players) {
+    if (!assetIndex.has("players", player.id)) {
+      errors.players ??= "Hay players sin asset asociado (assets.kind === 'players' con el mismo id del player).";
+      break;
+    }
+
+    const imageIds = new Set(player.images.map((img) => img.id));
+
+    if (player.defaultImageId && !imageIds.has(player.defaultImageId)) {
+      errors.players ??= "Hay players cuyo defaultImageId no existe dentro de sus images.";
+      break;
+    }
+
+    if (hasDuplicateIds(player.images)) {
+      errors.players ??= "Hay players con imágenes repetidas por id.";
+      break;
+    }
+
+    for (const image of player.images) {
+      if (!assetIndex.has("players", image.id)) {
+        errors.players ??= "Hay imágenes de player sin asset asociado (assets.kind === 'players' con el mismo id de la imagen).";
+        break;
+      }
+    }
+
+    if (errors.players) break;
+  }
+
+  /* Integridad items / npcs */
+  for (const item of items) {
+    if (!assetIndex.has("items", item.id)) {
+      errors.items ??= "Hay items sin asset asociado (assets.kind === 'items' con el mismo id).";
+      break;
+    }
+  }
+
+  for (const npc of npcs) {
+    if (!assetIndex.has("npcs", npc.id)) {
+      errors.npcs ??= "Hay PNJs sin asset asociado (assets.kind === 'npcs' con el mismo id).";
+      break;
+    }
   }
 
   /* Integridad mapas */
@@ -128,9 +165,7 @@ function applyBusinessRules(project: Project, errors: ProjectFieldErrors): void 
         errors.maps ??= "Hay mapas con visual.singleImage cuyo imageAssetId no existe en assets (kind 'maps').";
         break;
       }
-    }
-
-    if (map.visual.type === "composed") {
+    } else {
       if (!assetIndex.has("maps", map.visual.backgroundAssetId)) {
         errors.maps ??= "Hay mapas con visual.composed cuyo backgroundAssetId no existe en assets (kind 'maps').";
         break;
@@ -139,7 +174,7 @@ function applyBusinessRules(project: Project, errors: ProjectFieldErrors): void 
 
     const regionIds = new Set<string>();
 
-    for (const region of map.regions ?? []) {
+    for (const region of map.regions) {
       if (regionIds.has(region.id)) {
         errors.maps ??= "Hay regiones de mapa con id repetido dentro del mismo mapa.";
         break;
@@ -156,16 +191,14 @@ function applyBusinessRules(project: Project, errors: ProjectFieldErrors): void 
         break;
       }
 
-      if (region.subMapId) {
-        if (region.subMapId === map.id) {
-          errors.maps ??= "Hay regiones de mapa que referencian como submapa al propio mapa.";
-          break;
-        }
+      if (region.subMapId === map.id) {
+        errors.maps ??= "Hay regiones de mapa que referencian como submapa al propio mapa.";
+        break;
+      }
 
-        if (!mapById.has(region.subMapId)) {
-          errors.maps ??= "Hay regiones de mapa que referencian subMapId inexistente.";
-          break;
-        }
+      if (region.subMapId && !mapById.has(region.subMapId)) {
+        errors.maps ??= "Hay regiones de mapa que referencian subMapId inexistente.";
+        break;
       }
 
       if (region.entrySceneId && !region.sceneIds.includes(region.entrySceneId)) {
@@ -173,7 +206,7 @@ function applyBusinessRules(project: Project, errors: ProjectFieldErrors): void 
         break;
       }
 
-      for (const sceneId of region.sceneIds ?? []) {
+      for (const sceneId of region.sceneIds) {
         if (!nodeIdSet.has(sceneId)) {
           errors.maps ??= "Hay regiones de mapa que referencian sceneIds inexistentes.";
           break;
@@ -187,27 +220,26 @@ function applyBusinessRules(project: Project, errors: ProjectFieldErrors): void 
   }
 
   /* Referencias dentro de nodes */
-  for (const n of nodes) {
-    if (n.musicTrackId && !musicIdSet.has(n.musicTrackId)) {
+  for (const node of nodes) {
+    if (node.musicTrackId && !musicIdSet.has(node.musicTrackId)) {
       errors.nodes ??= "Hay escenas que referencian musicTrackId inexistente (no está en musicTracks).";
       break;
     }
 
-    if (n.mapLocation) {
-      const m = mapById.get(n.mapLocation.mapId);
-      if (!m) {
+    if (node.mapLocation) {
+      const map = mapById.get(node.mapLocation.mapId);
+      if (!map) {
         errors.nodes ??= "Hay escenas que referencian mapId inexistente (no está en maps).";
         break;
       }
 
-      const regionExists = m.regions.some((r) => r.id === n.mapLocation?.regionId);
-      if (!regionExists) {
+      if (!map.regions.some((region) => region.id === node.mapLocation!.regionId)) {
         errors.nodes ??= "Hay escenas que referencian regionId inexistente dentro del mapa indicado.";
         break;
       }
     }
 
-    for (const layer of n.layers ?? []) {
+    for (const layer of node.layers) {
       if (layer.musicTrackId && !musicIdSet.has(layer.musicTrackId)) {
         errors.nodes ??= "Hay capas que referencian musicTrackId inexistente (no está en musicTracks).";
         break;
@@ -217,13 +249,39 @@ function applyBusinessRules(project: Project, errors: ProjectFieldErrors): void 
         errors.nodes ??= "Hay capas que referencian assetId inexistente en assets (kind 'backgrounds').";
         break;
       }
-    }
 
-    for (const layer of n.layers ?? []) {
-      if (!assetIndex.has("backgrounds", layer.assetId)) {
-        errors.nodes ??= "Hay capas que referencian assetId inexistente en assets (kind 'backgrounds').";
-        break;
+      for (const placedItem of layer.placedItems ?? []) {
+        if (!items.some((item) => item.id === placedItem.itemId)) {
+          errors.nodes ??= "Hay placedItems que referencian itemId inexistente.";
+          break;
+        }
       }
+
+      if (errors.nodes) break;
+
+      for (const placedNpc of layer.placedNpcs ?? []) {
+        if (!npcs.some((npc) => npc.id === placedNpc.npcId)) {
+          errors.nodes ??= "Hay placedNpcs que referencian npcId inexistente.";
+          break;
+        }
+      }
+
+      if (errors.nodes) break;
+
+      for (const placedPlayer of layer.placedPlayers ?? []) {
+        const player = players.find((p) => p.id === placedPlayer.playerId);
+        if (!player) {
+          errors.nodes ??= "Hay placedPlayers que referencian playerId inexistente.";
+          break;
+        }
+
+        if (!player.images.some((img) => img.id === placedPlayer.initialImageId)) {
+          errors.nodes ??= "Hay placedPlayers cuyo initialImageId no existe dentro de las imágenes del player.";
+          break;
+        }
+      }
+
+      if (errors.nodes) break;
     }
 
     if (errors.nodes) break;

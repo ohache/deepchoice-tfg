@@ -48,10 +48,8 @@ export function SceneHotspotField({ label = "Hotspots", active, onToggle, layerI
   const setHotspotDraftVars = useEditorStore((s) => s.setHotspotDraftVars);
   const setHotspotDraftRules = useEditorStore((s) => s.setHotspotDraftRules);
   const setHotspotDraftShape = useEditorStore((s) => s.setHotspotDraftShape);
-  const validateHotspotDraft = useEditorStore((s) => s.validateHotspotDraft);
+  const commitHotspotDraft = useEditorStore((s) => s.commitHotspotDraft);
 
-  const addHotspot = useEditorStore((s) => s.addHotspot);
-  const updateHotspot = useEditorStore((s) => s.updateHotspot);
   const removeHotspot = useEditorStore((s) => s.removeHotspot);
   const setActiveHotspots = useEditorStore((s) => s.setActiveHotspots);
 
@@ -71,7 +69,7 @@ export function SceneHotspotField({ label = "Hotspots", active, onToggle, layerI
     layers,
   });
 
-  const nodeId = nodeDraft?.id ?? ("" as ID);
+  const nodeId = nodeDraft?.id ?? "";
 
   const hotspots = useMemo<Hotspot[]>(() => layer?.hotspots ?? [], [layer?.hotspots]);
   const placedItems = useMemo<PlacedItem[]>(() => layer?.placedItems ?? [], [layer?.placedItems]);
@@ -137,11 +135,11 @@ export function SceneHotspotField({ label = "Hotspots", active, onToggle, layerI
       startRedrawHotspotShape();
     },
     onCollision: (summary) => {
-  setEditorError({
-    kind: "panel",
-    message: `Colisión con: ${summary}. Dibuja otra región o pulsa “Cancelar”.`,
-  });
-},
+      setEditorError({
+        kind: "panel",
+        message: `Colisión con: ${summary}. Dibuja otra región o pulsa “Cancelar”.`,
+      });
+    },
   });
 
   const [confirmNukeOpen, setConfirmNukeOpen] = useState(false);
@@ -235,15 +233,13 @@ export function SceneHotspotField({ label = "Hotspots", active, onToggle, layerI
   };
 
   const useItemSourceOptions = useMemo(
-  () =>
-    placedItems
-      .filter((p) => !draft || p.id !== draft.id)
-      .map((p) => ({
+    () =>
+      placedItems.map((p) => ({
         id: p.id,
         label: p.label?.trim() || p.id,
       })),
-  [placedItems, draft],
-);
+    [placedItems],
+  );
 
   const {
     activeChannel,
@@ -379,42 +375,26 @@ export function SceneHotspotField({ label = "Hotspots", active, onToggle, layerI
       return;
     }
 
-  if (hasCollisions) {
-  setEditorError({
-    kind: "panel",
-    message: `Colisión con: ${collisionSummary}. Ajusta la región para que no se solape.`,
-  });
-  return;
-}
-
-    const validation = validateHotspotDraft();
-    if (!validation.ok) {
-      toast.error("No se ha podido guardar", validation.error ?? "Revisa el hotspot.");
+    if (hasCollisions) {
+      setEditorError({
+        kind: "panel",
+        message: `Colisión con: ${collisionSummary}. Ajusta la región para que no se solape.`,
+      });
       return;
     }
 
-    if (!draft.shape) {
-      toast.error("No se ha podido guardar", "Debes dibujar un área válida antes de guardar el hotspot.");
+    const result = commitHotspotDraft();
+    if (!result.ok) {
+      toast.error("No se ha podido guardar", result.error ?? "Revisa el hotspot.");
       return;
     }
 
-    const candidate: Hotspot = {
-      id: draft.id,
-      label: draft.label.trim(),
-      shape: draft.shape,
-      initialState: draft.initialState,
-      vars: draft.vars,
-      rules: draft.rules,
-    };
+    if (result.hotspotId) {
+      setSelectedInteractionKind("hotspot");
+      setSelectedInteractionId(result.hotspotId);
+    }
 
-    if (isExistingHotspot) updateHotspot(candidate.id, candidate);
-    else addHotspot(candidate);
-
-    setSelectedInteractionKind("hotspot");
-    setSelectedInteractionId(candidate.id);
-    cancelHotspotDraft();
     setEditorError(null);
-
     toast.success("Hotspot guardado", "El hotspot ya forma parte de la escena.");
   };
 

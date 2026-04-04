@@ -1,8 +1,7 @@
-// src/validation/varValidator.ts
-import type { z, ZodError } from "zod";
+import type { ZodError } from "zod";
 import { VarDraftSchema, type VarDraftInput, type VarDraftOutput } from "@/validation/varSchemas";
 
-/** Errores por fila (sin id, el índice es la clave) */
+/* Errores por fila */
 export type VarFieldErrors = {
   name?: string;
   type?: string;
@@ -22,7 +21,7 @@ function ensureVarErr(errors: VarsErrorBag, idx: number): VarFieldErrors {
   return errors.varByIndex[idx]!;
 }
 
-/** Mapea un issue de Zod dentro de vars[] a un error por índice */
+/* Mapea un issue de Zod dentro de vars[] a un error por índice */
 export function applyVarZodIssue(args: { errors: VarsErrorBag; issuePath: readonly PropertyKey[]; issueMessage: string }) {
   const { errors, issuePath, issueMessage } = args;
 
@@ -64,7 +63,6 @@ export function applyVarZodIssue(args: { errors: VarsErrorBag; issuePath: readon
 }
 
 export type ValidateVarDraftRowsOptions = {
-  /** Para validar duplicados contra el catálogo existente  */
   existingNamesLower?: Set<string>;
   messages?: { duplicateVarName?: string; minGreaterThanMax?: string; initialOutOfRange?: string; };
 };
@@ -103,31 +101,29 @@ export function validateVarDraftRows(args: { errors: VarsErrorBag; vars?: VarDra
 
       if (Number.isFinite(min) && Number.isFinite(max) && min > max) {
         const e = ensureVarErr(errors, idx);
-        e.min = messages.minGreaterThanMax;
         e.max = messages.minGreaterThanMax;
       }
 
-      if (Number.isFinite(min) && Number.isFinite(max) && Number.isFinite(initial)) {
-        if (initial < min || initial > max) ensureVarErr(errors, idx).initial = messages.initialOutOfRange;
+      if (Number.isFinite(min) && Number.isFinite(max) && Number.isFinite(initial) && (initial < min || initial > max)) {
+        ensureVarErr(errors, idx).initial = messages.initialOutOfRange;
       }
     }
   });
 }
 
 /* Valida un row suelto */
-export function parseVarDraftRow( row: unknown ): { ok: true; value: VarDraftOutput } | { ok: false; issues: z.ZodIssue[] } {
-  const r = VarDraftSchema.safeParse(row);
-  if (!r.success) return { ok: false, issues: r.error.issues };
-  return { ok: true, value: r.data };
+export function parseVarDraftRow(row: unknown): { ok: true; value: VarDraftOutput } | { ok: false; issues: ZodError["issues"] } {
+  const result = VarDraftSchema.safeParse(row);
+  if (!result.success) return { ok: false, issues: result.error.issues };
+  return { ok: true, value: result.data };
 }
 
-/* Valida el draft completo (útil al guardar) */
+/* Valida el draft completo */
 export function validateVarsDraft(args: { vars: VarDraftInput[] | undefined; zodError?: ZodError; opts?: ValidateVarDraftRowsOptions; }): VarsErrorBag {
   const { vars, zodError, opts } = args;
 
   const errors: VarsErrorBag = {};
 
-  // Errores estructurales de Zod (required, min/max de string, etc.)
   if (zodError) {
     for (const issue of zodError.issues) {
       if (issue.path[0] !== "vars") continue;
@@ -136,7 +132,6 @@ export function validateVarsDraft(args: { vars: VarDraftInput[] | undefined; zod
     }
   }
 
-  // Validaciones de dominio
   validateVarDraftRows({ errors, vars, opts });
 
   return errors;

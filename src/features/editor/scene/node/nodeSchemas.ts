@@ -39,9 +39,6 @@ export const nodeSchema = z.object({
 
 export type NodeDTO = z.infer<typeof nodeSchema>;
 
-/* Draft típico (sin id) */
-export const nodeDraftSchema = nodeSchema.omit({ id: true }).extend({
-  meta: nodeMetaSchema.optional(),
-});
+export const nodeDraftSchema = nodeSchema.omit({ id: true });
 
 export type NodeDraftDTO = z.infer<typeof nodeDraftSchema>;

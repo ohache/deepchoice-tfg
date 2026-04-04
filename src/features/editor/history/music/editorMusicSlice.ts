@@ -1,8 +1,12 @@
-import type { ID, MusicTrackDef, AssetDef, Project } from "@/domain/types";
+import type { ID, MusicTrackDef, Project } from "@/domain/types";
 import { hasDuplicateName } from "@/validation/genericValidator";
 import { buildAssetPath } from "@/store/assets/assetPath";
 import { generateId } from "@/utils/id";
-import { upsertAsset, upsertAssetFile, removeAsset, removeAssetFile, someEffectsInProject, removeEffectsInProject, safeTrim } from "@/features/editor/core/editorGenericSlice";
+import { upsertAsset, upsertAssetFile, removeAsset, removeAssetFile } from "@/features/editor/core/editorGenericSlice";
+import { someEffectsInProject, removeEffectsInProject } from "@/features/editor/core/editorProjectWalkers";
+import { findAssetByIdAndKind, isFileChanged, isNameChanged, normalizeOptionalFile, normalizeOptionalName,
+  removeById, replaceById } from "@/features/editor/history/shared/assetBackedEntityHelpers";
+import { nextSelectedAfterRemoval, hasTrackReferenceOutsideEffects, effectMatchesTypedId } from "@/features/editor/history/shared/genericHelpers";
 
 /* Mínimo contrato del store que necesita este slice */
 type EditorStoreLike = {
@@ -27,161 +31,145 @@ export function createEditorMusicSlice(set: (partial: | Partial<EditorStoreLike>
 
     setSelectedMusicTrackId: (id) => set({ selectedMusicTrackId: id }),
 
+    /* Añade una pista nueva */
     addMusicTrack: (file: File, name: string) => {
       const { project, assetFiles } = get();
       if (!project) return null;
       if (!(file instanceof File)) return null;
 
-      const safeName = safeTrim(name);
-      if (!safeName) return null;
+      const nextName = normalizeOptionalName(name);
+      if (!nextName) return null;
 
-      const currentTracks = project.musicTracks ?? [];
-      if (hasDuplicateName({ list: currentTracks, incomingName: safeName })) return null;
+      if (hasDuplicateName({ list: project.musicTracks, incomingName: nextName })) return null;
 
       const id = generateId.music();
       const filePath = buildAssetPath("music", file.name);
 
-      const newTrack: MusicTrackDef = { id, name: safeName };
+      const newTrack: MusicTrackDef = { id, name: nextName };
 
-      const assets0: AssetDef[] = project.assets ?? [];
-      const resA = upsertAsset(assets0, { id, kind: "music", name: safeName, file: filePath });
-      const resF = upsertAssetFile(assetFiles, id, file);
+      const assetResult = upsertAsset(project.assets, { id, kind: "music", name: nextName, file: filePath });
+
+      const fileResult = upsertAssetFile(assetFiles, id, file);
 
       set({
-        project: { ...project, musicTracks: [...currentTracks, newTrack], assets: resA.assets },
-        assetFiles: resF.assetFiles,
+        project: {
+          ...project,
+          musicTracks: [...project.musicTracks, newTrack],
+          assets: assetResult.assets,
+        },
+        assetFiles: fileResult.assetFiles,
         selectedMusicTrackId: id,
       });
 
       return id;
     },
 
+    /* Actualiza nombre y/o fichero */
     updateMusicTrack: (id, changes) =>
       set((state) => {
         if (!state.project) return state;
+
         const project = state.project;
+        const prevTrack = project.musicTracks.find((track) => track.id === id);
+        if (!prevTrack) return state;
 
-        const trackList = project.musicTracks ?? [];
-        const prev = trackList.find((x) => x.id === id);
-        if (!prev) return state;
+        const nextName = normalizeOptionalName(changes.name);
+        const nameChanged = isNameChanged(prevTrack.name, nextName);
 
-        const nextNameRaw = typeof changes.name === "string" ? changes.name.trim() : "";
-        const nameChanged = Boolean(nextNameRaw) && nextNameRaw !== prev.name;
-
-        if (nameChanged) {
-          if (hasDuplicateName({ list: trackList, incomingName: nextNameRaw, ignoreId: id })) return state;
-        }
-
-        const nextFile = changes.file instanceof File ? changes.file : null;
-        const fileChanged = Boolean(nextFile);
+        if (nameChanged && hasDuplicateName({ list: project.musicTracks, incomingName: nextName, ignoreId: id })) return state;
+        
+        const nextFile = normalizeOptionalFile(changes.file);
+        const fileChanged = isFileChanged(nextFile);
 
         if (!nameChanged && !fileChanged) return state;
 
         const nextTrack: MusicTrackDef = {
-          ...prev,
-          ...(nameChanged ? { name: nextNameRaw } : null),
+          ...prevTrack,
+          ...(nameChanged ? { name: nextName } : null),
         };
 
-        let nextAssets = project.assets ?? [];
-        const existingAsset = nextAssets.find((a) => a.id === id && a.kind === "music") ?? null;
-
-        if (nameChanged && existingAsset) {
-          nextAssets = upsertAsset(nextAssets, {
-            id,
-            kind: "music",
-            name: nextTrack.name,
-            file: String(existingAsset.file ?? "").trim(),
-          }).assets;
-        }
-
+        let nextAssets = project.assets;
         let nextAssetFiles = state.assetFiles;
 
+        const existingAsset = findAssetByIdAndKind(nextAssets, id, "music");
+
+        if (nameChanged && existingAsset) {
+          nextAssets = upsertAsset(nextAssets, { id, kind: "music", name: nextTrack.name, file: existingAsset.file.trim() }).assets;
+        }
+
         if (fileChanged && nextFile) {
-          const newPath = buildAssetPath("music", nextFile.name);
+          const filePath = buildAssetPath("music", nextFile.name);
 
-          nextAssets = upsertAsset(nextAssets, {
-            id,
-            kind: "music",
-            name: nextTrack.name,
-            file: newPath,
-          }).assets;
+          const assetResult = upsertAsset(nextAssets, { id, kind: "music", name: nextTrack.name, file: filePath });
+          nextAssets = assetResult.assets;
 
-          nextAssetFiles = upsertAssetFile(nextAssetFiles, id, nextFile).assetFiles;
+          const fileResult = upsertAssetFile(nextAssetFiles, id, nextFile);
+          nextAssetFiles = fileResult.assetFiles;
         }
 
         return {
           ...state,
           project: {
             ...project,
-            musicTracks: trackList.map((x) => (x.id === id ? nextTrack : x)),
+            musicTracks: replaceById(project.musicTracks, id, nextTrack),
             assets: nextAssets,
           },
           assetFiles: nextAssetFiles,
         };
       }),
 
+    /* Elimina una pista */
     removeMusicTrack: (id) =>
       set((state) => {
         if (!state.project) return state;
-        const project0 = state.project;
+        if (!state.project.musicTracks.some((track) => track.id === id)) return state;
 
-        const tracks0 = project0.musicTracks ?? [];
-        const exists = tracks0.some((t) => t.id === id);
-        if (!exists) return state;
+        const projectWithoutEffects = removeEffectsInProject(state.project, (effect) =>  effectMatchesTypedId(effect, "playMusic", "trackId", id));
 
-        let project = removeEffectsInProject(project0, (e) => e.type === "playMusic" && e.trackId === id);
-
-        const nodes0 = project.nodes ?? [];
-        const nextNodes = nodes0.map((n) => ({
-          ...n,
-          ...(n.musicTrackId === id ? { musicTrackId: undefined } : null),
-          layers: (n.layers ?? []).map((layer) =>
-            layer.musicTrackId === id ? { ...layer, musicTrackId: undefined } : layer
-          ),
-        }));
-
-        project = {
-          ...project,
-          maps: (project.maps ?? []).map((map) => ({
+        const cleanedProject = {
+          ...projectWithoutEffects,
+          maps: projectWithoutEffects.maps.map((map) => ({
             ...map,
-            regions: (map.regions ?? []).map((region) =>
-              region.musicTrackId === id ? { ...region, musicTrackId: undefined } : region
+            regions: map.regions.map((region) =>
+              region.musicTrackId === id
+                ? { ...region, musicTrackId: undefined }
+                : region,
             ),
           })),
-          nodes: nextNodes,
+          nodes: projectWithoutEffects.nodes.map((node) => ({
+            ...node,
+            ...(node.musicTrackId === id ? { musicTrackId: undefined } : null),
+            layers: node.layers.map((layer) =>
+              layer.musicTrackId === id
+                ? { ...layer, musicTrackId: undefined }
+                : layer,
+            ),
+          })),
         };
 
-        const remainingTracks = (project.musicTracks ?? []).filter((t) => t.id !== id);
-        const nextSelected = state.selectedMusicTrackId === id ? null : state.selectedMusicTrackId;
-
-        const remA = removeAsset(project.assets ?? [], { id, kind: "music" });
-        const remF = removeAssetFile(state.assetFiles, id);
+        const assetResult = removeAsset(cleanedProject.assets, { id, kind: "music" });
+        const fileResult = removeAssetFile(state.assetFiles, id);
 
         return {
           ...state,
-          project: { ...project, musicTracks: remainingTracks, assets: remA.assets },
-          assetFiles: remF.assetFiles,
-          selectedMusicTrackId: nextSelected,
+          project: {
+            ...cleanedProject,
+            musicTracks: removeById(cleanedProject.musicTracks, id),
+            assets: assetResult.assets,
+          },
+          assetFiles: fileResult.assetFiles,
+          selectedMusicTrackId: nextSelectedAfterRemoval(state.selectedMusicTrackId, id),
         };
       }),
 
-    isMusicTrackReferenced: (id: ID) => {
+    /* Comprueba si una pista está referenciada */
+    isMusicTrackReferenced: (trackId: ID) => {
       const { project } = get();
       if (!project) return false;
 
-      const referencedByNode = (project.nodes ?? []).some(
-        (n) =>
-          n.musicTrackId === id ||
-          (n.layers ?? []).some((layer) => layer.musicTrackId === id)
-      );
-      if (referencedByNode) return true;
+      if (hasTrackReferenceOutsideEffects(project, trackId)) return true;
 
-      const referencedByRegion = (project.maps ?? []).some((map) =>
-        (map.regions ?? []).some((region) => region.musicTrackId === id)
-      );
-      if (referencedByRegion) return true;
-
-      return someEffectsInProject(project, (e) => e.type === "playMusic" && e.trackId === id);
+      return someEffectsInProject(project, (effect) => effectMatchesTypedId(effect, "playMusic", "trackId", trackId));
     },
   };
 }

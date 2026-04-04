@@ -22,21 +22,67 @@ function isLineNode(node: Dialogue["nodes"][number]): node is DialogueLineNode {
 }
 
 function hasAtLeastOneEndDialogue(dialogue: Dialogue): boolean {
-  return (dialogue.nodes ?? []).some((node) => {
+  return dialogue.nodes.some((node) => {
     if (node.type !== "line") return false;
     return (node.effects ?? []).some((eff) => eff.type === "endDialogue");
   });
 }
 
+function hasOnlyValidChildren(nodes: Dialogue["nodes"]): boolean {
+  const nodeIds = new Set(nodes.map((node) => node.id));
+
+  return nodes.every((node) => node.childrenIds.every((childId) => nodeIds.has(childId)));
+}
+
+function hasValidParentCounts(rootNode: Dialogue["nodes"][number], lineNodes: DialogueLineNode[], nodes: Dialogue["nodes"]): boolean {
+  const parentCount = new Map<string, number>();
+
+  for (const node of nodes) {
+    for (const childId of node.childrenIds) {
+      parentCount.set(childId, (parentCount.get(childId) ?? 0) + 1);
+    }
+  }
+
+  if ((parentCount.get(rootNode.id) ?? 0) !== 0) return false;
+
+  return lineNodes.every((node) => (parentCount.get(node.id) ?? 0) === 1);
+}
+
+function isConnectedAcyclicTree(rootNodeId: string, nodes: Dialogue["nodes"]): boolean {
+  const visited = new Set<string>();
+  const visiting = new Set<string>();
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+
+  function dfs(nodeId: string): boolean {
+    if (visiting.has(nodeId)) return false;
+    if (visited.has(nodeId)) return true;
+
+    const node = byId.get(nodeId);
+    if (!node) return false;
+
+    visiting.add(nodeId);
+
+    for (const childId of node.childrenIds) {
+      if (!dfs(childId)) return false;
+    }
+
+    visiting.delete(nodeId);
+    visited.add(nodeId);
+    return true;
+  }
+
+  if (!dfs(rootNodeId)) return false;
+  return visited.size === nodes.length;
+}
+
 function applyBusinessRules(dialogue: Dialogue, errors: DialogueFieldErrors): void {
-  const nodes = dialogue.nodes ?? [];
+  const nodes = dialogue.nodes;
 
   if (nodes.length === 0) {
     errors.nodes ??= missingNodesError;
     return;
   }
 
-  const nodeIds = new Set(nodes.map((node) => node.id));
   const rootNodes = nodes.filter((node) => node.type === "root");
   const lineNodes = nodes.filter(isLineNode);
 
@@ -47,83 +93,31 @@ function applyBusinessRules(dialogue: Dialogue, errors: DialogueFieldErrors): vo
 
   const rootNode = rootNodes[0]!;
 
-  if (dialogue.rootId !== rootNode.id) {
-    errors.rootId ??= invalidRootError;
-  }
+  if (dialogue.rootId !== rootNode.id) errors.rootId ??= invalidRootError;
 
   if (lineNodes.length === 0) {
     errors.nodes ??= missingLineNodesError;
     return;
   }
 
-  for (const node of nodes) {
-    const childrenIds = node.childrenIds ?? [];
-    const hasInvalidTarget = childrenIds.some((id) => !nodeIds.has(id));
-
-    if (hasInvalidTarget) {
-      errors.nodes ??= invalidChildrenError;
-      return;
-    }
+  if (!hasOnlyValidChildren(nodes)) {
+    errors.nodes ??= invalidChildrenError;
+    return;
   }
 
-  const parentCount = new Map<string, number>();
-
-  for (const node of nodes) {
-    for (const childId of node.childrenIds ?? []) {
-      parentCount.set(childId, (parentCount.get(childId) ?? 0) + 1);
-    }
-  }
-
-  for (const node of lineNodes) {
-    const count = parentCount.get(node.id) ?? 0;
-    if (count !== 1) {
-      errors.nodes ??= invalidTreeError;
-      return;
-    }
-  }
-
-  if ((parentCount.get(rootNode.id) ?? 0) !== 0) {
+  if (!hasValidParentCounts(rootNode, lineNodes, nodes)) {
     errors.nodes ??= invalidTreeError;
     return;
   }
 
-  const visited = new Set<string>();
-  const visiting = new Set<string>();
-  const byId = new Map(nodes.map((node) => [node.id, node]));
-
-  function dfs(nodeId: string): boolean {
-    if (visiting.has(nodeId)) return false;
-    if (visited.has(nodeId)) return true;
-
-    visiting.add(nodeId);
-
-    const node = byId.get(nodeId);
-    if (!node) return false;
-
-    for (const childId of node.childrenIds ?? []) {
-      if (!dfs(childId)) return false;
-    }
-
-    visiting.delete(nodeId);
-    visited.add(nodeId);
-    return true;
-  }
-
-  if (!dfs(rootNode.id)) {
+  if (!isConnectedAcyclicTree(rootNode.id, nodes)) {
     errors.nodes ??= invalidTreeError;
     return;
   }
 
-  if (visited.size !== nodes.length) {
-    errors.nodes ??= invalidTreeError;
-    return;
-  }
-
-  if (!hasAtLeastOneEndDialogue(dialogue)) {
-    errors.nodes ??= missingEndDialogueError;
-  }
+  if (!hasAtLeastOneEndDialogue(dialogue)) errors.nodes ??= missingEndDialogueError;
 }
 
 export function validateDialogue(input: unknown) {
-  return validateWithSchema(DialogueSchema, input, createDialogueFieldErrors, applyBusinessRules);
+  return validateWithSchema(DialogueSchema, input, createDialogueFieldErrors, applyBusinessRules );
 }

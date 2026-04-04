@@ -1,5 +1,10 @@
 import type { ID, Hotspot, RegionShape, PlaceableState, InteractionRules } from "@/domain/types";
-import type { HotspotDraft, HotspotEditorContext, HotspotEditorState, HotspotRuleChannel } from "@/features/editor/scene/hotspots/hotspotEditorTypes";
+import type {
+  HotspotDraft,
+  HotspotEditorContext,
+  HotspotEditorState,
+  HotspotRuleChannel,
+} from "@/features/editor/scene/hotspots/hotspotEditorTypes";
 import { generateId } from "@/utils/id";
 import { validateHotspot } from "@/features/editor/scene/hotspots/hotspotValidator";
 
@@ -38,18 +43,38 @@ function buildContext(activeLayerId: ID | null): HotspotEditorContext | null {
   };
 }
 
+function buildCandidateFromDraft(
+  draft: HotspotDraft & { shape: RegionShape }
+): Hotspot {
+  return {
+    id: draft.id,
+    label: (draft.label ?? "").trim(),
+    shape: draft.shape,
+    initialState: draft.initialState,
+    vars: draft.vars ?? [],
+    rules: draft.rules ?? {},
+  };
+}
+
 type Store = {
   activeLayerId: ID | null;
   hotspotEditor: HotspotEditorState;
 
   getActiveHotspots: () => Hotspot[];
+  addHotspot: (hotspot: Hotspot) => void;
+  updateHotspot: (hotspotId: ID, patch: Partial<Hotspot>) => void;
+
   selectedInteractionKind: "hotspot" | "placedItem" | "placedNpc" | "placedPlayer" | null;
   selectedInteractionId: ID | null;
 };
 
 export interface EditorHotspotsSlice {
   hotspotEditor: HotspotEditorState;
-  setHotspotSelection: (input: { hotspotId: ID | null; selectedChannel?: HotspotRuleChannel | null; selectedRuleId?: ID | null }) => void;
+  setHotspotSelection: (input: {
+    hotspotId: ID | null;
+    selectedChannel?: HotspotRuleChannel | null;
+    selectedRuleId?: ID | null;
+  }) => void;
   clearHotspotEditor: () => void;
   startDrawingHotspot: () => void;
   setHotspotDraftShape: (shape: RegionShape | null) => void;
@@ -66,10 +91,13 @@ export interface EditorHotspotsSlice {
   addRuleToSelectedChannel: (args?: { phrase?: string }) => ID | null;
   deleteRuleFromSelectedChannel: (ruleId: ID) => void;
   validateHotspotDraft: () => { ok: boolean; error?: string };
+  commitHotspotDraft: () => { ok: boolean; error?: string; hotspotId?: ID };
 }
 
-export function createEditorHotspotsSlice(set: (partial: Partial<Store> | ((s: Store) => Partial<Store> | Store)) => void,
-  get: () => Store): EditorHotspotsSlice {
+export function createEditorHotspotsSlice(
+  set: (partial: Partial<Store> | ((s: Store) => Partial<Store> | Store)) => void,
+  get: () => Store,
+): EditorHotspotsSlice {
   return {
     hotspotEditor: initialHotspotEditorState,
 
@@ -86,7 +114,8 @@ export function createEditorHotspotsSlice(set: (partial: Partial<Store> | ((s: S
         },
       })),
 
-    clearHotspotEditor: () => set((s) => ({ ...s, hotspotEditor: initialHotspotEditorState })),
+    clearHotspotEditor: () =>
+      set((s) => ({ ...s, hotspotEditor: initialHotspotEditorState })),
 
     startDrawingHotspot: () =>
       set((s) => {
@@ -106,7 +135,11 @@ export function createEditorHotspotsSlice(set: (partial: Partial<Store> | ((s: S
           hotspotEditor: {
             context: buildContext(s.activeLayerId),
             mode: { type: "drawing" },
-            selection: { hotspotId: draft.id, selectedChannel: defaultChannel(), selectedRuleId: null },
+            selection: {
+              hotspotId: draft.id,
+              selectedChannel: defaultChannel(),
+              selectedRuleId: null,
+            },
             draft,
             drawing: null,
           },
@@ -314,9 +347,16 @@ export function createEditorHotspotsSlice(set: (partial: Partial<Store> | ((s: S
 
       const rules0: InteractionRules = draft.rules ?? {};
 
-      const nextRules: InteractionRules = channel.type === "onClick"
+      const nextRules: InteractionRules =
+        channel.type === "onClick"
           ? { ...rules0, onClick: [...(rules0.onClick ?? []), baseRule] }
-          : { ...rules0, onUseItem: [...(rules0.onUseItem ?? []), { ...baseRule, placedItemId: channel.placedItemId }] };
+          : {
+            ...rules0,
+            onUseItem: [
+              ...(rules0.onUseItem ?? []),
+              { ...baseRule, placedItemId: channel.placedItemId },
+            ],
+          };
 
       set((st) => ({
         ...st,
@@ -344,7 +384,8 @@ export function createEditorHotspotsSlice(set: (partial: Partial<Store> | ((s: S
         const channel = s.hotspotEditor.selection.selectedChannel ?? defaultChannel();
         const rules0: InteractionRules = draft.rules ?? {};
 
-        const nextRules: InteractionRules = channel.type === "onClick"
+        const nextRules: InteractionRules =
+          channel.type === "onClick"
             ? { ...rules0, onClick: (rules0.onClick ?? []).filter((r) => r.id !== ruleId) }
             : { ...rules0, onUseItem: (rules0.onUseItem ?? []).filter((r) => r.id !== ruleId) };
 
@@ -372,14 +413,12 @@ export function createEditorHotspotsSlice(set: (partial: Partial<Store> | ((s: S
         return { ok: false, error: "Debes dibujar un área válida antes de guardar el hotspot." };
       }
 
-      const candidate: Hotspot = {
-        id: draft.id,
-        label: (draft.label ?? "").trim(),
+      const draftWithShape: HotspotDraft & { shape: RegionShape } = {
+        ...draft,
         shape: draft.shape,
-        initialState: draft.initialState,
-        vars: draft.vars ?? [],
-        rules: draft.rules ?? {},
       };
+
+      const candidate = buildCandidateFromDraft(draftWithShape);
 
       const result = validateHotspot(candidate);
       if (!result.ok) {
@@ -394,6 +433,47 @@ export function createEditorHotspotsSlice(set: (partial: Partial<Store> | ((s: S
       }
 
       return { ok: true };
+    },
+
+    commitHotspotDraft: () => {
+      const s = get();
+      const draft = s.hotspotEditor.draft;
+
+      if (!draft) return { ok: false, error: "No hay borrador de hotspot." };
+      if (!draft.shape) {
+        return { ok: false, error: "Debes dibujar un área válida antes de guardar el hotspot." };
+      }
+
+      const draftWithShape: HotspotDraft & { shape: RegionShape } = {
+        ...draft,
+        shape: draft.shape,
+      };
+
+      const candidate = buildCandidateFromDraft(draftWithShape);
+
+      const result = validateHotspot(candidate);
+      if (!result.ok) {
+        const msg =
+          result.errors.rules ??
+          result.errors.label ??
+          result.errors.shape ??
+          result.errors.initialState ??
+          "El hotspot no es válido.";
+
+        return { ok: false, error: msg };
+      }
+
+      const exists = (s.getActiveHotspots() ?? []).some((h) => h.id === candidate.id);
+
+      if (exists) s.updateHotspot(candidate.id, candidate);
+      else s.addHotspot(candidate);
+
+      set((st) => ({
+        ...st,
+        hotspotEditor: initialHotspotEditorState,
+      }));
+
+      return { ok: true, hotspotId: candidate.id };
     },
   };
 }

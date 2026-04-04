@@ -9,11 +9,7 @@ function createPlacedPlayerFieldErrors(): PlacedPlayerFieldErrors {
   return createFieldErrors(placedPlayerErrorKeys);
 }
 
-const validators = createEntityValidators(
-  PlacedPlayerSchema,
-  PlacedPlayerDraftSchema,
-  createPlacedPlayerFieldErrors
-);
+const validators = createEntityValidators(PlacedPlayerSchema, PlacedPlayerDraftSchema, createPlacedPlayerFieldErrors);
 
 export const validatePlacedPlayer = validators.validate;
 export const validatePlacedPlayerDraft = validators.validateDraft;

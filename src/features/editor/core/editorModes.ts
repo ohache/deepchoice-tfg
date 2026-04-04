@@ -1,20 +1,56 @@
 export const PRIMARY = {
-    historia: { label: "Historia", defaultSecondary: "vista"},
-    escena: { label: "Escena", defaultSecondary: "crear"},
-    test: { label: "Test", defaultSecondary: "historia"},
+  historia: {
+    label: "Historia",
+    secondary: {
+      vista: "Vista",
+      jugador: "Jugador",
+      pnjs: "PNJs",
+      items: "Items",
+      musica: "Música",
+      sfx: "SFX",
+      mapa: "Mapa",
+      recursos: "Recursos",
+    },
+    defaultSecondary: "vista",
+  },
+  escena: {
+    label: "Escena",
+    secondary: {
+      crear: "Crear",
+      buscar: "Buscar",
+    },
+    defaultSecondary: "crear",
+  },
+  test: {
+    label: "Test",
+    secondary: {
+      historia: "Historia",
+      escena: "Escena",
+    },
+    defaultSecondary: "historia",
+  },
 } as const;
 
+/* Types derivados automáticamente */
 export type EditorPrimaryMode = keyof typeof PRIMARY;
 
-export type HistoriaSecondaryMode = | "vista" | "jugador" | "pnjs" | "items" | "musica" | "sfx" | "mapa" | "recursos";
-export type EscenaSecondaryMode = "crear" | "buscar";
-export type TestSecondaryMode = "historia" | "escena";
+/* Secondary por primary */
+type SecondaryByPrimary = {
+  [K in EditorPrimaryMode]: keyof typeof PRIMARY[K]["secondary"];
+};
 
-export type EditorSecondaryMode = HistoriaSecondaryMode | EscenaSecondaryMode | TestSecondaryMode;
+/* Unión global */
+export type EditorSecondaryMode = SecondaryByPrimary[EditorPrimaryMode];
 
-export const PRIMARY_TABS = (Object.keys(PRIMARY) as EditorPrimaryMode[]).map((id) => ({
-  id, label: PRIMARY[id].label }));
+/* UI helpers */
+export const PRIMARY_TABS = (Object.keys(PRIMARY) as EditorPrimaryMode[]).map((id) => ({ id, label: PRIMARY[id].label }));
 
-export function getDefaultSecondaryMode(primary: EditorPrimaryMode) {
+export function getSecondaryTabs(primary: EditorPrimaryMode) {
+  const secondary = PRIMARY[primary].secondary;
+
+  return (Object.keys(secondary) as Array<keyof typeof secondary>).map((id) => ({ id, label: secondary[id] }));
+}
+
+export function getDefaultSecondaryMode(primary: EditorPrimaryMode): SecondaryByPrimary[EditorPrimaryMode] {
   return PRIMARY[primary].defaultSecondary;
 }

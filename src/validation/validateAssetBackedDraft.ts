@@ -1,6 +1,6 @@
+import type { z, ZodError } from "zod";
 import type { AssetDef, ID, Project } from "@/domain/types";
-import type { z } from "zod";
-import type { ZodError } from "zod";
+
 import { hasDuplicateName, hasDuplicateFileByLinkedAssetId } from "@/validation/genericValidator";
 
 export type AssetDraftFieldErrors = {
@@ -36,7 +36,6 @@ export function validateAssetBackedDraft<TItem extends { id: ID; name: string }>
   const ignoreId = opts.mode === "edit" ? opts.currentId : undefined;
   const errors: AssetDraftFieldErrors = {};
 
-  // Zod (solo base)
   const basePayload = { name: input.name, file: input.file, description: input.description ?? undefined };
 
   const baseResult = draftSchema.safeParse(basePayload);
@@ -63,33 +62,23 @@ export function validateAssetBackedDraft<TItem extends { id: ID; name: string }>
     }
   }
 
-  // Nombre duplicado
   if (hasDuplicateName({ list, incomingName: input.name, ignoreId })) errors.name = errors.name ?? messages.duplicateName;
 
-  const hasIncomingFile = Boolean(input.file);
+  const hasIncomingFile = input.file instanceof File;
 
-  // En new: SIEMPRE requerir file
   if (opts.mode === "new" && !hasIncomingFile) errors.file ??= messages.requireFileOnNew;
 
-  // En edit: si no hay file nuevo, pero el item no tiene asset, exigir file para “arreglarlo”
   if (opts.mode === "edit" && !hasIncomingFile) {
     const current = opts.currentId != null ? list.find((t) => t.id === opts.currentId) ?? null : null;
 
     if (current) {
-      const hasAsset = (opts.project.assets ?? []).some((a) => a.kind === assetKind && a.id === current.id);
+      const hasAsset = opts.project.assets.some((asset) => asset.kind === assetKind && asset.id === current.id);
       if (!hasAsset) errors.file ??= messages.requireFileOnEditMissingAsset;
     }
   }
 
-  // Duplicado de fichero
   if (hasIncomingFile) {
-    const duplicateFile = hasDuplicateFileByLinkedAssetId({
-      project: opts.project,
-      list,
-      assetKind,
-      incomingFileName: input.file!.name,
-      ignoreId,
-    });
+    const duplicateFile = hasDuplicateFileByLinkedAssetId({ project: opts.project, list, assetKind, incomingFileName: input.file!.name, ignoreId });
 
     if (duplicateFile) errors.file ??= messages.duplicateFile;
   }

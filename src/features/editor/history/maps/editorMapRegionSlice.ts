@@ -1,72 +1,11 @@
-import type { ID, Project, AssetDef, WorldMap, MapRegion, RegionShape } from "@/domain/types";
+import type { AssetDef, ID, MapRegion, Project, RegionShape } from "@/domain/types";
 import type { MapRegionDraft, MapRegionEditorState } from "@/features/editor/history/maps/mapEditorTypes";
 import { validateMapRegion } from "@/features/editor/history/maps/mapRegionValidator";
-import { buildAssetPath } from "@/store/assets/assetPath";
 import { upsertAsset, upsertAssetFile } from "@/features/editor/core/editorGenericSlice";
+import { buildAssetPath } from "@/store/assets/assetPath";
 import { generateId } from "@/utils/id";
-
-export const initialMapRegionEditorState: MapRegionEditorState = {
-  context: null,
-  mode: { type: "idle" },
-  selection: { regionId: null },
-  draft: null,
-  drawing: null,
-};
-
-function defaultVisible(): MapRegion["visible"] {
-  return true;
-}
-
-function rectFromGesture(g: { startX: number; startY: number; currentX: number; currentY: number }): RegionShape {
-  const x = Math.min(g.startX, g.currentX);
-  const y = Math.min(g.startY, g.currentY);
-  const w = Math.abs(g.currentX - g.startX);
-  const h = Math.abs(g.currentY - g.startY);
-  return { type: "rect", x, y, w, h };
-}
-
-function buildContext(selectedMapId: ID | null) {
-  if (!selectedMapId) return null;
-  return { mapId: selectedMapId };
-}
-
-function getSelectedMap(project: Project | null, mapId: ID | null): WorldMap | null {
-  if (!project || !mapId) return null;
-  return (project.maps ?? []).find((m) => m.id === mapId) ?? null;
-}
-
-function isRegionLabelUnique(label: string, regions: MapRegion[], ignoreId?: ID): boolean {
-  const key = label.trim().toLowerCase();
-  if (!key) return true;
-
-  return !regions.some((region) => {
-    if (ignoreId && region.id === ignoreId) return false;
-    return region.label.trim().toLowerCase() === key;
-  });
-}
-
-function replaceRegion(map: WorldMap, nextRegion: MapRegion): WorldMap {
-  return {
-    ...map,
-    regions: (map.regions ?? []).map((region) =>
-      region.id === nextRegion.id ? nextRegion : region
-    ),
-  };
-}
-
-function addRegion(map: WorldMap, region: MapRegion): WorldMap {
-  return {
-    ...map,
-    regions: [...(map.regions ?? []), region],
-  };
-}
-
-function removeRegionFromMap(map: WorldMap, regionId: ID): WorldMap {
-  return {
-    ...map,
-    regions: (map.regions ?? []).filter((region) => region.id !== regionId),
-  };
-}
+import { findEntityById, replaceById, removeById } from "@/features/editor/history/shared/assetBackedEntityHelpers";
+import { initialMapRegionEditorState } from "@/features/editor/history/shared/genericHelpers";
 
 /* Mínimo contrato del store que necesita este slice */
 type EditorStoreLike = {
@@ -82,7 +21,7 @@ export interface EditorMapRegionsSlice {
   clearMapRegionEditor: () => void;
   setMapRegionSelection: (input: { regionId: ID | null }) => void;
 
-  addMapRegionImageAsset: (input: { file: File}) => ID | null;
+  addMapRegionImageAsset: (input: { file: File }) => ID | null;
   startPlacingMapRegion: (input?: { imageAssetId?: ID }) => void;
   editMapRegion: (regionId: ID) => void;
   cancelMapRegionDraft: () => void;
@@ -104,31 +43,34 @@ export interface EditorMapRegionsSlice {
   removeMapRegion: (regionId: ID) => void;
 }
 
-export function createEditorMapRegionsSlice(set: ( partial: | Partial<EditorStoreLike> | ((state: EditorStoreLike) => Partial<EditorStoreLike> | EditorStoreLike)) => void,
+export function createEditorMapRegionsSlice(set: (partial: | Partial<EditorStoreLike> | ((state: EditorStoreLike) => Partial<EditorStoreLike> | EditorStoreLike)) => void,
   get: () => EditorStoreLike): EditorMapRegionsSlice {
   return {
     mapRegionEditor: initialMapRegionEditorState,
 
+    /* Resetea todo el editor de regiones */
     clearMapRegionEditor: () =>
-      set((s) => ({
-        ...s,
+      set((state) => ({
+        ...state,
         mapRegionEditor: initialMapRegionEditorState,
       })),
 
+    /* Actualiza solo la selección actual */
     setMapRegionSelection: (input) =>
-      set((s) => ({
-        ...s,
+      set((state) => ({
+        ...state,
         mapRegionEditor: {
-          ...s.mapRegionEditor,
+          ...state.mapRegionEditor,
           selection: {
             regionId: input.regionId,
           },
         },
       })),
 
+    /* Añade un asset de imagen para usarlo en una región compuesta */
     addMapRegionImageAsset: (input) => {
-      const s = get();
-      const project = s.project;
+      const state = get();
+      const project = state.project;
       const file = input?.file;
 
       if (!project) return null;
@@ -143,11 +85,11 @@ export function createEditorMapRegionsSlice(set: ( partial: | Partial<EditorStor
         file: buildAssetPath("maps", file.name),
       };
 
-      const nextAssets = upsertAsset(project.assets ?? [], asset).assets;
-      const nextAssetFiles = upsertAssetFile(s.assetFiles, assetId, file).assetFiles;
+      const nextAssets = upsertAsset(project.assets, asset).assets;
+      const nextAssetFiles = upsertAssetFile(state.assetFiles, assetId, file).assetFiles;
 
       set({
-        ...s,
+        ...state,
         project: {
           ...project,
           assets: nextAssets,
@@ -158,16 +100,19 @@ export function createEditorMapRegionsSlice(set: ( partial: | Partial<EditorStor
       return assetId;
     },
 
-    startPlacingMapRegion: (input?) =>
-      set((s) => {
-        const map = getSelectedMap(s.project, s.selectedMapId);
-        if (!map || !s.selectedMapId) return s;
+    /* Empieza el flujo de creación de una nueva región */
+    startPlacingMapRegion: (input) =>
+      set((state) => {
+        if (!state.project || !state.selectedMapId) return state;
+
+        const selectedMap = findEntityById(state.project.maps, state.selectedMapId);
+        if (!selectedMap) return state;
 
         const draft: MapRegionDraft = {
           id: generateId.mapRegion(),
           label: "",
           shape: null,
-          visible: defaultVisible(),
+          visible: true,
           imageAssetId: input?.imageAssetId,
           musicTrackId: undefined,
           subMapId: undefined,
@@ -176,9 +121,9 @@ export function createEditorMapRegionsSlice(set: ( partial: | Partial<EditorStor
         };
 
         return {
-          ...s,
+          ...state,
           mapRegionEditor: {
-            context: buildContext(s.selectedMapId),
+            context: { mapId: state.selectedMapId },
             mode: { type: "drawing" },
             selection: { regionId: draft.id },
             draft,
@@ -187,69 +132,72 @@ export function createEditorMapRegionsSlice(set: ( partial: | Partial<EditorStor
         };
       }),
 
+    /* Carga en borrador una región ya existente */
     editMapRegion: (regionId) =>
-      set((s) => {
-        const map = getSelectedMap(s.project, s.selectedMapId);
-        if (!map || !s.selectedMapId) return s;
+      set((state) => {
+        if (!state.project || !state.selectedMapId) return state;
 
-        const region = (map.regions ?? []).find((r) => r.id === regionId);
-        if (!region) return s;
+        const selectedMap = findEntityById(state.project.maps, state.selectedMapId);
+        if (!selectedMap) return state;
 
-        const draft: MapRegionDraft = {
-          id: region.id,
-          label: region.label,
-          shape: region.shape,
-          visible: region.visible,
-          ...(region.imageAssetId ? { imageAssetId: region.imageAssetId } : null),
-          ...(region.musicTrackId ? { musicTrackId: region.musicTrackId } : null),
-          ...(region.subMapId ? { subMapId: region.subMapId } : null),
-          sceneIds: [...(region.sceneIds ?? [])],
-          entrySceneId: region.entrySceneId,
-        };
+        const region = selectedMap.regions.find((currentRegion) => currentRegion.id === regionId);
+        if (!region) return state;
 
         return {
-          ...s,
+          ...state,
           mapRegionEditor: {
-            context: buildContext(s.selectedMapId),
+            context: { mapId: state.selectedMapId },
             mode: { type: "editing", regionId },
             selection: { regionId },
-            draft,
+            draft: {
+              id: region.id,
+              label: region.label,
+              shape: region.shape,
+              visible: region.visible,
+              ...(region.imageAssetId ? { imageAssetId: region.imageAssetId } : null),
+              ...(region.musicTrackId ? { musicTrackId: region.musicTrackId } : null),
+              ...(region.subMapId ? { subMapId: region.subMapId } : null),
+              sceneIds: [...region.sceneIds],
+              entrySceneId: region.entrySceneId,
+            },
             drawing: null,
           },
         };
       }),
 
+    /* Cancela creación/edición */
     cancelMapRegionDraft: () =>
-      set((s) => ({
-        ...s,
+      set((state) => ({
+        ...state,
         mapRegionEditor: initialMapRegionEditorState,
       })),
 
     setMapRegionDraftLabel: (label) =>
-      set((s) => {
-        const draft = s.mapRegionEditor.draft;
-        if (!draft) return s;
+      set((state) => {
+        if (!state.mapRegionEditor.draft) return state;
 
         return {
-          ...s,
+          ...state,
           mapRegionEditor: {
-            ...s.mapRegionEditor,
-            draft: { ...draft, label },
+            ...state.mapRegionEditor,
+            draft: {
+              ...state.mapRegionEditor.draft,
+              label,
+            },
           },
         };
       }),
 
     setMapRegionDraftVisible: (visible) =>
-      set((s) => {
-        const draft = s.mapRegionEditor.draft;
-        if (!draft) return s;
+      set((state) => {
+        if (!state.mapRegionEditor.draft) return state;
 
         return {
-          ...s,
+          ...state,
           mapRegionEditor: {
-            ...s.mapRegionEditor,
+            ...state.mapRegionEditor,
             draft: {
-              ...draft,
+              ...state.mapRegionEditor.draft,
               visible,
             },
           },
@@ -257,154 +205,168 @@ export function createEditorMapRegionsSlice(set: ( partial: | Partial<EditorStor
       }),
 
     setMapRegionDraftImageAssetId: (imageAssetId) =>
-      set((s) => {
-        const draft = s.mapRegionEditor.draft;
-        if (!draft) return s;
+      set((state) => {
+        if (!state.mapRegionEditor.draft) return state;
 
         return {
-          ...s,
+          ...state,
           mapRegionEditor: {
-            ...s.mapRegionEditor,
+            ...state.mapRegionEditor,
             draft: {
-              ...draft,
-              ...(imageAssetId ? { imageAssetId } : { imageAssetId: undefined }),
+              ...state.mapRegionEditor.draft,
+              imageAssetId: imageAssetId || undefined,
             },
           },
         };
       }),
 
     setMapRegionDraftMusicTrackId: (musicTrackId) =>
-      set((s) => {
-        const draft = s.mapRegionEditor.draft;
-        if (!draft) return s;
+      set((state) => {
+        if (!state.mapRegionEditor.draft) return state;
 
         return {
-          ...s,
+          ...state,
           mapRegionEditor: {
-            ...s.mapRegionEditor,
+            ...state.mapRegionEditor,
             draft: {
-              ...draft,
-              ...(musicTrackId ? { musicTrackId } : { musicTrackId: undefined }),
+              ...state.mapRegionEditor.draft,
+              musicTrackId: musicTrackId || undefined,
             },
           },
         };
       }),
 
     setMapRegionDraftSubMapId: (subMapId) =>
-      set((s) => {
-        const draft = s.mapRegionEditor.draft;
-        if (!draft) return s;
+      set((state) => {
+        if (!state.mapRegionEditor.draft) return state;
 
         return {
-          ...s,
+          ...state,
           mapRegionEditor: {
-            ...s.mapRegionEditor,
+            ...state.mapRegionEditor,
             draft: {
-              ...draft,
-              ...(subMapId ? { subMapId } : { subMapId: undefined }),
+              ...state.mapRegionEditor.draft,
+              subMapId: subMapId || undefined,
             },
           },
         };
       }),
 
     setMapRegionDraftShape: (shape) =>
-      set((s) => {
-        const draft = s.mapRegionEditor.draft;
-        if (!draft) return s;
+      set((state) => {
+        if (!state.mapRegionEditor.draft) return state;
 
         return {
-          ...s,
+          ...state,
           mapRegionEditor: {
-            ...s.mapRegionEditor,
-            draft: { ...draft, shape },
+            ...state.mapRegionEditor,
+            draft: {
+              ...state.mapRegionEditor.draft,
+              shape,
+            },
           },
         };
       }),
 
     clearMapRegionDraftShape: () =>
-      set((s) => {
-        const draft = s.mapRegionEditor.draft;
-        if (!draft) return s;
+      set((state) => {
+        if (!state.mapRegionEditor.draft) return state;
 
         return {
-          ...s,
+          ...state,
           mapRegionEditor: {
-            ...s.mapRegionEditor,
-            draft: { ...draft, shape: null },
+            ...state.mapRegionEditor,
+            draft: {
+              ...state.mapRegionEditor.draft,
+              shape: null,
+            },
           },
         };
       }),
 
+    /* Mientras se dibuja, actualiza drawing y shape del draft */
     updateDrawingMapRegion: (pt) =>
-      set((s) => {
-        const ed = s.mapRegionEditor;
-        if (ed.mode.type !== "drawing" || !ed.draft) return s;
+      set((state) => {
+        const editor = state.mapRegionEditor;
+        if (editor.mode.type !== "drawing" || !editor.draft) return state;
 
-        const drawing0 = ed.drawing;
-        const nextDrawing = drawing0
-          ? { ...drawing0, currentX: pt.x, currentY: pt.y }
+        const nextDrawing = editor.drawing
+          ? { ...editor.drawing, currentX: pt.x, currentY: pt.y }
           : { startX: pt.x, startY: pt.y, currentX: pt.x, currentY: pt.y };
 
-        const shape = rectFromGesture(nextDrawing);
+        const x = Math.min(nextDrawing.startX, nextDrawing.currentX);
+        const y = Math.min(nextDrawing.startY, nextDrawing.currentY);
+        const w = Math.abs(nextDrawing.currentX - nextDrawing.startX);
+        const h = Math.abs(nextDrawing.currentY - nextDrawing.startY);
 
         return {
-          ...s,
+          ...state,
           mapRegionEditor: {
-            ...ed,
+            ...editor,
             drawing: nextDrawing,
-            draft: { ...ed.draft, shape },
+            draft: {
+              ...editor.draft,
+              shape: { type: "rect", x, y, w, h },
+            },
           },
         };
       }),
 
+    /* Al terminar el dibujo pasa a modo edición */
     finishDrawingMapRegion: () =>
-      set((s) => {
-        const ed = s.mapRegionEditor;
-        if (ed.mode.type !== "drawing" || !ed.draft) return s;
+      set((state) => {
+        const editor = state.mapRegionEditor;
+        if (editor.mode.type !== "drawing" || !editor.draft) return state;
 
         return {
-          ...s,
+          ...state,
           mapRegionEditor: {
-            ...ed,
-            mode: { type: "editing", regionId: ed.draft.id },
+            ...editor,
+            mode: { type: "editing", regionId: editor.draft.id },
             drawing: null,
           },
         };
       }),
 
+    /* Reinicia el dibujo de la forma */
     startRedrawMapRegionShape: () =>
-      set((s) => {
-        const ed = s.mapRegionEditor;
-        if (!ed.draft) return s;
+      set((state) => {
+        const editor = state.mapRegionEditor;
+        if (!editor.draft) return state;
 
         return {
-          ...s,
+          ...state,
           mapRegionEditor: {
-            ...ed,
+            ...editor,
             mode: { type: "drawing" },
             drawing: null,
-            draft: { ...ed.draft, shape: null },
-            selection: { regionId: ed.draft.id },
+            draft: { ...editor.draft, shape: null },
+            selection: { regionId: editor.draft.id },
           },
         };
       }),
 
+    /* Valida el borrador y devuelve un mensaje único si hay error */
     validateMapRegionDraft: () => {
-      const s = get();
-      const draft = s.mapRegionEditor.draft;
-      const selectedMap = getSelectedMap(s.project, s.selectedMapId);
+      const state = get();
+      const draft = state.mapRegionEditor.draft;
 
       if (!draft) return { ok: false, error: "No hay borrador de región de mapa." };
-      if (!selectedMap || !s.project || !s.selectedMapId) {
-        return { ok: false, error: "No hay un mapa seleccionado." };
-      }
-      if (!draft.shape) {
-        return { ok: false, error: "Debes dibujar un área válida antes de guardar la región." };
-      }
 
-      if (!isRegionLabelUnique(draft.label, selectedMap.regions ?? [], draft.id)) {
-        return { ok: false, error: "Ya existe otra región con esa etiqueta dentro de este mapa." };
-      }
+      if (!state.project || !state.selectedMapId) return { ok: false, error: "No hay un mapa seleccionado." };
+
+      const selectedMap = findEntityById(state.project.maps, state.selectedMapId);
+      if (!selectedMap) return { ok: false, error: "No hay un mapa seleccionado." };
+
+      if (!draft.shape) return { ok: false, error: "Debes dibujar un área válida antes de guardar la región." };
+
+      const labelKey = draft.label.trim().toLowerCase();
+      const isUnique = !labelKey || !selectedMap.regions.some((region) => {
+        if (region.id === draft.id) return false;
+        return region.label.trim().toLowerCase() === labelKey;
+      });
+
+      if (!isUnique) return { ok: false, error: "Ya existe otra región con esa etiqueta dentro de este mapa." };
 
       const candidate: MapRegion = {
         id: draft.id,
@@ -414,13 +376,13 @@ export function createEditorMapRegionsSlice(set: ( partial: | Partial<EditorStor
         ...(draft.imageAssetId ? { imageAssetId: draft.imageAssetId } : null),
         ...(draft.musicTrackId ? { musicTrackId: draft.musicTrackId } : null),
         ...(draft.subMapId ? { subMapId: draft.subMapId } : null),
-        sceneIds: [...(draft.sceneIds ?? [])],
+        sceneIds: [...draft.sceneIds],
         ...(draft.entrySceneId ? { entrySceneId: draft.entrySceneId } : null),
       };
 
       const result = validateMapRegion(candidate, {
-        project: s.project,
-        mapId: s.selectedMapId,
+        project: state.project,
+        mapId: state.selectedMapId,
       });
 
       if (!result.ok) {
@@ -442,17 +404,23 @@ export function createEditorMapRegionsSlice(set: ( partial: | Partial<EditorStor
       return { ok: true };
     },
 
+    /* Guarda el borrador validado en el mapa seleccionado */
     saveMapRegionDraft: () => {
-      const s = get();
-      if (!s.project || !s.selectedMapId) return null;
+      const state = get();
+      if (!state.project || !state.selectedMapId) return null;
 
-      const selectedMap = getSelectedMap(s.project, s.selectedMapId);
-      const draft = s.mapRegionEditor.draft;
-      if (!selectedMap || !draft || !draft.shape) return null;
+      const selectedMap = findEntityById(state.project.maps, state.selectedMapId);
+      const draft = state.mapRegionEditor.draft;
+      if (!selectedMap || !draft) return null;
 
-      if (!isRegionLabelUnique(draft.label, selectedMap.regions ?? [], draft.id)) {
-        return null;
-      }
+      const labelKey = draft.label.trim().toLowerCase();
+      const isUnique = !labelKey || !selectedMap.regions.some((region) => {
+        if (region.id === draft.id) return false;
+        return region.label.trim().toLowerCase() === labelKey;
+      });
+
+      if (!isUnique) return null;
+      if (!draft.shape) return null;
 
       const candidate: MapRegion = {
         id: draft.id,
@@ -462,47 +430,53 @@ export function createEditorMapRegionsSlice(set: ( partial: | Partial<EditorStor
         ...(draft.imageAssetId ? { imageAssetId: draft.imageAssetId } : null),
         ...(draft.musicTrackId ? { musicTrackId: draft.musicTrackId } : null),
         ...(draft.subMapId ? { subMapId: draft.subMapId } : null),
-        sceneIds: [...(draft.sceneIds ?? [])],
+        sceneIds: [...draft.sceneIds],
         ...(draft.entrySceneId ? { entrySceneId: draft.entrySceneId } : null),
       };
 
       const validation = validateMapRegion(candidate, {
-        project: s.project,
-        mapId: s.selectedMapId,
+        project: state.project,
+        mapId: state.selectedMapId,
       });
       if (!validation.ok) return null;
 
-      const alreadyExists = (selectedMap.regions ?? []).some((region) => region.id === candidate.id);
-      const nextMap = alreadyExists ? replaceRegion(selectedMap, candidate) : addRegion(selectedMap, candidate);
+      const alreadyExists = selectedMap.regions.some((region) => region.id === candidate.id);
 
-      set((state) => {
-        if (!state.project) return state;
-
-        const nextDraft: MapRegionDraft = {
-          id: candidate.id,
-          label: candidate.label,
-          shape: candidate.shape,
-          visible: candidate.visible,
-          ...(candidate.imageAssetId ? { imageAssetId: candidate.imageAssetId } : null),
-          ...(candidate.musicTrackId ? { musicTrackId: candidate.musicTrackId } : null),
-          ...(candidate.subMapId ? { subMapId: candidate.subMapId } : null),
-          sceneIds: [...(candidate.sceneIds ?? [])],
-          entrySceneId: candidate.entrySceneId,
+      const nextMap = alreadyExists ? {
+        ...selectedMap,
+        regions: selectedMap.regions.map((region) =>
+          region.id === candidate.id ? candidate : region,
+        )
+      }
+        : {
+          ...selectedMap,
+          regions: [...selectedMap.regions, candidate],
         };
 
+      set((currentState) => {
+        if (!currentState.project) return currentState;
+
         return {
-          ...state,
+          ...currentState,
           project: {
-            ...state.project,
-            maps: (state.project.maps ?? []).map((map) =>
-              map.id === s.selectedMapId ? nextMap : map
-            ),
+            ...currentState.project,
+            maps: replaceById(currentState.project.maps, state.selectedMapId!, nextMap),
           },
           mapRegionEditor: {
-            context: buildContext(s.selectedMapId),
+            context: { mapId: state.selectedMapId! },
             mode: { type: "editing", regionId: candidate.id },
             selection: { regionId: candidate.id },
-            draft: nextDraft,
+            draft: {
+              id: candidate.id,
+              label: candidate.label,
+              shape: candidate.shape,
+              visible: candidate.visible,
+              ...(candidate.imageAssetId ? { imageAssetId: candidate.imageAssetId } : null),
+              ...(candidate.musicTrackId ? { musicTrackId: candidate.musicTrackId } : null),
+              ...(candidate.subMapId ? { subMapId: candidate.subMapId } : null),
+              sceneIds: [...candidate.sceneIds],
+              entrySceneId: candidate.entrySceneId,
+            },
             drawing: null,
           },
         };
@@ -511,33 +485,35 @@ export function createEditorMapRegionsSlice(set: ( partial: | Partial<EditorStor
       return candidate.id;
     },
 
+    /* Elimina una región del mapa seleccionado */
     removeMapRegion: (regionId) =>
-      set((s) => {
-        if (!s.project || !s.selectedMapId) return s;
+      set((state) => {
+        if (!state.project || !state.selectedMapId) return state;
 
-        const selectedMap = getSelectedMap(s.project, s.selectedMapId);
-        if (!selectedMap) return s;
+        const selectedMap = findEntityById(state.project.maps, state.selectedMapId);
+        if (!selectedMap) return state;
 
-        const exists = (selectedMap.regions ?? []).some((region) => region.id === regionId);
-        if (!exists) return s;
+        const exists = selectedMap.regions.some((region) => region.id === regionId);
+        if (!exists) return state;
 
-        const nextMap = removeRegionFromMap(selectedMap, regionId);
+        const nextMap = {
+          ...selectedMap,
+          regions: removeById(selectedMap.regions, regionId),
+        };
 
         const shouldResetEditor =
-          s.mapRegionEditor.selection.regionId === regionId ||
-          s.mapRegionEditor.draft?.id === regionId;
+          state.mapRegionEditor.selection.regionId === regionId ||
+          state.mapRegionEditor.draft?.id === regionId;
 
         return {
-          ...s,
+          ...state,
           project: {
-            ...s.project,
-            maps: (s.project.maps ?? []).map((map) =>
-              map.id === s.selectedMapId ? nextMap : map
-            ),
+            ...state.project,
+            maps: replaceById(state.project.maps, state.selectedMapId, nextMap),
           },
           mapRegionEditor: shouldResetEditor
             ? initialMapRegionEditorState
-            : s.mapRegionEditor,
+            : state.mapRegionEditor,
         };
       }),
   };

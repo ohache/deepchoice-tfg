@@ -53,11 +53,11 @@ function issuesToRowErrors(issues: ZodError["issues"]): VarRowErrors {
     else errors.form = errors.form ?? msg;
   }
 
-  return errors.form || errors.name || errors.min || errors.max || errors.initial ? errors : { form: "Revisa la variable." };
+  return errors;
 }
 
 /* Valida y convierte fila UI -> VarDef */
-export function rowToVarDefValidatedDetailed( row: VarRow, allRows: VarRow[]): { ok: true; value: VarDef } | { ok: false; errors: VarRowErrors } {
+export function rowToVarDefValidatedDetailed(row: VarRow, allRows: VarRow[]): { ok: true; value: VarDef } | { ok: false; errors: VarRowErrors } {
   // Estructura (Zod)
   const draft = varRowToDraftInput(row);
   const parsed = parseVarDraftRow(draft);
@@ -67,7 +67,8 @@ export function rowToVarDefValidatedDetailed( row: VarRow, allRows: VarRow[]): {
   const bag: VarsErrorBag = {};
   const drafts = allRows.map(varRowToDraftInput);
 
-  validateVarDraftRows({ errors: bag, vars: drafts,
+  validateVarDraftRows({
+    errors: bag, vars: drafts,
     opts: {
       messages: {
         duplicateVarName: "Nombre de variable duplicado.",
@@ -87,8 +88,6 @@ export function rowToVarDefValidatedDetailed( row: VarRow, allRows: VarRow[]): {
     if (e.max) out.max = e.max;
     if (e.initial) out.initial = e.initial;
 
-    if ((e.min && e.max) || e.initial) out.form = out.form ?? "Revisa los valores de la variable.";
-
     return { ok: false, errors: out };
   }
 
@@ -99,11 +98,14 @@ export function rowToVarDefValidatedDetailed( row: VarRow, allRows: VarRow[]): {
     const max = Number(v.max);
     const initial = Number(v.initial);
 
-    return { ok: true,
-      value: { id: row.id, name: v.name, type: "number", min, max, initial }};
+    return {
+      ok: true,
+      value: { id: row.id, name: v.name, type: "number", min, max, initial }
+    };
   }
 
-  return { ok: true,
-    value: { id: row.id, name: v.name, type: "boolean", initial: Boolean(v.initial)},
+  return {
+    ok: true,
+    value: { id: row.id, name: v.name, type: "boolean", initial: Boolean(v.initial) },
   };
 }

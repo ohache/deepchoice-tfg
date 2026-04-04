@@ -1,7 +1,7 @@
 import type { ID, Node, Project, SceneImageLayer, NodeMapLocation, NodeMeta } from "@/domain/types";
 import type { Condition } from "@/domain/conditions";
 import { generateId } from "@/utils/id";
-import { deepClonePojo, safeTrim, createDefaultNodeMeta } from "@/features/editor/core/editorGenericSlice";
+import { deepClonePojo, safeTrim, createDefaultNodeMeta, removeAsset, removeAssetFile } from "@/features/editor/core/editorGenericSlice";
 import type { HotspotEditorState } from "@/features/editor/scene/hotspots/hotspotEditorTypes";
 import { initialHotspotEditorState } from "@/features/editor/scene/hotspots/editorHotspotsSlice";
 import { computeLayoutForNewNode, ensureNodeHasLayoutPure } from "@/features/editor/history/view/nodeLayout";
@@ -16,6 +16,7 @@ export type NodeValidationIssue = {
 
 type EditorStoreLike = {
   project: Project | null;
+  assetFiles: Record<ID, File>;
   activeLayerId: ID | null;
   hotspotEditor: HotspotEditorState;
   selectedInteractionKind: "hotspot" | "placedItem" | "placedNpc" | "placedPlayer" | null;
@@ -150,8 +151,7 @@ function setNodeEntryFlag(node: Node, isEntry: boolean): Node {
   };
 }
 
-function reconcileNodeMapEntries(
-  nodes: Node[],
+function reconcileNodeMapEntries(nodes: Node[],
   nodeId: ID,
   prevLoc?: NodeMapLocation
 ): Node[] {
@@ -284,6 +284,48 @@ function isValidNodeMapLocation(project: Project | null, loc?: NodeMapLocation):
   if (!map) return false;
 
   return (map.regions ?? []).some((region) => region.id === loc.regionId);
+}
+
+function collectUsedBackgroundAssetIds(nodes: Node[]): Set<ID> {
+  const used = new Set<ID>();
+
+  for (const node of nodes ?? []) {
+    for (const layer of node.layers ?? []) {
+      const assetId = safeTrim(String(layer.assetId ?? ""));
+      if (assetId) used.add(assetId);
+    }
+  }
+
+  return used;
+}
+
+function cleanupUnusedBackgroundAssets(args: {
+  project: Project;
+  assetFiles: Record<ID, File>;
+  nodes: Node[];
+}): { project: Project; assetFiles: Record<ID, File> } {
+  const { project, assetFiles, nodes } = args;
+
+  const usedBackgroundIds = collectUsedBackgroundAssetIds(nodes);
+
+  let nextAssets = project.assets;
+  let nextAssetFiles = assetFiles;
+
+  for (const asset of project.assets ?? []) {
+    if (asset.kind !== "backgrounds") continue;
+    if (usedBackgroundIds.has(asset.id)) continue;
+
+    const assetResult = removeAsset(nextAssets, { id: asset.id, kind: "backgrounds" });
+    nextAssets = assetResult.assets;
+
+    const fileResult = removeAssetFile(nextAssetFiles, asset.id);
+    nextAssetFiles = fileResult.assetFiles;
+  }
+
+  return {
+    project: { ...project, assets: nextAssets },
+    assetFiles: nextAssetFiles,
+  };
 }
 
 export function createEditorNodesSlice(set: (partial: Partial<Store> | ((state: Store) => Partial<Store> | Store)) => void, get: () => Store): EditorNodesSlice {
@@ -446,9 +488,16 @@ export function createEditorNodesSlice(set: (partial: Partial<Store> | ((state: 
     nextNodes = reconcileNodeMapEntries(nextNodes, nextNode.id, prev.mapLocation);
     const nextMaps = rebuildMapsFromNodes(project.maps ?? [], nextNodes);
 
+    const cleaned = cleanupUnusedBackgroundAssets({
+      project: { ...project, nodes: nextNodes, maps: nextMaps },
+      assetFiles: s.assetFiles,
+      nodes: nextNodes,
+    });
+
     set((st) => ({
       ...st,
-      project: { ...project, nodes: nextNodes, maps: nextMaps },
+      project: cleaned.project,
+      assetFiles: cleaned.assetFiles,
       selectedNodeId: editingId,
       nodeDraft: deepClonePojo(nextNode),
       nodeIssues: [],
@@ -770,13 +819,20 @@ export function createEditorNodesSlice(set: (partial: Partial<Store> | ((state: 
       nextNodes = reconcileRegionEntryAfterNodeDeletion(nextNodes, node.mapLocation);
       const nextMaps = rebuildMapsFromNodes(project.maps ?? [], nextNodes);
 
+      const cleaned = cleanupUnusedBackgroundAssets({
+        project: { ...project, nodes: nextNodes, maps: nextMaps },
+        assetFiles: s.assetFiles,
+        nodes: nextNodes,
+      });
+
       set((st) => {
         const draftKilled = st.editingNodeId === nodeId;
         const selectedKilled = st.selectedNodeId === nodeId;
 
         return {
           ...st,
-          project: { ...project, nodes: nextNodes, maps: nextMaps },
+          project: cleaned.project,
+          assetFiles: cleaned.assetFiles,
           selectedNodeId: selectedKilled ? null : st.selectedNodeId,
           nodeMode: draftKilled ? "creating" : st.nodeMode,
           editingNodeId: draftKilled ? null : st.editingNodeId,

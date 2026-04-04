@@ -32,11 +32,23 @@ function buildContext(activeLayerId: ID | null): PlacedNpcEditorContext | null {
   return { layerId: activeLayerId };
 }
 
+function buildCandidateFromDraft(
+  draft: PlacedNpcDraft & { shape: RegionShape }
+): PlacedNpc {
+  return {
+    npcId: draft.npcId,
+    shape: draft.shape,
+    initialState: draft.initialState,
+    rules: draft.rules ?? {},
+  };
+}
+
 type Store = {
   activeLayerId: ID | null;
   placedNpcEditor: PlacedNpcEditorState;
 
   getActivePlacedNpcs: () => PlacedNpc[];
+  upsertPlacedNpc: (placedNpc: PlacedNpc) => void;
   selectedInteractionKind: "hotspot" | "placedItem" | "placedNpc" | "placedPlayer" | null;
   selectedInteractionId: ID | null;
 };
@@ -66,6 +78,7 @@ export interface EditorPlacedNpcsSlice {
   deleteRuleFromSelectedChannel: (ruleId: ID) => void;
 
   validatePlacedNpcDraft: () => { ok: boolean; error?: string };
+  commitPlacedNpcDraft: () => { ok: boolean; error?: string; npcId?: ID };
 }
 
 export function createEditorPlacedNpcsSlice(set: (partial: Partial<Store> | ((s: Store) => Partial<Store> | Store)) => void,
@@ -309,9 +322,9 @@ export function createEditorPlacedNpcsSlice(set: (partial: Partial<Store> | ((s:
         channel.type === "onClick"
           ? { ...rules0, onClick: [...(rules0.onClick ?? []), baseRule] }
           : {
-              ...rules0,
-              onUseItem: [...(rules0.onUseItem ?? []), { ...baseRule, placedItemId: channel.placedItemId }],
-            };
+            ...rules0,
+            onUseItem: [...(rules0.onUseItem ?? []), { ...baseRule, placedItemId: channel.placedItemId }],
+          };
 
       set((st) => ({
         ...st,
@@ -368,12 +381,12 @@ export function createEditorPlacedNpcsSlice(set: (partial: Partial<Store> | ((s:
         return { ok: false, error: "Debes dibujar un área válida antes de guardar el NPC." };
       }
 
-      const candidate: PlacedNpc = {
-        npcId: draft.npcId,
+      const draftWithShape: PlacedNpcDraft & { shape: RegionShape } = {
+        ...draft,
         shape: draft.shape,
-        initialState: draft.initialState,
-        rules: draft.rules ?? {},
       };
+
+      const candidate = buildCandidateFromDraft(draftWithShape);
 
       const result = validatePlacedNpc(candidate);
       if (!result.ok) {
@@ -388,6 +401,44 @@ export function createEditorPlacedNpcsSlice(set: (partial: Partial<Store> | ((s:
       }
 
       return { ok: true };
+    },
+
+    commitPlacedNpcDraft: () => {
+      const s = get();
+      const draft = s.placedNpcEditor.draft;
+
+      if (!draft) return { ok: false, error: "No hay borrador de placedNpc." };
+      if (!draft.shape) {
+        return { ok: false, error: "Debes dibujar un área válida antes de guardar el NPC." };
+      }
+
+      const draftWithShape: PlacedNpcDraft & { shape: RegionShape } = {
+        ...draft,
+        shape: draft.shape,
+      };
+
+      const candidate = buildCandidateFromDraft(draftWithShape);
+
+      const result = validatePlacedNpc(candidate);
+      if (!result.ok) {
+        const msg =
+          result.errors.rules ??
+          result.errors.npcId ??
+          result.errors.shape ??
+          result.errors.initialState ??
+          "El NPC colocado no es válido.";
+
+        return { ok: false, error: msg };
+      }
+
+      s.upsertPlacedNpc(candidate);
+
+      set((st) => ({
+        ...st,
+        placedNpcEditor: initialPlacedNpcEditorState,
+      }));
+
+      return { ok: true, npcId: candidate.npcId };
     },
   };
 }

@@ -50,6 +50,13 @@ export function SceneLayersField({ active, onToggle, onTextPreview, onClearTextP
 
   const hotspotEditor = useEditorStore((s) => s.hotspotEditor);
   const placedItemEditor = useEditorStore((s) => s.placedItemEditor);
+  const placedNpcEditor = useEditorStore((s) => s.placedNpcEditor);
+  const placedPlayerEditor = useEditorStore((s) => s.placedPlayerEditor);
+
+  const commitHotspotDraft = useEditorStore((s) => s.commitHotspotDraft);
+  const commitPlacedItemDraft = useEditorStore((s) => s.commitPlacedItemDraft);
+  const commitPlacedNpcDraft = useEditorStore((s) => s.commitPlacedNpcDraft);
+  const commitPlacedPlayerDraft = useEditorStore((s) => s.commitPlacedPlayerDraft);
 
   const layers = useMemo<SceneImageLayer[]>(() => (nodeDraft?.layers ?? []), [nodeDraft?.id, nodeDraft?.layers]);
 
@@ -76,8 +83,6 @@ export function SceneLayersField({ active, onToggle, onTextPreview, onClearTextP
   const editorOpen = creating || isEditing;
   const isLocked = editorOpen;
 
-  const isInteractiveEditorBusy = hotspotEditor.mode.type !== "idle" || placedItemEditor.mode.type !== "idle";
-
   const activeLayer = useMemo(() => {
     if (!activeLayerId) return null;
     return layers.find((l) => String(l.id) === String(activeLayerId)) ?? null;
@@ -103,6 +108,42 @@ export function SceneLayersField({ active, onToggle, onTextPreview, onClearTextP
     }
   }, [active, layers, activeLayerId, setActiveLayerId, setActiveLayerField]);
 
+  function commitActiveInteractiveDraft(): boolean {
+    if (hotspotEditor.mode.type !== "idle") {
+      const result = commitHotspotDraft();
+      if (!result.ok) {
+        toast.error("Hotspot incompleto", result.error ?? "Revisa el hotspot antes de continuar.");
+        return false;
+      }
+    }
+
+    if (placedItemEditor.mode.type !== "idle") {
+      const result = commitPlacedItemDraft();
+      if (!result.ok) {
+        toast.error("Item incompleto", result.error ?? "Revisa el item antes de continuar.");
+        return false;
+      }
+    }
+
+    if (placedNpcEditor.mode.type !== "idle") {
+      const result = commitPlacedNpcDraft();
+      if (!result.ok) {
+        toast.error("NPC incompleto", result.error ?? "Revisa el NPC antes de continuar.");
+        return false;
+      }
+    }
+
+    if (placedPlayerEditor.mode.type !== "idle") {
+      const result = commitPlacedPlayerDraft();
+      if (!result.ok) {
+        toast.error("Player incompleto", result.error ?? "Revisa el player antes de continuar.");
+        return false;
+      }
+    }
+
+    return true;
+  }
+
   function canLeaveCurrentLayerField(): boolean {
     if (!editingLayer) return true;
 
@@ -121,12 +162,8 @@ export function SceneLayersField({ active, onToggle, onTextPreview, onClearTextP
       case "placedItems":
       case "placedNpcs":
       case "placedPlayers":
-        if (isInteractiveEditorBusy) {
-          toast.warning("Edición interactiva en curso", "Termina o cancela la edición interactiva antes de cambiar de bloque.");
-          return false;
-        }
-        return true;
-      
+        return commitActiveInteractiveDraft();
+
       case "music":
         return true;
 
@@ -154,8 +191,7 @@ export function SceneLayersField({ active, onToggle, onTextPreview, onClearTextP
   function canLeaveCurrentLayerEditor(): boolean {
     if (!editorOpen) return true;
 
-    if (isInteractiveEditorBusy) {
-      toast.warning("Edición interactiva en curso", "Termina o cancela la edición del hotspot o del item antes de cambiar de capa.");
+    if (!commitActiveInteractiveDraft()) {
       return false;
     }
 
@@ -288,8 +324,18 @@ export function SceneLayersField({ active, onToggle, onTextPreview, onClearTextP
   };
 
   const handleSave = () => {
-    if (isInteractiveEditorBusy) {
-      toast.warning("Edición interactiva en curso", "Termina o cancela la edición del hotspot o del item antes de guardar la capa.");
+    if (!commitActiveInteractiveDraft()) {
+      return;
+    }
+
+    const nextLabel = (creating ? draftLabel : editingLayer?.label ?? "").trim();
+    if (!nextLabel) {
+      toast.error("Falta etiqueta", "La capa necesita una etiqueta.");
+      return;
+    }
+
+    if (hasDuplicateLayerLabel) {
+      toast.error("Etiqueta duplicada", "Ya existe una capa con esa etiqueta en esta escena.");
       return;
     }
 
@@ -304,15 +350,12 @@ export function SceneLayersField({ active, onToggle, onTextPreview, onClearTextP
   };
 
   const handleDelete = () => {
-    if (!isEditing) return;
+  if (!isEditing) return;
 
-    const current = layers.find((l) => String(l.id) === String(session.layerId)) ?? null;
-    cleanupAssetSafe(current?.assetId);
-
-    removeNodeLayer(session.layerId);
-    setActiveLayerId(layers[0]?.id ?? null);
-    exitEdit();
-  };
+  removeNodeLayer(session.layerId);
+  setActiveLayerId(layers[0]?.id ?? null);
+  exitEdit();
+};
 
   const handleCommitAssetId = (nextAssetId: ID) => {
     if (creating) {
@@ -363,6 +406,17 @@ export function SceneLayersField({ active, onToggle, onTextPreview, onClearTextP
   const currentLabel = creating ? draftLabel : editingLayer?.label ?? "";
   const canShowRest = Boolean(editingLayer?.assetId);
 
+  const normalizedCurrentLabel = currentLabel.trim().toLowerCase();
+
+  const hasDuplicateLayerLabel = useMemo(() => {
+    if (!normalizedCurrentLabel) return false;
+
+    return layers.some((layer) => {
+      if (editingLayerId && String(layer.id) === String(editingLayerId)) return false;
+      return (layer.label ?? "").trim().toLowerCase() === normalizedCurrentLabel;
+    });
+  }, [layers, normalizedCurrentLabel, editingLayerId]);
+
   return (
     <>
       <ToggleFieldBlock label="Capas" active={active} onToggle={onToggle}>
@@ -406,7 +460,7 @@ export function SceneLayersField({ active, onToggle, onTextPreview, onClearTextP
               onCancel={handleCancel}
               onSave={handleSave}
               onDelete={!creating && isEditing && !isNewEditing ? handleDelete : undefined}
-              saveDisabled={isInteractiveEditorBusy}
+              saveDisabled={false}
             >
               <div className="-mx-3 space-y-3">
                 <SceneImageField
@@ -420,11 +474,9 @@ export function SceneLayersField({ active, onToggle, onTextPreview, onClearTextP
                   onDockChange={setLayerDock}
                   showAddCondition={Boolean(canShowRest && editingLayer && !isBaseLayer)}
                   addConditionLabel={hasLayerCondition ? "Editar condición" : "Añadir condición"}
-                  addConditionTitle={
-                    hasLayerCondition
-                      ? "Editar condición de la capa"
-                      : "Añadir condición (obligatoria en capas no-base)"
-                  }
+                  addConditionTitle={hasLayerCondition
+                    ? "Editar condición de la capa"
+                    : "Añadir condición (obligatoria en capas no-base)"}
                   onAddCondition={() => setOpenLayerCondModal(true)}
                 />
 

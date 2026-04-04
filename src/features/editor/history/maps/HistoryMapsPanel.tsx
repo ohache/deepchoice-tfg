@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { WorldMap } from "@/domain/types";
 import { useEditorStore } from "@/store/editorStore";
 import { validateMapDraft } from "@/features/editor/history/maps/mapValidator";
@@ -12,6 +12,12 @@ import { MapRegionCanvas } from "@/features/editor/history/maps/MapRegionCanvas"
 import { toast } from "@/shared/toast/toastStore";
 
 type MapVisualType = "singleImage" | "composed";
+
+function getModeTitle(mode: "none" | "new" | "edit") {
+  if (mode === "new") return "Nuevo mapa";
+  if (mode === "edit") return "Editar mapa";
+  return "Detalle de mapa";
+}
 
 export function HistoryMapsPanel() {
   const project = useEditorStore((s) => s.project);
@@ -33,9 +39,12 @@ export function HistoryMapsPanel() {
 
   const nameInputRef = useRef<HTMLInputElement | null>(null);
 
-  const mapsList = project?.maps ?? [];
-  const selectedMap =
-    selectedMapId && project ? mapsList.find((map) => map.id === selectedMapId) ?? null : null;
+  const mapsList = useMemo(() => project?.maps ?? [], [project]);
+
+  const selectedMap = useMemo(() => {
+    if (!selectedMapId || !project) return null;
+    return mapsList.find((map) => map.id === selectedMapId) ?? null;
+  }, [selectedMapId, project, mapsList]);
 
   const inferredMode: "none" | "edit" = selectedMapId ? "edit" : "none";
 
@@ -56,7 +65,7 @@ export function HistoryMapsPanel() {
     messages: {
       duplicateFieldError: "Ya existe un mapa que usa esta imagen.",
       duplicateToastTitle: "Archivo duplicado",
-      duplicateToastBody: "Ya hay un mapa usando ese archivo.",
+      duplicateToastBody: "Ya hay un mapa usando esa imagen.",
     },
   });
 
@@ -68,13 +77,34 @@ export function HistoryMapsPanel() {
   }, [clearMapRegionEditor, setSelectedMapId]);
 
   useEffect(() => {
-    if (!selectedMapId) {
-      setEditMode("region");
-      return;
-    }
-
     setEditMode("region");
   }, [selectedMapId]);
+
+  const loadDraftFromSelectedMap = (map: WorldMap) => {
+    setDraftName(map.name ?? "");
+    setDraftVisualType(map.visual.type);
+    setFieldErrors({});
+    image.resetImageDraft();
+
+    const assetId = map.visual.type === "singleImage"
+        ? map.visual.imageAssetId
+        : map.visual.backgroundAssetId;
+
+    const assetPath = (project?.assets ?? []).find((asset) => asset.kind === "maps" && asset.id === assetId)?.file?.trim() ?? "";
+
+    image.setDraftFileName(assetPath ? assetPath.split("/").pop() ?? assetPath : "");
+    image.loadPreviewFromExistingFile(assetFiles?.[assetId]);
+  };
+
+  const resetDraftFields = () => {
+    setDraftName("");
+    setDraftVisualType("singleImage");
+    setFieldErrors({});
+    image.resetImageDraft();
+    setMapRegionPanelError(null);
+    clearMapRegionEditor();
+    setEditMode("region");
+  };
 
   const panel = useAssetDraftPanel<WorldMap>({
     hasProject: !!project,
@@ -87,107 +117,92 @@ export function HistoryMapsPanel() {
       setSelectedMapId(id);
       setEditMode("region");
     },
-
-    onLoadDraftFieldsFromSelected: (map) => {
-      setDraftName(map.name ?? "");
-      setDraftVisualType(map.visual.type);
-      setFieldErrors({});
-      image.resetImageDraft();
-
-      const assetId =
-        map.visual.type === "singleImage"
-          ? map.visual.imageAssetId
-          : map.visual.backgroundAssetId;
-
-      const assetPath =
-        (project?.assets ?? []).find((a) => a.kind === "maps" && a.id === assetId)?.file?.trim() ?? "";
-
-      image.setDraftFileName(assetPath ? assetPath.split("/").pop() ?? assetPath : "");
-      image.loadPreviewFromExistingFile(assetFiles?.[assetId]);
-    },
-
-    onResetDraftFields: () => {
-      setDraftName("");
-      setDraftVisualType("singleImage");
-      setFieldErrors({});
-      image.resetImageDraft();
-      setMapRegionPanelError(null);
-      clearMapRegionEditor();
-      setEditMode("region");
-    },
+    onLoadDraftFieldsFromSelected: loadDraftFromSelectedMap,
+    onResetDraftFields: resetDraftFields,
   });
 
   const mode = panel.mode;
+  const rightTitle = mode === "edit" && editMode === "region"
+      ? "Editar regiones"
+      : getModeTitle(mode);
 
-  const modeTitle = (m: "none" | "new" | "edit") =>
-    m === "new" ? "Nuevo mapa" : m === "edit" ? "Editar mapa" : "Detalle de mapa";
-
-  const rightTitle = mode === "edit" && editMode === "region" ? "Editar regiones" : modeTitle(mode);
+  const showMapConfig = mode === "new" || (mode === "edit" && editMode === "map");
+  const showRegionEditor = mode === "edit" && !!selectedMap && editMode === "region";
 
   const validateDraft = (): boolean => {
     if (!project) return false;
 
     const { ok, errors } = validateMapDraft(
       { name: draftName, file: image.draftFile ?? undefined },
-      { mode: mode === "edit" ? "edit" : "new", project, currentMapId: selectedMapId ?? undefined }
+      { mode: mode === "edit" ? "edit" : "new",
+        project,
+        currentMapId: selectedMapId ?? undefined},
     );
 
     setFieldErrors(errors);
 
     if (!ok) toast.warning("Revisa el formulario", "Hay campos con errores.");
+
     return ok;
+  };
+
+  const cleanupAfterSaveOrDelete = () => {
+    clearMapRegionEditor();
+    setSelectedMapId(null);
+    setEditMode("region");
+    panel.reset();
+  };
+
+  const handleCreate = () => {
+    if (!image.draftFile) {
+      toast.error("Falta imagen", "Selecciona una imagen antes de guardar.");
+      return;
+    }
+
+    const nameTrim = draftName.trim();
+
+    const id = addMap({
+      name: nameTrim,
+      file: image.draftFile,
+      visualType: draftVisualType,
+    });
+
+    if (!id) {
+      toast.error("No se pudo crear", "Revisa si el nombre o el archivo ya están en uso.");
+      return;
+    }
+
+    cleanupAfterSaveOrDelete();
+    toast.success("Mapa creado", `“${nameTrim}”`);
+  };
+
+  const handleUpdate = () => {
+    if (!selectedMapId) return;
+
+    const nameTrim = draftName.trim();
+    const replacingFile = !!image.draftFile;
+
+    updateMap(selectedMapId, {
+      name: nameTrim,
+      file: image.draftFile ?? undefined,
+      visualType: draftVisualType,
+    });
+
+    cleanupAfterSaveOrDelete();
+
+    toast.success(replacingFile ? "Mapa actualizado (imagen reemplazada)" : "Mapa actualizado", `“${nameTrim}”`);
   };
 
   const handleSave = () => {
     if (!project) return;
     if (!validateDraft()) return;
 
-    const nameTrim = draftName.trim();
-
     if (mode === "new") {
-      if (!image.draftFile) {
-        toast.error("Falta imagen", "Selecciona una imagen antes de guardar.");
-        return;
-      }
-
-      const id = addMap({
-        name: nameTrim,
-        file: image.draftFile,
-        visualType: draftVisualType,
-      });
-
-      if (!id) {
-        toast.error("No se pudo crear", "Revisa si el nombre o el archivo ya están en uso.");
-        return;
-      }
-
-      clearMapRegionEditor();
-      setSelectedMapId(null);
-      setEditMode("region");
-      panel.reset();
-      toast.success("Mapa creado", `“${nameTrim}”`);
+      handleCreate();
       return;
     }
 
-    if (mode === "edit" && selectedMapId) {
-      const replacingFile = !!image.draftFile;
-
-      updateMap(selectedMapId, {
-        name: nameTrim,
-        file: image.draftFile ?? undefined,
-        visualType: draftVisualType,
-      });
-
-      clearMapRegionEditor();
-      setSelectedMapId(null);
-      setEditMode("region");
-      panel.reset();
-
-      toast.success(
-        replacingFile ? "Mapa actualizado (imagen reemplazada)" : "Mapa actualizado",
-        `“${nameTrim}”`
-      );
-    }
+    if (mode === "edit") handleUpdate();
   };
 
   const handleConfirmDelete = () => {
@@ -199,8 +214,7 @@ export function HistoryMapsPanel() {
     const deletedName = selectedMap?.name ?? "Mapa";
     removeMap(selectedMapId);
     toast.success("Mapa eliminado", `“${deletedName}”`);
-    clearMapRegionEditor();
-    panel.reset();
+    cleanupAfterSaveOrDelete();
   };
 
   const handleEditMap = () => {
@@ -208,9 +222,7 @@ export function HistoryMapsPanel() {
     setEditMode("map");
   };
 
-  const handleEnterRegionMode = () => {
-    setEditMode("region");
-  };
+  const handleEnterRegionMode = () => {setEditMode("region")};
 
   if (!project) return null;
 
@@ -219,7 +231,6 @@ export function HistoryMapsPanel() {
   return (
     <div className="max-w-[900px] mx-auto rounded-xl border-2 border-slate-700 bg-slate-900 p-4 space-y-3">
       <div className="flex gap-4 h-full">
-        {/* Columna izquierda */}
         <aside className="w-1/3 rounded-lg bg-slate-950 flex flex-col overflow-hidden">
           {mode === "edit" && selectedMap ? (
             <HistoryMapRegionsPanel
@@ -248,17 +259,16 @@ export function HistoryMapsPanel() {
                   <ul className="divide-y-2 divide-slate-700">
                     {mapsList.map((map) => {
                       const isSelected = map.id === selectedMapId;
+
                       return (
                         <li key={map.id}>
                           <button
                             type="button"
                             onClick={() => panel.handleListClick(map)}
-                            className={
-                              "w-full text-left px-6 py-3 text-[15px] border-t border-t-black " +
+                            className={"w-full text-left px-6 py-3 text-[15px] border-t border-t-black " +
                               (isSelected
                                 ? "bg-amber-900/60 text-slate-50"
-                                : "hover:bg-amber-900/60 text-slate-200")
-                            }
+                                : "hover:bg-amber-900/60 text-slate-200")}
                           >
                             <span className="block w-full overflow-hidden text-ellipsis whitespace-nowrap">
                               {map.name}
@@ -274,7 +284,6 @@ export function HistoryMapsPanel() {
           )}
         </aside>
 
-        {/* Columna derecha */}
         <section className="relative flex-1 rounded-lg bg-slate-950 text-sm text-slate-100 flex flex-col overflow-hidden">
           {mode !== "none" && (
             <img
@@ -292,12 +301,11 @@ export function HistoryMapsPanel() {
           <div className="p-4 flex-1 flex flex-col min-h-0">
             {mode === "none" ? (
               <p className="text-[11px] text-slate-200 text-center">
-                Selecciona un mapa en la lista de la izquierda o pulsa <span className="font-semibold">“Añadir mapa”</span>{" "}
-                para crear uno nuevo
+                Selecciona un mapa en la lista de la izquierda o pulsa{" "}
+                <span className="font-semibold">“Añadir mapa”</span> para crear uno nuevo
               </p>
             ) : (
               <>
-                {/* Nombre */}
                 <div className="mb-2">
                   <label className="block text-[13px] text-slate-200 mb-1 text-center">Nombre</label>
                   <input
@@ -311,14 +319,14 @@ export function HistoryMapsPanel() {
                   />
                   {fieldErrors.name && <p className="form-field-error mt-1">{fieldErrors.name}</p>}
 
-                  {mode === "edit" && editMode === "region" ? (
+                  {showRegionEditor ? (
                     <p className="mt-2 text-[11px] text-slate-400 text-center">
                       Para cambiar la configuración global del mapa, selecciona el mapa en el panel izquierdo.
                     </p>
                   ) : null}
                 </div>
 
-                {mode === "new" || (mode === "edit" && editMode === "map") ? (
+                {showMapConfig ? (
                   <>
                     <div className="mb-3">
                       <label className="block text-[13px] text-slate-200 mb-2 text-center">
@@ -330,12 +338,10 @@ export function HistoryMapsPanel() {
                           <button
                             type="button"
                             onClick={() => setDraftVisualType("singleImage")}
-                            className={
-                              "px-3 py-2 rounded-md border text-xs font-medium transition " +
+                            className={ "px-3 py-2 rounded-md border text-xs font-medium transition " +
                               (draftVisualType === "singleImage"
                                 ? "bg-amber-800 border-amber-500 text-white"
-                                : "bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800")
-                            }
+                                : "bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800")}
                           >
                             Single image
                           </button>
@@ -343,12 +349,10 @@ export function HistoryMapsPanel() {
                           <button
                             type="button"
                             onClick={() => setDraftVisualType("composed")}
-                            className={
-                              "px-3 py-2 rounded-md border text-xs font-medium transition " +
+                            className={ "px-3 py-2 rounded-md border text-xs font-medium transition " +
                               (draftVisualType === "composed"
                                 ? "bg-amber-800 border-amber-500 text-white"
-                                : "bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800")
-                            }
+                                : "bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800")}
                           >
                             Composed
                           </button>
@@ -372,14 +376,12 @@ export function HistoryMapsPanel() {
                       </label>
 
                       <div
-                        className={
-                          "group relative mt-1.5 px-3 py-3.5 rounded-md flex flex-col items-center justify-center text-[12px] " +
+                        className={ "group relative mt-1.5 px-3 py-3.5 rounded-md flex flex-col items-center justify-center text-[12px] " +
                           "transition-colors duration-150 border-2 border-dashed cursor-pointer " +
                           (image.isDragging
                             ? "border-amber-400 bg-amber-800"
                             : "border-amber-800 bg-slate-900/40 " +
-                            (image.isHoveringSelectButton ? "" : "hover:bg-amber-900/60"))
-                        }
+                              (image.isHoveringSelectButton ? "" : "hover:bg-amber-900/60"))}
                         onDragOver={image.handleDragOver}
                         onDragLeave={image.handleDragLeave}
                         onDrop={image.handleDrop}
@@ -431,7 +433,7 @@ export function HistoryMapsPanel() {
                     {!!image.previewUrl && (
                       <div className="mt-3 flex justify-center">
                         <img
-                          src={image.previewUrl ?? undefined}
+                          src={image.previewUrl}
                           alt="Preview del mapa"
                           className="max-h-56 rounded-md border border-slate-700"
                           draggable="false"
@@ -450,7 +452,7 @@ export function HistoryMapsPanel() {
                   </>
                 ) : null}
 
-                {mode === "edit" && selectedMap && editMode === "region" ? (
+                {showRegionEditor ? (
                   <div className="mt-3 flex-1 min-h-0">
                     <MapRegionCanvas
                       mapId={selectedMap.id}
@@ -460,7 +462,6 @@ export function HistoryMapsPanel() {
                   </div>
                 ) : null}
 
-                {/* Botones */}
                 <div className="mt-auto flex justify-between pt-5">
                   <button
                     type="button"
@@ -472,10 +473,18 @@ export function HistoryMapsPanel() {
                   </button>
 
                   <div className="flex gap-3 panel--map">
-                    <button type="button" onClick={panel.reset} className="btn btn-cancel text-[12px]">
+                    <button
+                      type="button"
+                      onClick={panel.reset}
+                      className="btn btn-cancel text-[12px]"
+                    >
                       Cancelar
                     </button>
-                    <button type="button" onClick={handleSave} className="btn btn-save">
+                    <button
+                      type="button"
+                      onClick={handleSave}
+                      className="btn btn-save"
+                    >
                       {mode === "new" ? "Añadir mapa" : "Guardar mapa"}
                     </button>
                   </div>

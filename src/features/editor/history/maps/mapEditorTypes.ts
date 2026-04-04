@@ -1,21 +1,5 @@
-import type { ID, RegionShape, WorldMap } from "@/domain/types";
+import type { ID, RegionShape } from "@/domain/types";
 import type { EditorDrawingState } from "@/features/editor/scene/interactiveComponents/interactiveEditorTypes";
-
-/* Mapa global */
-export type MapDraft = {
-  id: ID;
-  name: string;
-  visual: WorldMap["visual"];
-};
-
-export type MapSelection = {
-  mapId: ID | null;
-};
-
-export type MapEditorState = {
-  selection: MapSelection;
-  draft: MapDraft | null;
-};
 
 /* Regiones del mapa */
 export type MapRegionEditorMode =

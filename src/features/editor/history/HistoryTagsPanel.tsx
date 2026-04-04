@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { useEditorStore } from "@/store/editorStore";
 import type { ID } from "@/domain/types";
 
@@ -45,70 +45,85 @@ function TagColumn({ title, items, emptyMessage, onActivate, headerClassName }: 
   );
 }
 
+function toTagItems<T extends { id: ID; name: string }>(list?: T[]) {
+  return list?.map((item) => ({ id: item.id, label: item.name })) ?? [];
+}
+
 export function HistoryTagsPanel() {
   const project = useEditorStore((s) => s.project);
 
   const setPrimaryMode = useEditorStore((s) => s.setPrimaryMode);
   const setSecondaryMode = useEditorStore((s) => s.setSecondaryMode);
 
+  const setSelectedPlayerId = useEditorStore((s) => s.setSelectedPlayerId);
+  const setSelectedNpcId = useEditorStore((s) => s.setSelectedNpcId);
+  const setSelectedItemId = useEditorStore((s) => s.setSelectedItemId);
   const setSelectedMusicTrackId = useEditorStore((s) => s.setSelectedMusicTrackId);
   const setSelectedSfxId = useEditorStore((s) => s.setSelectedSfxId);
-  const setSelectedItemId = useEditorStore((s) => s.setSelectedItemId);
+  const setSelectedMapId = useEditorStore((s) => s.setSelectedMapId);
+
+  const openHistorySection = useCallback(
+    (secondaryMode: "jugador" | "pnjs" | "items" | "musica" | "sfx" | "mapa") => {
+      setPrimaryMode("historia");
+      setSecondaryMode(secondaryMode);
+    },
+    [setPrimaryMode, setSecondaryMode],
+  );
 
   const handlePlayerActivate = useCallback(
     (id: ID) => {
-      setPrimaryMode("historia");
-      setSecondaryMode("jugador");
-      void id;
+      setSelectedPlayerId(id);
+      openHistorySection("jugador");
     },
-    [setPrimaryMode, setSecondaryMode]
+    [openHistorySection, setSelectedPlayerId],
   );
-
 
   const handleNpcActivate = useCallback(
     (id: ID) => {
-      setPrimaryMode("historia");
-      setSecondaryMode("pnjs");
-      void id;
+      setSelectedNpcId(id);
+      openHistorySection("pnjs");
     },
-    [setPrimaryMode, setSecondaryMode]
+    [openHistorySection, setSelectedNpcId],
   );
 
   const handleItemActivate = useCallback(
     (id: ID) => {
       setSelectedItemId(id);
-      setPrimaryMode("historia");
-      setSecondaryMode("items");
+      openHistorySection("items");
     },
-    [setPrimaryMode, setSecondaryMode, setSelectedItemId]
+    [openHistorySection, setSelectedItemId],
   );
 
   const handleMusicActivate = useCallback(
     (id: ID) => {
       setSelectedMusicTrackId(id);
-      setPrimaryMode("historia");
-      setSecondaryMode("musica");
+      openHistorySection("musica");
     },
-    [setPrimaryMode, setSecondaryMode, setSelectedMusicTrackId]
+    [openHistorySection, setSelectedMusicTrackId],
   );
 
   const handleSfxActivate = useCallback(
     (id: ID) => {
       setSelectedSfxId(id);
-      setPrimaryMode("historia");
-      setSecondaryMode("sfx");
+      openHistorySection("sfx");
     },
-    [setPrimaryMode, setSecondaryMode, setSelectedSfxId]
+    [openHistorySection, setSelectedSfxId],
   );
 
-    const handleMapActivate = useCallback(
+  const handleMapActivate = useCallback(
     (id: ID) => {
-      setPrimaryMode("historia");
-      setSecondaryMode("mapa");
-      void id;
+      setSelectedMapId(id);
+      openHistorySection("mapa");
     },
-    [setPrimaryMode, setSecondaryMode]
+    [openHistorySection, setSelectedMapId],
   );
+
+  const playerItems = useMemo(() => toTagItems(project?.players), [project?.players]);
+  const npcItems = useMemo(() => toTagItems(project?.npcs), [project?.npcs]);
+  const itemItems = useMemo(() => toTagItems(project?.items), [project?.items]);
+  const musicItems = useMemo(() => toTagItems(project?.musicTracks), [project?.musicTracks]);
+  const sfxItems = useMemo(() => toTagItems(project?.soundEffects), [project?.soundEffects]);
+  const mapItems = useMemo(() => toTagItems(project?.maps), [project?.maps]);
 
   if (!project) {
     return (
@@ -120,13 +135,6 @@ export function HistoryTagsPanel() {
     );
   }
 
-  const playerItems = project.players?.map((p) => ({ id: p.id, label: p.name })) ?? [];
-  const npcItems = project.npcs?.map((n) => ({ id: n.id, label: n.name })) ?? [];
-  const itemItems = project.items?.map((it) => ({ id: it.id, label: it.name })) ?? [];
-  const musicItems = project.musicTracks?.map((mt) => ({ id: mt.id, label: mt.name })) ?? [];
-  const sfxItems = project.soundEffects?.map((se) => ({ id: se.id, label: se.name})) ?? [];
-  const mapItems = project.maps?.map((m) => ({ id: m.id, label: m.name })) ?? [];
-
   return (
     <div className="max-w-[1500px] mx-auto rounded-xl border-2 border-slate-700 bg-slate-800 p-4 space-y-3 h-[560px] overflow-hidden">
       <header className="mb-1">
@@ -136,7 +144,6 @@ export function HistoryTagsPanel() {
       </header>
 
       <div className="grid grid-cols-1 md:grid-cols-6 gap-3 items-start">
-
         <TagColumn
           title="Jugador"
           headerClassName="bg-emerald-800"
@@ -168,7 +175,7 @@ export function HistoryTagsPanel() {
           emptyMessage="No hay pistas de música creadas"
           onActivate={handleMusicActivate}
         />
-        
+
         <TagColumn
           title="Sfx"
           headerClassName="bg-indigo-800"
@@ -184,7 +191,6 @@ export function HistoryTagsPanel() {
           emptyMessage="No hay mapas creados"
           onActivate={handleMapActivate}
         />
-
       </div>
     </div>
   );

@@ -10,15 +10,15 @@ import { toast } from "@/shared/toast/toastStore";
 
 export function TopBar() {
   const navigate = useNavigate();
+
   const project = useEditorStore((s) => s.project);
 
   const primaryMode = useEditorStore((s) => s.primaryMode);
   const setPrimaryMode = useEditorStore((s) => s.setPrimaryMode);
   const secondaryMode = useEditorStore((s) => s.secondaryMode);
-  const canZoom = primaryMode === "historia" && secondaryMode === "vista";
 
   const updateProjectTitle = useEditorStore((s) => s.updateProjectTitle);
-  const saveProject = useEditorStore((s) => s.downloadProjectJson);
+  const downloadProjectJson = useEditorStore((s) => s.downloadProjectJson);
   const exportProject = useEditorStore((s) => s.exportProject);
 
   const zoom = useEditorStore((s) => s.zoom);
@@ -32,7 +32,7 @@ export function TopBar() {
   const [tempTitle, setTempTitle] = useState(project?.title ?? "");
   const [isExitModalOpen, setIsExitModalOpen] = useState(false);
 
-  if (!project) return null;
+  const canZoom = primaryMode === "historia" && secondaryMode === "vista";
 
   useEffect(() => {
     if (!project) return;
@@ -49,17 +49,31 @@ export function TopBar() {
   };
 
   const commitTitle = () => {
+    if (!project) return;
+
     const trimmed = tempTitle.trim();
     const finalTitle = trimmed || project.title;
+
     updateProjectTitle(finalTitle);
     setIsEditingTitle(false);
 
-    if (finalTitle !== project.title) toast.info("Título actualizado", `Nuevo título: "${finalTitle}"`);
+    if (finalTitle !== project.title) {
+      toast.info("Título actualizado", `Nuevo título: "${finalTitle}"`);
+    }
   };
 
+  const cancelTitleEdit = () => {
+    if (!project) return;
+
+    setIsEditingTitle(false);
+    setTempTitle(project.title);
+  };
+
+  const handleTitleKeyDown = createCommitCancelKeyHandler<HTMLInputElement>(commitTitle, cancelTitleEdit, { stopPropagation: true });
+
+  /* Intenta arrancar el player usando el proyecto actual y los assets cargados */
   const handlePlayRequested = () => {
     const { project, assetFiles } = useEditorStore.getState();
-
     if (!project) return;
 
     const totalAssets = project.assets?.length ?? 0;
@@ -74,44 +88,43 @@ export function TopBar() {
       startGameFromEditor(project, assetFiles);
       navigate("/play");
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Error desconocido"
-
+      const message = error instanceof Error ? error.message : "Error desconocido";
       toast.error("No se pudo iniciar el juego", message);
     }
   };
 
-  const cancelTitleEdit = () => {
-    setIsEditingTitle(false);
-    setTempTitle(project.title);
-  };
-
-  const handleTitleKeyDown = createCommitCancelKeyHandler<HTMLInputElement>(commitTitle, cancelTitleEdit, {stopPropagation: true });
-
+  /* Descarga el JSON del proyecto */
   const handleSaveClick = () => {
     try {
-      saveProject();
+      downloadProjectJson();
       toast.success("Descargado", "Se descargó el JSON del proyecto.");
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "No se ha podido descargar el project.json."
+      const message = error instanceof Error ? error.message : "No se ha podido descargar el project.json.";
 
       toast.error("Error al descargar", message);
     }
   };
 
+  /* Exporta el proyecto completo como ZIP */
   const handleExportClick = async () => {
     try {
       await exportProject();
       toast.success("Exportado", "Se descargó el ZIP (JSON + assets).");
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "No se ha podido exportar el ZIP."
+      const message = error instanceof Error ? error.message : "No se ha podido exportar el ZIP.";
 
-      toast.error("Error al exportar",message);
+      toast.error("Error al exportar", message);
+      throw error;
     }
   };
 
-  const resetDocumentTitle = () => document.title = "Crea tu propia aventura";
+  const resetDocumentTitle = () => {
+    document.title = "Crea tu propia aventura";
+  };
 
-  const handleLogoClick = () => setIsExitModalOpen(true);
+  const handleLogoClick = () => {
+    setIsExitModalOpen(true);
+  };
 
   const handleExit = () => {
     setIsExitModalOpen(false);
@@ -124,25 +137,32 @@ export function TopBar() {
     handleExit();
   };
 
-  const handleExitAndProject = () => {
-    handleExportClick();
-    handleExit();
+  const handleExitAndProject = async () => {
+    try {
+      await handleExportClick();
+      handleExit();
+    } catch { }
   };
+
+  if (!project) return null;
 
   return (
     <header className="h-14 bg-slate-900 border-b-2 border-slate-700 flex items-center justify-between px-4 gap-10">
-      {/* Tabs + Jugar */}
+      {/* Navegación principal + jugar */}
       <div className="flex items-center gap-3">
         <nav className="flex items-center gap-2">
           {PRIMARY_TABS.map((tab) => {
             const isActive = primaryMode === tab.id;
+
             return (
               <button
                 key={tab.id}
                 type="button"
                 onClick={() => handleModeClick(tab.id)}
-                className={"px-3 py-1.5 rounded-lg text-base transition-colors " +
-                  (isActive ? "bg-slate-700 text-white" : "text-slate-100 hover:text-white hover:bg-slate-800/60")}
+                className={ "px-3 py-1.5 rounded-lg text-base transition-colors " +
+                  (isActive
+                    ? "bg-slate-700 text-white"
+                    : "text-slate-100 hover:text-white hover:bg-slate-800/60")}
               >
                 {tab.label}
               </button>
@@ -160,9 +180,9 @@ export function TopBar() {
         </button>
       </div>
 
-      {/* Guardar / Exportar / Zoom / Estado / Título / Logo */}
+      {/* Persistencia / zoom / título / salida */}
       <div className="flex items-center gap-4">
-        {/* Acciones de persistencia */}
+        {/* Guardar / exportar */}
         <div className="flex items-center gap-1">
           <button
             type="button"
@@ -244,7 +264,7 @@ export function TopBar() {
             type="button"
             onClick={handleLogoClick}
             className="shrink-0"
-            title={"Volver al inicio"}
+            title="Volver al inicio"
           >
             <img
               src="/logo.png"
@@ -255,13 +275,13 @@ export function TopBar() {
         </div>
       </div>
 
-      {/* Modal de salida cuando hay cambios sin guardar */}
+      {/* Modal de salida */}
       <ExitWithoutSaveModal
         open={isExitModalOpen}
         onCancel={() => setIsExitModalOpen(false)}
         onExit={handleExit}
         onExitAndDownloadJSON={handleExitAndJSON}
-        onExitAndDownloadpROJECT={handleExitAndProject}
+        onExitAndDownloadProject={handleExitAndProject}
       />
     </header>
   );

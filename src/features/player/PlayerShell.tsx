@@ -1,7 +1,6 @@
 import { useCallback, useMemo, useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import type { ID, Node, Project, TextDock, PlaceableState, SceneImageLayer, PlacedItem, AssetDef, ItemDef, PlacedPlayerState, PlacedNpc } from "@/domain/types";
-import type { Condition } from "@/domain/conditions";
 import type { GameState } from "@/engine/state/runtimeState";
 import { applyHotspotUseItem } from "@/engine/apply/applyHotspot";
 import { applyPlacedItemUseItem } from "@/engine/apply/applyPlacedItem";
@@ -20,6 +19,7 @@ import { iconForInteractionKind, type InteractionKind } from "@/features/player/
 import { applyInventoryItemUseItem } from "@/engine/apply/applyInventoryItem";
 import { DialogueChoicesPanel } from "@/features/player/components/DialogueChoicesPanel";
 import { usePlayerKeyboard } from "@/features/player/hooks/usePlayerKeyboard";
+import { isEmptyCondition } from "@/features/editor/core/editorGenericSlice";
 
 type PlayerInteractionMode =
   | { type: "default" }
@@ -53,15 +53,6 @@ function indexOfNode(project: Project, id: ID): number {
 function nodeIdAtIndex(project: Project, idx: number): ID | null {
   const n = project.nodes[idx];
   return n ? (n.id as ID) : null;
-}
-
-function isEmptyCondition(cond: Condition | undefined): boolean {
-  if (!cond) return false;
-
-  if (cond.type === "and") return Array.isArray(cond.all) && cond.all.length === 0;
-  if (cond.type === "or") return Array.isArray(cond.any) && cond.any.length === 0;
-
-  return false;
 }
 
 function pickActiveLayer(node: Node, gameState: GameState): SceneImageLayer | null {

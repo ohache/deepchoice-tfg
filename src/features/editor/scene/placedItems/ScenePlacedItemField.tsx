@@ -43,10 +43,8 @@ export function ScenePlacedItemField({ label = "Items", active, onToggle, layerI
   const setPlacedItemDraftInitialState = useEditorStore((s) => s.setPlacedItemDraftInitialState);
   const setPlacedItemDraftRules = useEditorStore((s) => s.setPlacedItemDraftRules);
   const setPlacedItemDraftShape = useEditorStore((s) => s.setPlacedItemDraftShape);
-  const validatePlacedItemDraft = useEditorStore((s) => s.validatePlacedItemDraft);
-
-  const addPlacedItem = useEditorStore((s) => s.addPlacedItem);
-  const updatePlacedItem = useEditorStore((s) => s.updatePlacedItem);
+  const commitPlacedItemDraft = useEditorStore((s) => s.commitPlacedItemDraft);
+  
   const removePlacedItem = useEditorStore((s) => s.removePlacedItem);
   const setActivePlacedItems = useEditorStore((s) => s.setActivePlacedItems);
 
@@ -95,8 +93,8 @@ export function ScenePlacedItemField({ label = "Items", active, onToggle, layerI
   const selectedId = selectedInteractionKind === "placedItem" ? selectedInteractionId : null;
 
   const draft = placedItemEditor.draft;
-  const isDrawing = placedItemEditor.mode.type === "drawing";
-  const isEditing = placedItemEditor.mode.type !== "idle";
+const isDrawing = placedItemEditor.mode.type === "drawing";
+const isDraftActive = placedItemEditor.mode.type !== "idle";
 
   const collisionResetKey = `${layerId}:${draft?.id ?? "none"}:${placedItemEditor.mode.type}`;
 
@@ -131,18 +129,18 @@ export function ScenePlacedItemField({ label = "Items", active, onToggle, layerI
 
   const labelKey = normKey(draft?.label);
 
-const dupLabel = useMemo(() => {
-  if (!draft || !labelKey) return false;
+  const dupLabel = useMemo(() => {
+    if (!draft || !labelKey) return false;
 
-  return project?.nodes.some((node) =>
-    node.layers.some((layer) =>
-      (layer.placedItems ?? []).some((item) => {
-        if (item.id === draft.id) return false;
-        return normKey(item.label) === labelKey;
-      })
-    )
-  ) ?? false;
-}, [draft, labelKey, project?.nodes]);
+    return project?.nodes.some((node) =>
+      node.layers.some((layer) =>
+        (layer.placedItems ?? []).some((item) => {
+          if (item.id === draft.id) return false;
+          return normKey(item.label) === labelKey;
+        })
+      )
+    ) ?? false;
+  }, [draft, labelKey, project?.nodes]);
 
   const isExistingPlacedItem = useMemo(() => {
     if (!draft?.id) return false;
@@ -224,7 +222,7 @@ const dupLabel = useMemo(() => {
     [placedItems],
   );
 
-    const beginPlacedItemPlacement = (itemId: string) => {
+  const beginPlacedItemPlacement = (itemId: string) => {
     if (!itemId) {
       toast.warning("Selecciona un item", "Debes seleccionar un item del catálogo.");
       return;
@@ -258,71 +256,58 @@ const dupLabel = useMemo(() => {
 
     if (!itemId) return;
     if (!isCreatingPlacedItem) return;
-    if (isEditing) return;
+    if (isDraftActive) return;
 
     beginPlacedItemPlacement(itemId);
   };
 
   const handleCommit = () => {
-    if (!draft) return;
+  if (!draft) return;
 
-    setEditorError(null);
+  setEditorError(null);
 
-    if (!hasLabel) {
-      setEditorError({
-        kind: "panel",
-        message: "El item debe tener una etiqueta antes de guardarse.",
-      });
-      return;
+  if (!hasLabel) {
+    setEditorError({
+      kind: "panel",
+      message: "El item debe tener una etiqueta antes de guardarse.",
+    });
+    return;
+  }
+
+  if (dupLabel) {
+    toast.warning("Etiqueta duplicada", "Ya existe un item con esa etiqueta en la aventura.");
+    return;
+  }
+
+  if (hasCollisions) {
+    setEditorError({
+      kind: "panel",
+      message: `Colisión con: ${collisionSummary}. Ajusta la región para que no se solape.`,
+    });
+    return;
+  }
+
+  const result = commitPlacedItemDraft();
+
+  if (!result.ok) {
+    if ((result.error ?? "").toLowerCase().includes("additem")) {
+      setEditorError({ kind: "pickupRule" });
     }
+    toast.error("No se ha podido guardar", result.error ?? "Revisa el item.");
+    return;
+  }
 
-    if (dupLabel) {
-      toast.warning("Etiqueta duplicada", "Ya existe un item con esa etiqueta en la aventura.");
-      return;
-    }
-    if (hasCollisions) {
-      setEditorError({
-        kind: "panel",
-        message: `Colisión con: ${collisionSummary}. Ajusta la región para que no se solape.`,
-      });
-      return;
-    }
-
-    const validation = validatePlacedItemDraft();
-    if (!validation.ok) {
-      if ((validation.error ?? "").toLowerCase().includes("additem")) {
-        setEditorError({ kind: "pickupRule" });
-      }
-      toast.error("No se ha podido guardar", validation.error ?? "Revisa el item.");
-      return;
-    }
-
-    if (!draft.shape) {
-      toast.error("No se ha podido guardar", "Debes dibujar un área válida antes de guardar el item.");
-      return;
-    }
-
-    const candidate: PlacedItem = {
-      id: draft.id,
-      itemId: draft.itemId,
-      label: draft.label.trim(),
-      shape: draft.shape,
-      initialState: draft.initialState,
-      rules: draft.rules ?? {},
-    };
-
-    if (isExistingPlacedItem) updatePlacedItem(candidate.id, candidate);
-    else addPlacedItem(candidate);
-
+  if (result.placedItemId) {
     setSelectedInteractionKind("placedItem");
-    setSelectedInteractionId(candidate.id);
-    cancelPlacedItemDraft();
-    setEditorError(null);
-    setIsCreatingPlacedItem(false);
-    setSelectedCatalogItemId("");
+    setSelectedInteractionId(result.placedItemId);
+  }
 
-    toast.success("Item guardado", "El item ya forma parte de la escena.");
-  };
+  setEditorError(null);
+  setIsCreatingPlacedItem(false);
+  setSelectedCatalogItemId("");
+
+  toast.success("Item guardado", "El item ya forma parte de la escena.");
+};
 
   const handleDelete = (id: ID) => {
     removePlacedItem(id);
@@ -454,20 +439,9 @@ const dupLabel = useMemo(() => {
 
       <ToggleFieldBlock label={label} active={active} onToggle={onToggle}>
         <div className="space-y-3">
-                    {!isEditing && !isCreatingPlacedItem ? (
-            <div className="flex justify-center">
-              <button
-                type="button"
-                className="btn btn-create-condition mt-2"
-                onClick={handleStartAddingPlacedItem}
-                title="Añadir item"
-              >
-                + Añadir item
-              </button>
-            </div>
-          ) : (
+          {isDraftActive || isCreatingPlacedItem ? (
             <PlacedItemEditorPanel
-              draft={isEditing ? draft : null}
+              draft={draft ?? null}
               selectedCatalogItemId={selectedCatalogItemId}
               projectItems={projectItems}
               onSelectedCatalogItemIdChange={handleSelectedCatalogItemIdChange}
@@ -525,15 +499,28 @@ const dupLabel = useMemo(() => {
               onCancel={handleCancelDraft}
               onCommit={handleCommit}
             />
-          )}
+          ) : (
+            <>
+              <div className="flex justify-center">
+                <button
+                  type="button"
+                  className="btn btn-create-condition mt-2"
+                  onClick={handleStartAddingPlacedItem}
+                  title="Añadir item"
+                >
+                  + Añadir item
+                </button>
+              </div>
 
-          <PlacedItemListPanel
-            placedItems={placedItemListEntries}
-            selectedId={selectedId}
-            onEdit={handleEditPlacedItem}
-            onDelete={handleDelete}
-            onDeleteAll={handleAskNukeAll}
-          />
+              <PlacedItemListPanel
+                placedItems={placedItemListEntries}
+                selectedId={selectedId}
+                onEdit={handleEditPlacedItem}
+                onDelete={handleDelete}
+                onDeleteAll={handleAskNukeAll}
+              />
+            </>
+          )}
         </div>
       </ToggleFieldBlock>
     </>

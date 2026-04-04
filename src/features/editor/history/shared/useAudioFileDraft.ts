@@ -2,17 +2,31 @@ import { useEffect, useRef, useState } from "react";
 import type { DraftMode } from "@/features/editor/history/shared/useAssetDraftPanel";
 import { toast } from "@/shared/toast/toastStore";
 
-type FieldCtx = { mode: DraftMode; selectedId: string | null };
+type FieldCtx = {
+  mode: DraftMode;
+  selectedId: string | null;
+};
 
-export function useAudioFileDraft(opts: {
-  mode: DraftMode; selectedId: string | null; isDuplicateFile: (file: File, ctx: FieldCtx) => boolean;
-  messages: { duplicateFieldError: string; duplicateToastTitle: string; duplicateToastBody: string; playErrorTitle: string; playErrorBody: string;}; 
+type UseAudioFileDraftOptions = {
+  mode: DraftMode;
+  selectedId: string | null;
+  isDuplicateFile: (file: File, ctx: FieldCtx) => boolean;
+  messages: {
+    duplicateFieldError: string;
+    duplicateToastTitle: string;
+    duplicateToastBody: string;
+    playErrorTitle: string;
+    playErrorBody: string;
+  };
   getLoop?: () => boolean;
-}) {
+};
+
+/* Hook reutilizable para gestionar un archivo de audio draft */
+export function useAudioFileDraft(opts: UseAudioFileDraftOptions) {
   const { mode, selectedId, isDuplicateFile, messages, getLoop } = opts;
 
   const [draftFile, setDraftFile] = useState<File | null>(null);
-  const [draftFileName, setDraftFileName] = useState<string>("");
+  const [draftFileName, setDraftFileName] = useState("");
 
   const [isDragging, setIsDragging] = useState(false);
   const [isHoveringSelectButton, setIsHoveringSelectButton] = useState(false);
@@ -22,32 +36,35 @@ export function useAudioFileDraft(opts: {
   const [isPlaying, setIsPlaying] = useState(false);
 
   const [fileError, setFileError] = useState<string | undefined>(undefined);
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const hasAudioLoaded = !!previewUrl;
-
   const isReady = Boolean(draftFile || previewUrl);
 
+  /* Detiene el audio y resetea la posición de reproducción */
   const stopPlayback = () => {
-    const el = audioRef.current;
-    if (!el) return;
+    const audio = audioRef.current;
+    if (!audio) return;
+
     try {
-      el.pause();
-      el.currentTime = 0;
+      audio.pause();
+      audio.currentTime = 0;
     } catch { }
+
     setIsPlaying(false);
   };
 
+  /* Revoca la blob URL si procede */
   const revokePreview = (url: string | null) => {
     if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
   };
 
   useEffect(() => stopPlayback(), [previewUrl]);
 
-  useEffect(() => {
-    return () => revokePreview(previewUrl);
-  }, [previewUrl]);
+  useEffect(() => () => revokePreview(previewUrl), [previewUrl]);
 
+  /* Reemplaza la preview actual por la de un fichero nuevo */
   const setPreviewFromFile = (file: File | null) => {
     setPreviewUrl((prev) => {
       revokePreview(prev);
@@ -56,12 +73,14 @@ export function useAudioFileDraft(opts: {
   };
 
   const loadPreviewFromExistingFile = (file: File | undefined) => {
-    if (file) { setPreviewFromFile(file); }
-    else { setPreviewFromFile(null); }
+    setPreviewFromFile(file ?? null);
   };
 
-  const clearFileError = () => setFileError(undefined);
+  const clearFileError = () => {
+    setFileError(undefined);
+  };
 
+  /* Procesa un fichero entrante */
   const processIncomingFile = (file: File) => {
     const duplicate = isDuplicateFile(file, { mode, selectedId });
 
@@ -72,38 +91,38 @@ export function useAudioFileDraft(opts: {
     }
 
     clearFileError();
-
     setDraftFile(file);
     setDraftFileName(file.name);
     setPreviewFromFile(file);
   };
 
-  const handleFileChange = (evt: React.ChangeEvent<HTMLInputElement>) => {
-    const file = evt.target.files?.[0] ?? null;
+  /* Selección desde input file */
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null;
     if (file) processIncomingFile(file);
 
-    evt.target.value = "";
+    event.target.value = "";
   };
 
-  /* Drag&drop */
-  const handleDragOver = (evt: React.DragEvent<HTMLDivElement>) => {
-    evt.preventDefault();
+  const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
     setIsDragging(true);
   };
 
-  const handleDragLeave = (evt: React.DragEvent<HTMLDivElement>) => {
-    evt.preventDefault();
+  const handleDragLeave = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
     setIsDragging(false);
   };
 
-  const handleDrop = (evt: React.DragEvent<HTMLDivElement>) => {
-    evt.preventDefault();
+  const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
     setIsDragging(false);
-    const file = evt.dataTransfer.files?.[0];
+
+    const file = event.dataTransfer.files?.[0] ?? null;
     if (file) processIncomingFile(file);
   };
 
-  /* Play/Stop */
+  /* Alterna play / stop del preview */
   const handlePlayToggle = async () => {
     if (!hasAudioLoaded || !audioRef.current) return;
 
@@ -123,17 +142,18 @@ export function useAudioFileDraft(opts: {
     }
   };
 
-  /* Reset “solo audio draft” */
+  /* Resetea el estado local del draft de audio */
   const resetAudioDraft = () => {
     setDraftFile(null);
     setDraftFileName("");
     setIsDragging(false);
     setIsHoveringSelectButton(false);
     setIsPlaying(false);
+    setFileError(undefined);
     setPreviewFromFile(null);
   };
 
-  return { draftFile, draftFileName, previewUrl, isPlaying, hasAudioLoaded, isDragging, isHoveringSelectButton, fileError, isReady, audioRef, fileInputRef,
-    setDraftFileName, setIsHoveringSelectButton, clearFileError, loadPreviewFromExistingFile, processIncomingFile, handleFileChange, handleDragOver,
-    handleDragLeave, handleDrop, handlePlayToggle, resetAudioDraft };
+  return { draftFile, draftFileName, previewUrl, isPlaying, hasAudioLoaded, isDragging, isHoveringSelectButton, fileError, isReady, audioRef, fileInputRef, setDraftFileName,
+    setIsHoveringSelectButton, clearFileError, loadPreviewFromExistingFile, processIncomingFile, handleFileChange, handleDragOver, handleDragLeave, handleDrop,
+    handlePlayToggle, resetAudioDraft };
 }

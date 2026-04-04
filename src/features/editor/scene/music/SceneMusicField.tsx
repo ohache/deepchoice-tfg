@@ -21,7 +21,7 @@ export function SceneMusicField({ label = "Música", active, onToggle, layerId }
     [project?.musicTracks]
   );
 
-    const editingLayer = useMemo(
+  const editingLayer = useMemo(
     () => (layerId ? (nodeDraft?.layers ?? []).find((layer) => layer.id === layerId) ?? null : null),
     [nodeDraft?.layers, layerId]
   );
@@ -30,7 +30,7 @@ export function SceneMusicField({ label = "Música", active, onToggle, layerId }
     ? (editingLayer?.musicTrackId ?? "")
     : (nodeDraft?.musicTrackId ?? "");
 
-    const handleChange = (nextTrackId: string) => {
+  const handleChange = (nextTrackId: string) => {
     const nextMusicTrackId = nextTrackId || undefined;
 
     if (layerId) {

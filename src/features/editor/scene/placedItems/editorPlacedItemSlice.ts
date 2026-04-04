@@ -1,5 +1,10 @@
 import type { ID, PlacedItem, RegionShape, PlaceableState, InteractionRules } from "@/domain/types";
-import type { PlacedItemDraft, PlacedItemEditorContext, PlacedItemEditorState, PlacedItemRuleChannel } from "@/features/editor/scene/placedItems/placedItemEditorTypes";
+import type {
+  PlacedItemDraft,
+  PlacedItemEditorContext,
+  PlacedItemEditorState,
+  PlacedItemRuleChannel,
+} from "@/features/editor/scene/placedItems/placedItemEditorTypes";
 import { generateId } from "@/utils/id";
 import { validatePlacedItem } from "@/features/editor/scene/placedItems/placedItemValidator";
 
@@ -32,13 +37,31 @@ function buildContext(activeLayerId: ID | null): PlacedItemEditorContext | null 
   return { layerId: activeLayerId };
 }
 
-function isLabelUnique(label: string, placedItems: PlacedItem[]): boolean {
-  return !placedItems.some(item => item.label.trim().toLowerCase() === label.trim().toLowerCase());
+function isLabelUnique(label: string, placedItems: PlacedItem[], selfId?: ID): boolean {
+  const nextLabel = label.trim().toLowerCase();
+  return !placedItems.some((item) => {
+    if (selfId && item.id === selfId) return false;
+    return item.label.trim().toLowerCase() === nextLabel;
+  });
 }
 
 function createDefaultPlacedItemRules(placedItemId: ID): InteractionRules {
   return {
-    onClick: [{ id: generateId.rule(), effects: [{ type: "addItem", placedItemId }]}]};
+    onClick: [{ id: generateId.rule(), effects: [{ type: "addItem", placedItemId }] }],
+  };
+}
+
+function buildCandidateFromDraft(
+  draft: PlacedItemDraft & { shape: RegionShape }
+): PlacedItem {
+  return {
+    id: draft.id,
+    itemId: draft.itemId,
+    label: draft.label.trim(),
+    shape: draft.shape,
+    initialState: draft.initialState,
+    rules: draft.rules ?? {},
+  };
 }
 
 type Store = {
@@ -46,6 +69,9 @@ type Store = {
   placedItemEditor: PlacedItemEditorState;
 
   getActivePlacedItems: () => PlacedItem[];
+  addPlacedItem: (placedItem: PlacedItem) => void;
+  updatePlacedItem: (placedItemId: ID, patch: Partial<PlacedItem>) => void;
+
   selectedInteractionKind: "hotspot" | "placedItem" | "placedNpc" | "placedPlayer" | null;
   selectedInteractionId: ID | null;
 };
@@ -54,7 +80,11 @@ export interface EditorPlacedItemsSlice {
   placedItemEditor: PlacedItemEditorState;
 
   setPlacedItemDraftItemId: (itemId: ID) => void;
-  setPlacedItemSelection: (input: { placedItemId: ID | null; selectedChannel?: PlacedItemRuleChannel | null; selectedRuleId?: ID | null }) => void;
+  setPlacedItemSelection: (input: {
+    placedItemId: ID | null;
+    selectedChannel?: PlacedItemRuleChannel | null;
+    selectedRuleId?: ID | null;
+  }) => void;
 
   clearPlacedItemEditor: () => void;
   startPlacingPlacedItem: (input: { itemId: ID; label?: string }) => void;
@@ -76,10 +106,13 @@ export interface EditorPlacedItemsSlice {
   deleteRuleFromSelectedChannel: (ruleId: ID) => void;
 
   validatePlacedItemDraft: () => { ok: boolean; error?: string };
+  commitPlacedItemDraft: () => { ok: boolean; error?: string; placedItemId?: ID };
 }
 
-export function createEditorPlacedItemsSlice(set: (partial: Partial<Store> | ((s: Store) => Partial<Store> | Store)) => void,
-  get: () => Store): EditorPlacedItemsSlice {
+export function createEditorPlacedItemsSlice(
+  set: (partial: Partial<Store> | ((s: Store) => Partial<Store> | Store)) => void,
+  get: () => Store
+): EditorPlacedItemsSlice {
   return {
     placedItemEditor: initialPlacedItemEditorState,
 
@@ -339,9 +372,9 @@ export function createEditorPlacedItemsSlice(set: (partial: Partial<Store> | ((s
         channel.type === "onClick"
           ? { ...rules0, onClick: [...(rules0.onClick ?? []), baseRule] }
           : {
-            ...rules0,
-           onUseItem: [...(rules0.onUseItem ?? []), { ...baseRule, placedItemId: channel.placedItemId }],
-          };
+              ...rules0,
+              onUseItem: [...(rules0.onUseItem ?? []), { ...baseRule, placedItemId: channel.placedItemId }],
+            };
 
       set((st) => ({
         ...st,
@@ -399,18 +432,16 @@ export function createEditorPlacedItemsSlice(set: (partial: Partial<Store> | ((s
       }
 
       const placedItems = s.getActivePlacedItems();
-      if (!isLabelUnique(draft.label, placedItems)) {
-        return { ok: false, error: "El label del placedItem debe ser único en todo el juego." };
+      if (!isLabelUnique(draft.label, placedItems, draft.id)) {
+        return { ok: false, error: "El label del placedItem debe ser único en la capa activa." };
       }
 
-      const candidate: PlacedItem = {
-        id: draft.id,
-        itemId: draft.itemId,
-        label: draft.label.trim(),
+      const draftWithShape: PlacedItemDraft & { shape: RegionShape } = {
+        ...draft,
         shape: draft.shape,
-        initialState: draft.initialState,
-        rules: draft.rules ?? {},
       };
+
+      const candidate = buildCandidateFromDraft(draftWithShape);
 
       const result = validatePlacedItem(candidate);
       if (!result.ok) {
@@ -426,6 +457,53 @@ export function createEditorPlacedItemsSlice(set: (partial: Partial<Store> | ((s
       }
 
       return { ok: true };
+    },
+
+    commitPlacedItemDraft: () => {
+      const s = get();
+      const draft = s.placedItemEditor.draft;
+
+      if (!draft) return { ok: false, error: "No hay borrador de placedItem." };
+      if (!draft.shape) {
+        return { ok: false, error: "Debes dibujar un área válida antes de guardar el item." };
+      }
+
+      const placedItems = s.getActivePlacedItems();
+      if (!isLabelUnique(draft.label, placedItems, draft.id)) {
+        return { ok: false, error: "El label del placedItem debe ser único en la capa activa." };
+      }
+
+      const draftWithShape: PlacedItemDraft & { shape: RegionShape } = {
+        ...draft,
+        shape: draft.shape,
+      };
+
+      const candidate = buildCandidateFromDraft(draftWithShape);
+
+      const result = validatePlacedItem(candidate);
+      if (!result.ok) {
+        const msg =
+          result.errors.rules ??
+          result.errors.label ??
+          result.errors.itemId ??
+          result.errors.shape ??
+          result.errors.initialState ??
+          "El item colocado no es válido.";
+
+        return { ok: false, error: msg };
+      }
+
+      const exists = (s.getActivePlacedItems() ?? []).some((p) => p.id === candidate.id);
+
+      if (exists) s.updatePlacedItem(candidate.id, candidate);
+      else s.addPlacedItem(candidate);
+
+      set((st) => ({
+        ...st,
+        placedItemEditor: initialPlacedItemEditorState,
+      }));
+
+      return { ok: true, placedItemId: candidate.id };
     },
   };
 }

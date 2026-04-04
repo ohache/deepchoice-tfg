@@ -2,7 +2,7 @@ import { useMemo, useEffect, useState } from "react";
 import type { ID, Node } from "@/domain/types";
 import { useEditorStore } from "@/store/editorStore";
 import { SceneTitleField } from "@/features/editor/scene/fields/SceneTitleField";
-import {SceneTypeField } from "@/features/editor/scene/fields/SceneTypeField";
+import { SceneTypeField } from "@/features/editor/scene/fields/SceneTypeField";
 import { useSceneFieldState, useSceneNavigation } from "@/features/editor/scene/SceneCommon";
 import { SceneLayersField } from "@/features/editor/scene/fields/SceneLayersField";
 import { SceneDialogueField } from "@/features/editor/scene/dialogues/SceneDialogueField";
@@ -77,17 +77,16 @@ export function SceneEditorView() {
   const placedItemEditor = useEditorStore((s) => s.placedItemEditor);
   const placedNpcEditor = useEditorStore((s) => s.placedNpcEditor);
   const placedPlayerEditor = useEditorStore((s) => s.placedPlayerEditor);
-  const dialogueEditor = useEditorStore((s) => s.dialogueEditor);
 
   const isEditing = nodeMode === "editing" && Boolean(editingNodeId);
   const header = isEditing ? "Editar escena" : "Crear escena";
 
-  const isInteractiveEditorBusy =
-    hotspotEditor.mode.type !== "idle" ||
-    placedItemEditor.mode.type !== "idle" ||
-    placedNpcEditor.mode.type !== "idle" ||
-    placedPlayerEditor.mode.type !== "idle" ||
-    dialogueEditor.mode.type !== "idle";
+  const commitHotspotDraft = useEditorStore((s) => s.commitHotspotDraft);
+  const commitPlacedItemDraft = useEditorStore((s) => s.commitPlacedItemDraft);
+  const commitPlacedNpcDraft = useEditorStore((s) => s.commitPlacedNpcDraft);
+  const commitPlacedPlayerDraft = useEditorStore((s) => s.commitPlacedPlayerDraft);
+
+
 
   const [textPreview, setTextPreview] = useState<string | null>(null);
   const clearTextPreview = () => setTextPreview(null);
@@ -113,37 +112,46 @@ export function SceneEditorView() {
 
   const [openDeleteSceneModal, setOpenDeleteSceneModal] = useState(false);
 
-  function canLeaveSceneField(): boolean {
-    if (!nodeDraft) return true;
-
-    if (activeField === "title") {
-      if (!title.trim()) {
-        toast.error("Falta título", "La escena necesita un título.");
+  function commitActiveInteractiveDraftsForScene(): boolean {
+    if (hotspotEditor.mode.type !== "idle") {
+      const result = commitHotspotDraft();
+      if (!result.ok) {
+        toast.error("Hotspot incompleto", result.error ?? "Revisa el hotspot antes de continuar.");
         return false;
       }
     }
 
-    if (activeField === "layers" || activeField === "dialogues") {
-      if (isInteractiveEditorBusy) {
-        toast.warning(
-          "Edición en curso",
-          "Termina o cancela la edición activa antes de cambiar de bloque."
-        );
+    if (placedItemEditor.mode.type !== "idle") {
+      const result = commitPlacedItemDraft();
+      if (!result.ok) {
+        toast.error("Item incompleto", result.error ?? "Revisa el item antes de continuar.");
         return false;
       }
+    }
 
-      const res = validateNodeDraft(nodeDraft, {
-        projectNodes: (project?.nodes ?? []).map((n) => ({ id: n.id, title: n.title })),
-        currentNodeId: isEditing ? editingNodeId : null,
-      });
-
-      if (activeField === "layers" && res.errors.layers) {
-        toast.error("Capas incompletas", res.errors.layers);
+    if (placedNpcEditor.mode.type !== "idle") {
+      const result = commitPlacedNpcDraft();
+      if (!result.ok) {
+        toast.error("NPC incompleto", result.error ?? "Revisa el NPC antes de continuar.");
         return false;
       }
+    }
 
-      if (activeField === "dialogues" && res.errors.dialogues) {
-        toast.error("Diálogos incompletos", res.errors.dialogues);
+    if (placedPlayerEditor.mode.type !== "idle") {
+      const result = commitPlacedPlayerDraft();
+      if (!result.ok) {
+        toast.error("Player incompleto", result.error ?? "Revisa el player antes de continuar.");
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  function canLeaveSceneField(): boolean {
+    if (!nodeDraft) return true;
+    if (activeField === "layers") {
+      if (!commitActiveInteractiveDraftsForScene()) {
         return false;
       }
     }
@@ -226,8 +234,7 @@ export function SceneEditorView() {
   const handlePrimary = () => {
     if (!nodeDraft || !project) return;
 
-    if (isInteractiveEditorBusy) {
-      toast.warning("Edición interactiva en curso", "Termina o cancela la edición del hotspot o del item antes de guardar la escena.");
+    if (!commitActiveInteractiveDraftsForScene()) {
       return;
     }
 
@@ -422,7 +429,7 @@ export function SceneEditorView() {
             <button
               type="button"
               onClick={handlePrimary}
-              disabled={isInteractiveEditorBusy}
+              disabled={false}
               className="btn btn-create-condition bg-emerald-800 hover:bg-emerald-600 text-white text-[12px]"
             >
               {isEditing ? "Guardar cambios" : "Crear escena"}

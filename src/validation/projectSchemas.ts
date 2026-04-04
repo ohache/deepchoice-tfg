@@ -78,13 +78,7 @@ export const MapRegionSchema = z.object({
   subMapId: IdSchema.optional(),
   entrySceneId: IdSchema.optional(),
   sceneIds: z.array(IdSchema),
-}).refine(
-  (region) => (region.entrySceneId ? region.sceneIds.includes(region.entrySceneId) : true),
-  {
-    message: "La escena de entrada debe pertenecer a las escenas asociadas a la región.",
-    path: ["entrySceneId"],
-  }
-) satisfies z.ZodType<MapRegion>;
+}) satisfies z.ZodType<MapRegion>;
 
 export const WorldMapSchema = z.object({
   id: IdSchema,

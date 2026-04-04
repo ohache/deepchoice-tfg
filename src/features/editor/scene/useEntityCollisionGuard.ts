@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RegionShape } from "@/domain/types";
 import { isValidRect01 } from "@/features/editor/hooks/regionShape";
 import { formatCollisionSummary, validateNoCollisions01Rect, type ClickableRegion } from "@/features/editor/scene/clickableCollisions";
@@ -27,11 +27,13 @@ type CollisionLockState = {
 };
 
 function shapeKey(shape: unknown): string {
-  try { return JSON.stringify(shape ?? null);}
+  try {return JSON.stringify(shape ?? null); }
   catch { return String(shape ?? ""); }
 }
 
-export function useEntityCollisionGuard({ shape, clickableRegions, ignore, enabled = true, isDrawing = false, minRect = 0.02, resetKey, onRejectShape, onCollision }: UseEntityCollisionGuardArgs) {
+/* Hook para vigilar colisiones de una shape editable contra regiones clicables */
+export function useEntityCollisionGuard({ shape, clickableRegions, ignore, enabled = true, isDrawing = false, minRect = 0.02,
+  resetKey, onRejectShape, onCollision }: UseEntityCollisionGuardArgs) {
   const hasShape = isValidRect01(shape, { min: minRect });
 
   const collisionCheck = useMemo(() => {
@@ -45,26 +47,30 @@ export function useEntityCollisionGuard({ shape, clickableRegions, ignore, enabl
 
   const [collisionLock, setCollisionLock] = useState<CollisionLockState>({ active: false, summary: "" });
 
-  const lastRejectedShapeKeyRef = useRef<string>("");
+  const lastRejectedShapeKeyRef = useRef("");
 
-  useEffect(() => {
-  setCollisionLock({ active: false, summary: "" });
-  lastRejectedShapeKeyRef.current = "";
-}, [resetKey]);
+  const resetCollisionGuard = useCallback(() => {
+    setCollisionLock({ active: false, summary: "" });
+    lastRejectedShapeKeyRef.current = "";
+  }, []);
+
+  useEffect(() => { resetCollisionGuard(); }, [resetKey, resetCollisionGuard]);
 
   useEffect(() => {
     if (!enabled) return;
-    if (!shape || !hasShape || !hasCollisions || isDrawing) return;
+    if (!shape || !hasShape) return;
+    if (!hasCollisions) return;
+    if (isDrawing) return;
 
     const key = shapeKey(shape);
     if (lastRejectedShapeKeyRef.current === key) return;
-    lastRejectedShapeKeyRef.current = key;
 
+    lastRejectedShapeKeyRef.current = key;
     setCollisionLock({ active: true, summary: collisionSummary });
 
     onRejectShape?.();
     onCollision?.(collisionSummary);
-  }, [ enabled, shape, hasShape, hasCollisions, isDrawing, collisionSummary, onRejectShape, onCollision ]);
+  }, [enabled, shape, hasShape, hasCollisions, isDrawing, collisionSummary, onRejectShape, onCollision]);
 
   useEffect(() => {
     if (!collisionLock.active) return;
@@ -73,11 +79,6 @@ export function useEntityCollisionGuard({ shape, clickableRegions, ignore, enabl
 
     setCollisionLock({ active: false, summary: "" });
   }, [collisionLock.active, hasShape, hasCollisions]);
-
-  const resetCollisionGuard = () => {
-    setCollisionLock({ active: false, summary: "" });
-    lastRejectedShapeKeyRef.current = "";
-  };
 
   return { hasShape, collisionCheck, hasCollisions, collisionSummary, collisionLock, resetCollisionGuard };
 }

@@ -7,13 +7,12 @@ type SfxDraftInput = z.input<typeof SfxDraftSchema>;
 
 /* Valida el draft del formulario de SFX */
 export function validateSfxDraft( input: SfxDraftInput, opts: { mode: "new" | "edit"; project: Project; currentSfxId?: ID }) {
-  const sfxList = opts.project.soundEffects ?? [];
 
   return validateAssetBackedDraft({
     input: { name: input.name, file: input.file ?? undefined },
     opts: { mode: opts.mode, project: opts.project, currentId: opts.currentSfxId },
     draftSchema: SfxDraftSchema,
-    list: sfxList,
+    list: opts.project.soundEffects,
     assetKind: "sfx",
     messages: {
       duplicateName: "Ya existe otro efecto de sonido con ese título.",

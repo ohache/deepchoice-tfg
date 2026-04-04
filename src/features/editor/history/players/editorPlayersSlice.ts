@@ -1,13 +1,13 @@
-import type { ID, PlayerDef, PlayerImage, Project, SceneImageLayer, VarDef, Node as StoryNode, PlacedPlayer } from "@/domain/types";
+import type { ID, PlacedPlayer, PlayerDef, PlayerImage, Project, VarDef } from "@/domain/types";
 import { conditionReferencesPlayer, conditionReferencesPlayerVar } from "@/domain/conditionRefs";
 import { effectReferencesPlayer, effectReferencesPlayerVar } from "@/domain/effectRefs";
-import { generateId } from "@/utils/id";
-import {
-  safeTrim, upsertAsset, upsertAssetFile, removeAsset, removeAssetFile, removeEffectsInProject, ensureDefaultImageId, sameVarDef,
-  fileExtFromName, buildPlayerImageFilePath, fileExtFromAssetPath
-} from "@/features/editor/core/editorGenericSlice";
-import { isEntityReferenced, mapAllWhensInProject, mapCondition, removePlacedPlayers, removeDialogues } from "@/features/editor/core/editorProjectWalkers";
 import { hasDuplicateName } from "@/validation/genericValidator";
+import { generateId } from "@/utils/id";
+import { fileExtFromName, removeAsset, removeAssetFile, safeTrim, sameVarDef, upsertAsset, upsertAssetFile } from "@/features/editor/core/editorGenericSlice";
+import { isEntityReferenced, removeConditionsInProject, removeDialogues, removeEffectsInProject, removePlacedPlayers, collectDialogueIds,
+  effectIsStartDialogueForAnyOf, someDialogue, somePlacedPlayer } from "@/features/editor/core/editorProjectWalkers";
+import { findAssetByIdAndKind, findEntityById, removeById, replaceById } from "@/features/editor/history/shared/assetBackedEntityHelpers";
+import { nextSelectedAfterRemoval, buildPlayerImageFilePath, ensureDefaultImageId } from "@/features/editor/history/shared/genericHelpers";
 
 /* Contrato mínimo del store que necesita este slice */
 type EditorStoreLike = {
@@ -19,7 +19,7 @@ type EditorStoreLike = {
 export interface EditorPlayerSlice {
   selectedPlayerId: ID | null;
   setSelectedPlayerId: (id: ID | null) => void;
-  addPlayer: (input: { name: string; description?: string; vars?: VarDef[]; images: Array<{ name: string; file: File }>; }) => ID | null;
+  addPlayer: (input: { name: string; description?: string; vars?: VarDef[]; images: Array<{ name: string; file: File }> }) => ID | null;
   updatePlayer: (playerId: ID, changes: { name?: string; description?: string }) => void;
   addPlayerImage: (playerId: ID, input: { name: string; file?: File | null }) => ID | null;
   updatePlayerImage: (playerId: ID, imageId: ID, patch: { name?: string; file?: File | null }) => void;
@@ -32,92 +32,67 @@ export interface EditorPlayerSlice {
   isPlayerReferenced: (playerId: ID) => boolean;
 }
 
-function removePlayerVarFromConditionsInProject(project: Project, playerId: ID, varId: ID): Project {
-  return mapAllWhensInProject(project, (when) =>
-    mapCondition(when, (c) => {
-      if (c.type === "playerVar" && c.playerId === playerId && c.varId === varId) return undefined;
-      return c;
-    })
-  );
-}
-
-function removePlayerFromConditionsInProject(project: Project, playerId: ID): Project {
-  return mapAllWhensInProject(project, (when) =>
-    mapCondition(when, (c) => {
-      if (c.type === "playerVar" && c.playerId === playerId) return undefined;
-      if (c.type === "placedPlayerVisible" && c.playerId === playerId) return undefined;
-      return c;
-    })
-  );
-}
-
-export function createEditorPlayerSlice(set: (partial: Partial<EditorStoreLike> | ((state: EditorStoreLike) => Partial<EditorStoreLike> | EditorStoreLike)) => void,
+/* Slice */
+export function createEditorPlayerSlice(set: (partial: | Partial<EditorStoreLike> | ((state: EditorStoreLike) => Partial<EditorStoreLike> | EditorStoreLike)) => void,
   get: () => EditorStoreLike): EditorPlayerSlice {
   return {
     selectedPlayerId: null,
 
     setSelectedPlayerId: (id) => set({ selectedPlayerId: id }),
 
+    /* Añade un player */
     addPlayer: (input) => {
       const { project, assetFiles } = get();
       if (!project) return null;
 
-      const safeName = safeTrim(input?.name);
-      const safeDesc = safeTrim(input?.description);
+      const nextName = safeTrim(input?.name);
+      const nextDescription = safeTrim(input?.description);
 
-      if (!safeName) return null;
-
-      const currentPlayers = project.players ?? [];
-      if (hasDuplicateName({ list: currentPlayers, incomingName: safeName })) return null;
+      if (!nextName) return null;
+      if (hasDuplicateName({ list: project.players, incomingName: nextName })) return null;
 
       const imagesIn = Array.isArray(input?.images) ? input.images : [];
       if (imagesIn.length === 0) return null;
 
-      const cleaned = imagesIn.map((im) => ({
-        id: generateId.playerImage(),
-        name: safeTrim(im?.name) || "Imagen",
-        file: im?.file,
-      })).filter((im) => im.file instanceof File);
+      const cleanedImages = imagesIn.map((image) =>
+        ({ id: generateId.playerImage(), name: safeTrim(image?.name) || "Imagen", file: image?.file}))
+        .filter((image): image is { id: ID; name: string; file: File } => image.file instanceof File);
 
-      if (cleaned.length === 0) return null;
+      if (cleanedImages.length === 0) return null;
+      if (cleanedImages.length === 0) return null;
 
       const playerId = generateId.player();
 
-      let nextAssets = project.assets ?? [];
+      let nextAssets = project.assets;
       let nextAssetFiles = assetFiles;
-
       const newImages: PlayerImage[] = [];
 
-      for (const im of cleaned) {
-        const imageId = im.id;
-        const ext = fileExtFromName(im.file.name);
-        const filePath = buildPlayerImageFilePath(safeName, im.name, ext);
+      for (const image of cleanedImages) {
+        const ext = fileExtFromName(image.file.name);
+        const filePath = buildPlayerImageFilePath(nextName, image.name, ext);
 
-        newImages.push({ id: imageId, name: im.name });
+        newImages.push({ id: image.id, name: image.name });
 
-        const resA = upsertAsset(nextAssets, {
-          id: imageId,
-          kind: "players",
-          name: im.name,
-          file: filePath,
-        });
-        nextAssets = resA.assets;
+        nextAssets = upsertAsset(nextAssets, { id: image.id, kind: "players", name: image.name, file: filePath }).assets;
 
-        const resF = upsertAssetFile(nextAssetFiles, imageId, im.file);
-        nextAssetFiles = resF.assetFiles;
+        nextAssetFiles = upsertAssetFile(nextAssetFiles, image.id, image.file).assetFiles;
       }
 
       const newPlayer: PlayerDef = {
         id: playerId,
-        name: safeName,
-        ...(safeDesc ? { description: safeDesc } : null),
+        name: nextName,
+        ...(nextDescription ? { description: nextDescription } : null),
         images: newImages,
         defaultImageId: newImages[0]!.id,
         vars: input.vars ?? [],
       };
 
       set({
-        project: { ...project, players: [...currentPlayers, newPlayer], assets: nextAssets },
+        project: {
+          ...project,
+          players: [...project.players, newPlayer],
+          assets: nextAssets,
+        },
         assetFiles: nextAssetFiles,
         selectedPlayerId: playerId,
       });
@@ -125,419 +100,411 @@ export function createEditorPlayerSlice(set: (partial: Partial<EditorStoreLike> 
       return playerId;
     },
 
+    /* Actualiza nombre y/o descripción del player */
     updatePlayer: (playerId, changes) =>
       set((state) => {
         if (!state.project) return state;
+
         const project = state.project;
+        const prevPlayer = findEntityById(project.players, playerId);
+        if (!prevPlayer) return state;
 
-        const players0 = project.players ?? [];
-        const prev = players0.find((p) => p.id === playerId);
-        if (!prev) return state;
+        const nextName = typeof changes.name === "string" ? safeTrim(changes.name) : "";
+        const nameChanged = Boolean(nextName) && nextName !== prevPlayer.name;
 
-        const nextNameRaw = typeof changes.name === "string" ? changes.name.trim() : "";
-        const nameChanged = Boolean(nextNameRaw) && nextNameRaw !== prev.name;
+        if (nameChanged && hasDuplicateName({ list: project.players, incomingName: nextName, ignoreId: playerId }))  return state;
+        
+        const nextDescription = typeof changes.description === "string" ? safeTrim(changes.description) : "";
+        const prevDescription = safeTrim(prevPlayer.description);
+        const descriptionChanged = typeof changes.description === "string" && nextDescription !== prevDescription;
 
-        if (nameChanged) {
-          if (hasDuplicateName({ list: players0, incomingName: nextNameRaw, ignoreId: playerId })) return state;
-        }
-
-        const nextDescRaw = typeof changes.description === "string" ? changes.description.trim() : "";
-        const prevDescRaw = String(prev.description ?? "").trim();
-        const descChanged = typeof changes.description === "string" && nextDescRaw !== prevDescRaw;
-
-        if (!nameChanged && !descChanged) return state;
+        if (!nameChanged && !descriptionChanged) return state;
 
         const nextPlayer: PlayerDef = {
-          ...prev,
-          ...(nameChanged ? { name: nextNameRaw } : null),
-          ...(descChanged ? { description: nextDescRaw || undefined } : null),
+          ...prevPlayer,
+          ...(nameChanged ? { name: nextName } : null),
+          ...(descriptionChanged ? { description: nextDescription || undefined } : null),
         };
 
-        let nextAssets = project.assets ?? [];
+        let nextAssets = project.assets;
         let touchedAssets = false;
 
         if (nameChanged) {
-          for (const img of prev.images) {
-            const assetId = img.id;
-            const existing = nextAssets.find((a) => a.id === assetId && a.kind === "players") ?? null;
-            if (!existing) continue;
+          for (const image of prevPlayer.images) {
+            const existingAsset = findAssetByIdAndKind(nextAssets, image.id, "players");
+            if (!existingAsset) continue;
 
-            const ext = fileExtFromAssetPath(String(existing.file ?? ""));
-            const newPath = buildPlayerImageFilePath(nextPlayer.name, img.name, ext);
+            const ext = fileExtFromName(safeTrim(existingAsset.file));
+            const filePath = buildPlayerImageFilePath(nextPlayer.name, image.name, ext);
 
-            const resA = upsertAsset(nextAssets, {
-              id: assetId,
-              kind: "players",
-              name: img.name,
-              file: newPath,
-            });
+            const assetResult = upsertAsset(nextAssets, { id: image.id, kind: "players", name: image.name, file: filePath });
 
-            nextAssets = resA.assets;
-            touchedAssets = touchedAssets || resA.touched;
+            nextAssets = assetResult.assets;
+            touchedAssets = touchedAssets || assetResult.touched;
           }
         }
 
         return {
           ...state,
-          project: { ...project, players: players0.map((p) => (p.id === playerId ? nextPlayer : p)), assets: touchedAssets ? nextAssets : project.assets },
+          project: {
+            ...project,
+            players: replaceById(project.players, playerId, nextPlayer),
+            assets: touchedAssets ? nextAssets : project.assets,
+          },
         };
       }),
 
+    /* Añade una nueva imagen al player */
     addPlayerImage: (playerId, input) => {
       const { project } = get();
       if (!project) return null;
 
-      const player = (project.players ?? []).find((p) => p.id === playerId);
+      const player = findEntityById(project.players, playerId);
       if (!player) return null;
 
-      const name = safeTrim(input?.name);
-      if (!name) return null;
-
+      const nextName = safeTrim(input?.name);
       const file = input?.file;
+
+      if (!nextName) return null;
       if (!(file instanceof File)) return null;
 
       const imageId = generateId.playerImage();
       const ext = fileExtFromName(file.name);
-      const filePath = buildPlayerImageFilePath(player.name, name, ext);
+      const filePath = buildPlayerImageFilePath(player.name, nextName, ext);
 
-      const newImage: PlayerImage = { id: imageId, name };
+      const newImage: PlayerImage = {
+        id: imageId,
+        name: nextName,
+      };
 
       set((state) => {
         if (!state.project) return state;
 
-        const p = state.project;
-        const players0 = p.players ?? [];
-        const idx = players0.findIndex((x) => x.id === playerId);
-        if (idx < 0) return state;
-
-        const prevPlayer = players0[idx]!;
-        if (prevPlayer.images.some((x) => x.id === imageId)) return state;
+        const prevPlayer = findEntityById(state.project.players, playerId);
+        if (!prevPlayer) return state;
+        if (prevPlayer.images.some((image) => image.id === imageId)) return state;
 
         const nextPlayer = ensureDefaultImageId({
           ...prevPlayer,
           images: [...prevPlayer.images, newImage],
         });
 
-        const nextPlayers = players0.map((x) => (x.id === playerId ? nextPlayer : x));
+        const assetResult = upsertAsset(state.project.assets, { id: imageId, kind: "players", name: newImage.name, file: filePath });
 
-        const assets0 = p.assets ?? [];
-        const resA = upsertAsset(assets0, {
-          id: imageId,
-          kind: "players",
-          name: nextPlayer.name,
-          file: filePath,
-        });
-
-        const resF = upsertAssetFile(state.assetFiles, imageId, file);
+        const fileResult = upsertAssetFile(state.assetFiles, imageId, file);
 
         return {
           ...state,
-          project: { ...p, players: nextPlayers, assets: resA.assets },
-          assetFiles: resF.assetFiles,
+          project: {
+            ...state.project,
+            players: replaceById(state.project.players, playerId, nextPlayer),
+            assets: assetResult.assets,
+          },
+          assetFiles: fileResult.assetFiles,
         };
       });
 
       return imageId;
     },
 
+    /* Actualiza nombre y/o fichero de una imagen del player */
     updatePlayerImage: (playerId, imageId, patch) =>
       set((state) => {
         if (!state.project) return state;
-        const p = state.project;
 
-        const players0 = p.players ?? [];
-        const pIdx = players0.findIndex((x) => x.id === playerId);
-        if (pIdx < 0) return state;
+        const project = state.project;
+        const prevPlayer = findEntityById(project.players, playerId);
+        if (!prevPlayer) return state;
 
-        const prevPlayer = players0[pIdx]!;
-        const images0 = prevPlayer.images;
-        const iIdx = images0.findIndex((img) => img.id === imageId);
-        if (iIdx < 0) return state;
+        const prevImage = prevPlayer.images.find((image) => image.id === imageId) ?? null;
+        if (!prevImage) return state;
 
-        const prevImg = images0[iIdx]!;
-        const nextNameRaw = typeof patch.name === "string" ? patch.name.trim() : "";
-        const nameChanged = Boolean(nextNameRaw) && nextNameRaw !== prevImg.name;
+        const nextName = typeof patch.name === "string" ? safeTrim(patch.name) : "";
+        const nameChanged = Boolean(nextName) && nextName !== prevImage.name;
 
         const nextFile = patch.file instanceof File ? patch.file : null;
         const fileChanged = Boolean(nextFile);
 
         if (!nameChanged && !fileChanged) return state;
 
-        const nextImg: PlayerImage = {
-          ...prevImg,
-          ...(nameChanged ? { name: nextNameRaw } : null),
+        const nextImage: PlayerImage = {
+          ...prevImage,
+          ...(nameChanged ? { name: nextName } : null),
         };
-
-        const nextImages = images0.slice();
-        nextImages[iIdx] = nextImg;
 
         const nextPlayer: PlayerDef = {
           ...prevPlayer,
-          images: nextImages,
+          images: prevPlayer.images.map((image) => (image.id === imageId ? nextImage : image)),
         };
 
-        let nextAssets = p.assets ?? [];
+        let nextAssets = project.assets;
         let nextAssetFiles = state.assetFiles;
 
-        const assetId = imageId;
-        const existingAsset = nextAssets.find((a) => a.id === assetId && a.kind === "players") ?? null;
+        const existingAsset = findAssetByIdAndKind(nextAssets, imageId, "players");
 
         if (nameChanged && existingAsset) {
-          const ext = fileExtFromAssetPath(String(existingAsset.file ?? ""));
-          const newPath = buildPlayerImageFilePath(prevPlayer.name, nextImg.name, ext);
+          const ext = fileExtFromName(safeTrim(existingAsset.file));
+          const filePath = buildPlayerImageFilePath(prevPlayer.name, nextImage.name, ext);
 
-          nextAssets = upsertAsset(nextAssets, {
-            id: assetId,
-            kind: "players",
-            name: nextImg.name,
-            file: newPath,
-          }).assets;
+          nextAssets = upsertAsset(nextAssets, { id: imageId, kind: "players", name: nextImage.name, file: filePath }).assets;
         }
 
         if (fileChanged && nextFile) {
           const ext = fileExtFromName(nextFile.name);
-          const newPath = buildPlayerImageFilePath(prevPlayer.name, nextImg.name, ext);
+          const filePath = buildPlayerImageFilePath(prevPlayer.name, nextImage.name, ext);
 
-          nextAssets = upsertAsset(nextAssets, {
-            id: assetId,
-            kind: "players",
-            name: nextImg.name,
-            file: newPath,
-          }).assets;
+          nextAssets = upsertAsset(nextAssets, { id: imageId, kind: "players", name: nextImage.name, file: filePath }).assets;
 
-          nextAssetFiles = upsertAssetFile(nextAssetFiles, assetId, nextFile).assetFiles;
+          nextAssetFiles = upsertAssetFile(nextAssetFiles, imageId, nextFile).assetFiles;
         }
 
         return {
           ...state,
-          project: { ...p, players: players0.map((x) => (x.id === playerId ? nextPlayer : x)), assets: nextAssets },
+          project: {
+            ...project,
+            players: replaceById(project.players, playerId, nextPlayer),
+            assets: nextAssets,
+          },
           assetFiles: nextAssetFiles,
         };
       }),
 
+    /* Elimina una imagen del player */
     removePlayerImage: (playerId, imageId) =>
       set((state) => {
         if (!state.project) return state;
 
-        let project: Project = state.project;
+        let project = state.project;
+        const prevPlayer = findEntityById(project.players, playerId);
+        if (!prevPlayer) return state;
 
-        const players0 = project.players ?? [];
-        const pIdx = players0.findIndex((x) => x.id === playerId);
-        if (pIdx < 0) return state;
+        if (!prevPlayer.images.some((image) => image.id === imageId)) return state;
+        if (prevPlayer.images.length <= 1) return state;
 
-        const prevPlayer = players0[pIdx]!;
-        const images0 = prevPlayer.images;
+        const nextImages = prevPlayer.images.filter((image) => image.id !== imageId);
 
-        if (!images0.some((x) => x.id === imageId)) return state;
+        let nextPlayer: PlayerDef = {
+          ...prevPlayer,
+          images: nextImages,
+        };
 
-        // no borrar última imagen (tu schema exige >= 1)
-        if (images0.length <= 1) return state;
-
-        const nextImages = images0.filter((x) => x.id !== imageId);
-
-        let nextPlayer: PlayerDef = { ...prevPlayer, images: nextImages };
         if (nextPlayer.defaultImageId === imageId) nextPlayer.defaultImageId = undefined;
+
         nextPlayer = ensureDefaultImageId(nextPlayer);
 
-        {
-          const nodes0: StoryNode[] = project.nodes ?? [];
-          let touchedNodes = false;
-
-          const nextNodes = nodes0.map((node) => {
-            const layers0: SceneImageLayer[] = node.layers ?? [];
-            if (layers0.length === 0) return node;
-
-            let touchedLayers = false;
-
-            const nextLayers = layers0.map((layer) => {
-              const placed0: PlacedPlayer[] = layer.placedPlayers ?? [];
-              if (placed0.length === 0) return layer;
-
-              let touchedPlaced = false;
-
-              const placed1 = placed0.map((pp) => {
-                if (pp.playerId !== playerId) return pp;
-                if (pp.initialImageId !== imageId) return pp;
-
-                const fallback = nextPlayer.defaultImageId;
-
-                // si no hay fallback, quitamos initialImageId
-                if (!fallback) {
-                  const { initialImageId: _omit, ...rest } = pp;
-                  touchedPlaced = true;
+        project = {
+          ...project,
+          nodes: project.nodes.map((node) => ({
+            ...node,
+            layers: node.layers.map((layer) => {
+              const placedPlayers = layer.placedPlayers ?? [];
+              if (placedPlayers.length === 0) return layer;
+        
+              let touchedPlacedPlayers = false;
+        
+              const nextPlacedPlayers = placedPlayers.map((placedPlayer) => {
+                if (placedPlayer.playerId !== playerId) return placedPlayer;
+                if (placedPlayer.initialImageId !== imageId) return placedPlayer;
+        
+                touchedPlacedPlayers = true;
+        
+                if (!nextPlayer.defaultImageId) {
+                  const { initialImageId: _omitted, ...rest } = placedPlayer;
                   return rest as PlacedPlayer;
                 }
-
-                touchedPlaced = true;
-                return { ...pp, initialImageId: fallback };
+        
+                return {
+                  ...placedPlayer,
+                  initialImageId: nextPlayer.defaultImageId,
+                };
               });
+        
+              if (!touchedPlacedPlayers) return layer;
+        
+              return {
+                ...layer,
+                placedPlayers: nextPlacedPlayers,
+              };
+            }),
+          })),
+        };
 
-              if (!touchedPlaced) return layer;
-
-              touchedLayers = true;
-              return { ...layer, placedPlayers: placed1 };
-            });
-
-            if (!touchedLayers) return node;
-
-            touchedNodes = true;
-            return { ...node, layers: nextLayers };
-          });
-
-          if (touchedNodes) project = { ...project, nodes: nextNodes };
-        }
-
-        project = removeEffectsInProject(project, (e) => {
-          if (e.type !== "setPlacedPlayerImage") return false;
-          return e.playerId === playerId && e.imageId === imageId;
+        project = removeEffectsInProject(project, (effect) => {
+          if (effect.type !== "setPlacedPlayerImage") return false;
+          return effect.playerId === playerId && effect.imageId === imageId;
         });
 
-        const assetId: ID = imageId;
-        const remA = removeAsset(project.assets ?? [], { id: assetId, kind: "players" });
-        const remF = removeAssetFile(state.assetFiles, assetId);
-
-        const nextPlayers = players0.map((x) => (x.id === playerId ? nextPlayer : x));
+        const assetResult = removeAsset(project.assets, { id: imageId, kind: "players" });
+        const fileResult = removeAssetFile(state.assetFiles, imageId);
 
         return {
           ...state,
-          project: { ...project, players: nextPlayers, assets: remA.assets },
-          assetFiles: remF.assetFiles,
+          project: {
+            ...project,
+            players: replaceById(project.players, playerId, nextPlayer),
+            assets: assetResult.assets,
+          },
+          assetFiles: fileResult.assetFiles,
         };
       }),
 
+    /* Cambia la imagen por defecto del player */
     setDefaultPlayerImage: (playerId, imageId) =>
       set((state) => {
-        const project = state.project;
-        if (!project) return state;
+        if (!state.project) return state;
 
-        const players0 = project.players ?? [];
-        const idx = players0.findIndex((x) => x.id === playerId);
-        if (idx < 0) return state;
-
-        const prevPlayer = players0[idx]!;
-        if (!prevPlayer.images.some((img) => img.id === imageId)) return state;
+        const prevPlayer = findEntityById(state.project.players, playerId);
+        if (!prevPlayer) return state;
+        if (!prevPlayer.images.some((image) => image.id === imageId)) return state;
         if (prevPlayer.defaultImageId === imageId) return state;
 
-        const nextPlayer = { ...prevPlayer, defaultImageId: imageId };
-        const nextPlayers = players0.map((x) => (x.id === playerId ? nextPlayer : x));
+        const nextPlayer: PlayerDef = {
+          ...prevPlayer,
+          defaultImageId: imageId,
+        };
 
-        return { ...state, project: { ...project, players: nextPlayers } };
+        return {
+          ...state,
+          project: {
+            ...state.project,
+            players: replaceById(state.project.players, playerId, nextPlayer),
+          },
+        };
       }),
 
+    /* Añade una variable al player */
     addPlayerVar: (playerId, variable) =>
       set((state) => {
         if (!state.project) return state;
-        const project = state.project;
 
-        const players0 = project.players ?? [];
-        const idx = players0.findIndex((pl) => pl.id === playerId);
-        if (idx < 0) return state;
+        const prevPlayer = findEntityById(state.project.players, playerId);
+        if (!prevPlayer) return state;
 
-        const prevPlayer = players0[idx]!;
-        const vars0 = prevPlayer.vars ?? [];
+        const prevVars = prevPlayer.vars ?? [];
+        if (prevVars.some((existingVar) => existingVar.id === variable.id)) return state;
 
-        if (vars0.some((v) => v.id === variable.id)) return state;
+        const nextPlayer: PlayerDef = {
+          ...prevPlayer,
+          vars: [...prevVars, variable],
+        };
 
-        const nextPlayer: PlayerDef = { ...prevPlayer, vars: [...vars0, variable] };
-        const nextPlayers = players0.map((pl) => (pl.id === playerId ? nextPlayer : pl));
-
-        return { ...state, project: { ...project, players: nextPlayers } };
+        return {
+          ...state,
+          project: {
+            ...state.project,
+            players: replaceById(state.project.players, playerId, nextPlayer),
+          },
+        };
       }),
 
+    /* Actualiza una variable del player */
     updatePlayerVar: (playerId, variable) =>
       set((state) => {
         if (!state.project) return state;
-        const project = state.project;
 
-        const players0 = project.players ?? [];
-        const idx = players0.findIndex((pl) => pl.id === playerId);
-        if (idx < 0) return state;
+        const prevPlayer = findEntityById(state.project.players, playerId);
+        if (!prevPlayer) return state;
 
-        const prevPlayer = players0[idx]!;
-        const vars0 = prevPlayer.vars ?? [];
-        const vIdx = vars0.findIndex((v) => v.id === variable.id);
-        if (vIdx < 0) return state;
+        const prevVars = prevPlayer.vars ?? [];
+        const varIndex = prevVars.findIndex((existingVar) => existingVar.id === variable.id);
+        if (varIndex < 0) return state;
 
-        const prevVar = vars0[vIdx]!;
+        const prevVar = prevVars[varIndex]!;
         if (sameVarDef(prevVar, variable)) return state;
 
-        const nextVars = vars0.slice();
-        nextVars[vIdx] = variable;
+        const nextVars = prevVars.slice();
+        nextVars[varIndex] = variable;
 
-        const nextPlayer: PlayerDef = { ...prevPlayer, vars: nextVars };
-        const nextPlayers = players0.map((pl) => (pl.id === playerId ? nextPlayer : pl));
+        const nextPlayer: PlayerDef = {
+          ...prevPlayer,
+          vars: nextVars,
+        };
 
-        return { ...state, project: { ...project, players: nextPlayers } };
+        return {
+          ...state,
+          project: {
+            ...state.project,
+            players: replaceById(state.project.players, playerId, nextPlayer),
+          },
+        };
       }),
 
+    /* Elimina una variable del player */
     removePlayerVar: (playerId, varId) =>
       set((state) => {
         if (!state.project) return state;
+
         let project = state.project;
+        const prevPlayer = findEntityById(project.players, playerId);
+        if (!prevPlayer) return state;
 
-        const players0 = project.players ?? [];
-        const idx = players0.findIndex((pl) => pl.id === playerId);
-        if (idx < 0) return state;
+        const prevVars = prevPlayer.vars ?? [];
+        const nextVars = prevVars.filter((variable) => variable.id !== varId);
+        if (nextVars.length === prevVars.length) return state;
 
-        const prevPlayer = players0[idx]!;
-        const vars0 = prevPlayer.vars ?? [];
-        const nextVars = vars0.filter((v) => v.id !== varId);
-        if (nextVars.length === vars0.length) return state;
+        const nextPlayer: PlayerDef = {
+          ...prevPlayer,
+          vars: nextVars,
+        };
 
-        const nextPlayer: PlayerDef = { ...prevPlayer, vars: nextVars };
-        const nextPlayers = players0.map((pl) => (pl.id === playerId ? nextPlayer : pl));
-        project = { ...project, players: nextPlayers };
+        project = {
+          ...project,
+          players: replaceById(project.players, playerId, nextPlayer),
+        };
 
-        project = removePlayerVarFromConditionsInProject(project, playerId, varId);
+        project = removeConditionsInProject(project,
+          (condition) => condition.type === "playerVar" &&
+            condition.playerId === playerId && condition.varId === varId,
+        );
 
-        project = removeEffectsInProject(project, (e) => effectReferencesPlayerVar(e, { playerId, varId }));
+        project = removeEffectsInProject(project, (effect) => effectReferencesPlayerVar(effect, { playerId, varId }));
 
         return { ...state, project };
       }),
 
+    /* Elimina un player global */
     removePlayer: (playerId) =>
       set((state) => {
         if (!state.project) return state;
-        const project0 = state.project;
 
-        const player = (project0.players ?? []).find((x) => x.id === playerId);
+        const player = findEntityById(state.project.players, playerId);
         if (!player) return state;
 
-        let project = project0;
+        const dialogueIds = collectDialogueIds(state.project, (dialogue) => dialogue.playerId === playerId);
 
-        // effects: todo lo que referencia playerId (incluye vars/memoria/relaciones/placed player)
-        project = removeEffectsInProject(project, (e) => effectReferencesPlayer(e, playerId));
+        let project = state.project;
 
-        // conditions: players / playerMemory / relations
-        project = removePlayerFromConditionsInProject(project, playerId);
+        project = removeEffectsInProject(project, (effect) => {
+          if (effectReferencesPlayer(effect, playerId)) return true;
+          if (effectIsStartDialogueForAnyOf(effect, dialogueIds)) return true;
+          return false;
+        });
 
-        // escenas: placedPlayers (modelo nuevo: layers[].placedPlayers)
-        project = removePlacedPlayers(project, (pp) => pp.playerId === playerId);
+        project = removeConditionsInProject(project,
+          (condition) => (condition.type === "playerVar" && condition.playerId === playerId) ||
+          (condition.type === "placedPlayerVisible" && condition.playerId === playerId),
+        );
 
-        // diálogos
-        project = removeDialogues(project, (d) => d.playerId === playerId);
+        project = removePlacedPlayers(project, (placedPlayer) => placedPlayer.playerId === playerId);
+        project = removeDialogues(project, (dialogue) => dialogue.playerId === playerId);
 
-        // catálogo
-        const remainingPlayers = (project.players ?? []).filter((x) => x.id !== playerId);
-
-        // assets + assetFiles de TODAS sus imágenes (id imagen = id asset)
-        let nextAssets = project.assets ?? [];
+        let nextAssets = project.assets;
         let nextAssetFiles = state.assetFiles;
 
-        for (const img of player.images) {
-          const assetId = img.id;
-          nextAssets = removeAsset(nextAssets, { id: assetId, kind: "players" }).assets;
-          nextAssetFiles = removeAssetFile(nextAssetFiles, assetId).assetFiles;
+        for (const image of player.images) {
+          nextAssets = removeAsset(nextAssets, { id: image.id, kind: "players" }).assets;
+          nextAssetFiles = removeAssetFile(nextAssetFiles, image.id).assetFiles;
         }
-
-        // selección
-        const nextSelected = state.selectedPlayerId === playerId ? null : state.selectedPlayerId;
 
         return {
           ...state,
-          project: { ...project, players: remainingPlayers, assets: nextAssets },
+          project: {
+            ...project,
+            players: removeById(project.players, playerId),
+            assets: nextAssets,
+          },
           assetFiles: nextAssetFiles,
-          selectedPlayerId: nextSelected,
+          selectedPlayerId: nextSelectedAfterRemoval(state.selectedPlayerId, playerId),
         };
       }),
 
@@ -545,18 +512,18 @@ export function createEditorPlayerSlice(set: (partial: Partial<EditorStoreLike> 
       const { project } = get();
       if (!project) return false;
 
+      const playerVars = findEntityById(project.players, playerId)?.vars ?? [];
+      const dialogueIds = collectDialogueIds(project, (dialogue) => dialogue.playerId === playerId);
+
       return isEntityReferenced(project, {
-        someSceneRef: (p) =>
-          (p.nodes ?? []).some((n) =>
-            (n.layers ?? []).some((layer) => (layer.placedPlayers ?? []).some((pp) => pp.playerId === playerId))
-          ) ||
-          (p.nodes ?? []).some((n) => (n.dialogues ?? []).some((d) => d.playerId === playerId)),
+        someSceneRef: (currentProject) =>
+          somePlacedPlayer(currentProject, (placedPlayer) => placedPlayer.playerId === playerId) ||
+          someDialogue(currentProject, (dialogue) => dialogue.playerId === playerId),
 
         someWhenRef: (when) => conditionReferencesPlayer(when, playerId) ||
-          (project.players ?? []).find((p) => p.id === playerId)?.vars?.some((v) => conditionReferencesPlayerVar(when, { playerId, varId: v.id })) === true,
+          playerVars.some((variable) => conditionReferencesPlayerVar(when, { playerId, varId: variable.id })),
 
-        someEffectRef: (e) => effectReferencesPlayer(e, playerId),
-      });
+        someEffectRef: (effect) => effectReferencesPlayer(effect, playerId) || effectIsStartDialogueForAnyOf(effect, dialogueIds)});
     },
   };
 }

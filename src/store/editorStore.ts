@@ -2,8 +2,7 @@ import { create } from "zustand";
 import type { Project, ID, AssetDef } from "@/domain/types";
 import { downloadProjectJsonFile, exportProjectAsZip } from "@/store/utils/editorPersistence";
 import { resolveDirectoryImport } from "@/shared/directoryImport";
-import { buildBaseEditorState, clamp, DEFAULT_ZOOM, MAX_ZOOM, MIN_ZOOM, STEP_ZOOM } from "@/store/utils/editorStoreUtils";
-import { generateId } from "@/utils/id";
+import { createEmptyProject, buildBaseEditorState, canUseHistoryViewZoom, clamp, DEFAULT_ZOOM, MAX_ZOOM, MIN_ZOOM, STEP_ZOOM } from "@/store/utils/editorStoreUtils";
 import { buildAssetPath } from "@/store/assets/assetPath";
 import { removeAsset, removeAssetFile } from "@/features/editor/core/editorGenericSlice";
 import { type EditorPrimaryMode, type EditorSecondaryMode, getDefaultSecondaryMode } from "@/features/editor/core/editorModes";
@@ -21,10 +20,10 @@ import { type EditorLayerInteractionsSlice, createEditorLayerInteractionsSlice }
 import { type EditorHotspotsSlice, createEditorHotspotsSlice } from "@/features/editor/scene/hotspots/editorHotspotsSlice";
 import { type EditorPlacedItemsSlice, createEditorPlacedItemsSlice } from "@/features/editor/scene/placedItems/editorPlacedItemSlice";
 import { type EditorPlacedPlayersSlice, createEditorPlacedPlayersSlice } from "@/features/editor/scene/placedPlayers/editorPlacedPlayerSlice";
-import { type EditorPlacedNpcsSlice, createEditorPlacedNpcsSlice } from "@/features/editor/scene/placedNpcs/editorPlacedNpcslice";
+import { type EditorPlacedNpcsSlice, createEditorPlacedNpcsSlice } from "@/features/editor/scene/placedNpcs/editorPlacedNpcSlice";
 import { type EditorDialoguesSlice, createEditorDialoguesSlice } from "@/features/editor/scene/dialogues/editorDialogueSlice";
 
-export interface EditorStore extends EditorMusicSlice, EditorSfxSlice, EditorItemsSlice, EditorPlayerSlice, EditorNpcSlice,EditorHistoryViewSlice, EditorNodesSlice,
+export interface EditorStore extends EditorMusicSlice, EditorSfxSlice, EditorItemsSlice, EditorPlayerSlice, EditorNpcSlice, EditorHistoryViewSlice, EditorNodesSlice,
   EditorLayerSlice, EditorLayerInteractionsSlice, EditorHotspotsSlice, EditorPlacedItemsSlice, EditorPlacedPlayersSlice, EditorPlacedNpcsSlice, EditorDialoguesSlice,
   EditorMapsSlice, EditorMapRegionsSlice {
   project: Project | null;
@@ -36,14 +35,18 @@ export interface EditorStore extends EditorMusicSlice, EditorSfxSlice, EditorIte
   initNewProject: (title: string) => void;
   loadProjectFromDirectory: (project: Project, files: File[]) => void;
   updateProjectTitle: (title: string) => void;
+
   setPrimaryMode: (mode: EditorPrimaryMode) => void;
   setSecondaryMode: (mode: EditorSecondaryMode) => void;
   resetEditor: () => void;
+
   registerAssetFile: (assetId: ID, file: File) => void;
   upsertBackgroundAsset: (assetId: ID, file: File) => void;
   removeBackgroundAsset: (assetId: ID) => void;
+
   downloadProjectJson: () => void;
   exportProject: () => Promise<void>;
+
   setZoom: (zoom: number) => void;
   zoomIn: () => void;
   zoomOut: () => void;
@@ -51,15 +54,11 @@ export interface EditorStore extends EditorMusicSlice, EditorSfxSlice, EditorIte
 }
 
 export const useEditorStore = create<EditorStore>()((set, get) => ({
+  ...buildBaseEditorState(),
+
   project: null,
-
+  
   assetFiles: {},
-
-  primaryMode: "historia",
-
-  secondaryMode: "vista",
-
-  zoom: 100,
 
   ...createEditorSfxSlice(set, get),
   ...createEditorMusicSlice(set, get),
@@ -83,49 +82,33 @@ export const useEditorStore = create<EditorStore>()((set, get) => ({
 
   ...createEditorHistoryViewSlice(set, get),
 
+  /* Inicializa un proyecto nuevo y reseta el editor al estado base */
   initNewProject: (title: string) => {
-    const projectId = generateId.project();
-    const normalizedTitle = title.trim() || "Nuevo proyecto";
-
-    const newProject: Project = {
-      id: projectId,
-      title: normalizedTitle,
-      assets: [],
-      items: [],
-      npcs: [],
-      players: [],
-      musicTracks: [],
-      soundEffects: [],
-      maps: [],
-      nodes: [],
-    };
-
     set({
       ...buildBaseEditorState(),
-      project: newProject,
+      project: createEmptyProject(title),
       assetFiles: {},
     });
   },
 
+  /* Carga un proyecto existente desde un directorio importado */
   loadProjectFromDirectory: (project: Project, files: File[]) => {
     const { normalizedAssets, assetFilesById } = resolveDirectoryImport(project, files);
 
-    const nextProject: Project = { ...project, assets: normalizedAssets };
-
     set({
       ...buildBaseEditorState(),
-      project: nextProject,
+      project: { ...project, assets: normalizedAssets },
       assetFiles: assetFilesById,
-
     });
   },
 
+  /* Cambia el título del proyecto */
   updateProjectTitle: (title: string) => {
     set((state) => {
       if (!state.project) return state;
 
       const nextTitle = title.trim();
-      if (!nextTitle) return state;
+      if (!nextTitle || nextTitle === state.project.title) return state;
 
       return {
         ...state,
@@ -134,6 +117,7 @@ export const useEditorStore = create<EditorStore>()((set, get) => ({
     });
   },
 
+  /* Cambia el modo primario y ajusta automáticamente el secundario */
   setPrimaryMode: (mode) => {
     set((state) => ({
       primaryMode: mode,
@@ -143,23 +127,24 @@ export const useEditorStore = create<EditorStore>()((set, get) => ({
 
     if (mode !== "escena") return;
 
-    const s = get();
+    const state = get();
 
-    if (s.nodeDraft) return;
+    if (state.nodeDraft) return;
 
-    if (s.selectedNodeId == null) {
-      s.enterCreateNodeMode?.();
+    if (state.selectedNodeId == null) {
+      state.enterCreateNodeMode?.();
       return;
     }
 
-    s.enterEditNodeMode?.(s.selectedNodeId);
+    state.enterEditNodeMode?.(state.selectedNodeId);
   },
 
-  setSecondaryMode: (mode: EditorSecondaryMode) => {
-    set(() => ({ secondaryMode: mode }));
-
+  /* Cambia el modo secundario */
+  setSecondaryMode: (mode) => {
+    set({ secondaryMode: mode });
   },
 
+  /* Reseta el editor */
   resetEditor: () => {
     set({
       ...buildBaseEditorState(),
@@ -168,66 +153,72 @@ export const useEditorStore = create<EditorStore>()((set, get) => ({
     });
   },
 
+  /* Registar un File en memoria para un assetId */
   registerAssetFile: (assetId: ID, file: File) => {
-    set((state) => ({ assetFiles: { ...state.assetFiles, [assetId]: file } }));
+    set((state) => ({
+      assetFiles: { ...state.assetFiles, [assetId]: file }
+    }
+    ));
   },
 
+  /* Inserta o actualiza un asset de fondo */
   upsertBackgroundAsset: (assetId, file) => {
-    const s = get();
-    const proj = s.project;
-    if (!proj) return;
+    const state = get();
+    const project = state.project;
+    if (!project) return;
 
-    s.registerAssetFile(assetId, file);
+    state.registerAssetFile(assetId, file);
 
     const relativePath = buildAssetPath("backgrounds", file.name);
-
-    const assets0 = proj.assets ?? [];
-    const existing = assets0.find((a) => a.kind === "backgrounds" && a.id === assetId);
+    const existing = project.assets.find(
+      (asset) => asset.kind === "backgrounds" && asset.id === assetId,
+    );
 
     const nextAsset: AssetDef = {
       id: assetId,
       kind: "backgrounds",
-      name: (existing?.name ?? "").trim() !== "" ? existing!.name : (file.name ?? "Background"),
+      name: existing && existing.name.trim() !== ""
+        ? existing.name
+        : file.name || "Background",
       file: relativePath,
     };
 
     const nextAssets = existing
-      ? assets0.map((a) => (a.kind === "backgrounds" && a.id === assetId ? nextAsset : a))
-      : [...assets0, nextAsset];
+      ? project.assets.map((asset) => asset.kind === "backgrounds" && asset.id === assetId ? nextAsset : asset)
+      : [...project.assets, nextAsset];
 
     set({
-      project: {
-        ...proj,
-        assets: nextAssets,
-      },
+      project: { ...project, assets: nextAssets },
     });
   },
 
+  /* Elimina el asset de fondo del catálogo y su File asociado */
   removeBackgroundAsset: (id: ID) =>
-  set((state) => {
-    if (!state.project) return state;
+    set((state) => {
+      if (!state.project) return state;
 
-    const project0 = state.project;
+      const assetResult = removeAsset(state.project.assets, { id, kind: "backgrounds" });
 
-    const remA = removeAsset(project0.assets ?? [], { id, kind: "backgrounds" });
-    const remF = removeAssetFile(state.assetFiles, id);
+      const fileResult = removeAssetFile(state.assetFiles, id);
 
-    if (!remA.touched && !remF.touched) return state;
+      if (!assetResult.touched && !fileResult.touched) return state;
 
-    return {
-      ...state,
-      project: { ...project0, assets: remA.assets },
-      assetFiles: remF.assetFiles,
-    };
-  }),
+      return {
+        ...state,
+        project: { ...state.project, assets: assetResult.assets },
+        assetFiles: fileResult.assetFiles,
+      };
+    }),
 
-    downloadProjectJson: () => {
+  /* Descarga el JSON del proyecto */
+  downloadProjectJson: () => {
     const project = get().project;
     if (!project) return;
 
     downloadProjectJsonFile(project);
   },
 
+  /* Descarga el proyecto en formato zip */
   exportProject: async () => {
     const { project, assetFiles } = get();
     if (!project) return;
@@ -235,23 +226,35 @@ export const useEditorStore = create<EditorStore>()((set, get) => ({
     await exportProjectAsZip(project, assetFiles);
   },
 
+  /* Fija el zoom */
   setZoom: (zoom) =>
-    set((s) => (s.primaryMode === "historia" && s.secondaryMode === "vista"
-      ? { zoom: clamp(zoom, MIN_ZOOM, MAX_ZOOM) }
-      : s)),
+    set((state) =>
+      canUseHistoryViewZoom(state.primaryMode, state.secondaryMode)
+        ? { zoom: clamp(zoom, MIN_ZOOM, MAX_ZOOM) }
+        : state,
+    ),
 
+  /* Aumenta el zoom */
   zoomIn: () =>
-    set((s) => (s.primaryMode === "historia" && s.secondaryMode === "vista"
-      ? { zoom: clamp(s.zoom + STEP_ZOOM, MIN_ZOOM, MAX_ZOOM) }
-      : s)),
+    set((state) =>
+      canUseHistoryViewZoom(state.primaryMode, state.secondaryMode)
+        ? { zoom: clamp(state.zoom + STEP_ZOOM, MIN_ZOOM, MAX_ZOOM) }
+        : state,
+    ),
 
+  /* Disminuye el zoom */
   zoomOut: () =>
-    set((s) => (s.primaryMode === "historia" && s.secondaryMode === "vista"
-      ? { zoom: clamp(s.zoom - STEP_ZOOM, MIN_ZOOM, MAX_ZOOM) }
-      : s)),
+    set((state) =>
+      canUseHistoryViewZoom(state.primaryMode, state.secondaryMode)
+        ? { zoom: clamp(state.zoom - STEP_ZOOM, MIN_ZOOM, MAX_ZOOM) }
+        : state,
+    ),
 
+  /* Reseta el zoom */
   zoomReset: () =>
-    set((s) => (s.primaryMode === "historia" && s.secondaryMode === "vista"
-      ? { zoom: DEFAULT_ZOOM }
-      : s)),
+    set((state) =>
+      canUseHistoryViewZoom(state.primaryMode, state.secondaryMode)
+        ? { zoom: DEFAULT_ZOOM }
+        : state,
+    ),
 }));

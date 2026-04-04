@@ -23,7 +23,9 @@ function playerImagesToDraft(images: PlayerImage[] | undefined): DraftPlayerImag
 /* Devuelve el uiId draft que corresponde al defaultImageId del dominio */
 function resolveDraftDefaultImageUiId(draft: DraftPlayerImage[], defaultImageId?: ID): string | null {
   if (!draft.length) return null;
-  const found = defaultImageId ? draft.find((x) => x.imageId === defaultImageId)?.uiId : undefined;
+
+  const found = defaultImageId ? draft.find((image) => image.imageId === defaultImageId)?.uiId : undefined;
+
   return found ?? draft[0]!.uiId;
 }
 
@@ -38,15 +40,19 @@ function createDraftImageFromFile(file: File): DraftPlayerImage {
 }
 
 /* Revoca el blob si el draft apunta a blob:... */
-function revokeDraftImageBlob(img?: DraftPlayerImage | null) {
-  const p = img?.previewLogicalPath;
-  if (p?.startsWith("blob:")) URL.revokeObjectURL(p);
+function revokeDraftImageBlob(image?: DraftPlayerImage | null) {
+  const path = image?.previewLogicalPath;
+  if (path?.startsWith("blob:")) URL.revokeObjectURL(path);
+}
+
+function revokeDraftImageBlobs(images: DraftPlayerImage[]) {
+  images.forEach(revokeDraftImageBlob);
 }
 
 /* Asegura que el default (uiId) es coherente con la lista */
 function ensureDefaultImageUiId(list: DraftPlayerImage[], current: string | null): string | null {
   if (!list.length) return null;
-  if (current && list.some((x) => x.uiId === current)) return current;
+  if (current && list.some((image) => image.uiId === current)) return current;
   return list[0]!.uiId;
 }
 
@@ -59,67 +65,72 @@ export function usePlayerImagesDraft() {
   const [isHoveringSelectButton, setIsHoveringSelectButton] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const latestDraftImagesRef = useRef<DraftPlayerImage[]>([]);
 
-useEffect(() => () => draftImages.forEach(revokeDraftImageBlob), []);
+  useEffect(() => { latestDraftImagesRef.current = draftImages; }, [draftImages]);
+
+  useEffect(() => () => revokeDraftImageBlobs(latestDraftImagesRef.current), []);
 
   /* Carga el draft desde un PlayerDef (dominio) */
-  const loadFromPlayer = (p: PlayerDef) => {
-    const next = playerImagesToDraft(p.images);
-    const defUiId = resolveDraftDefaultImageUiId(next, p.defaultImageId ?? undefined);
-    setDraftImages(next);
-    setDraftDefaultImageUiId(defUiId);
-  };
+const loadFromPlayer = (player: PlayerDef) => {
+  const nextDraft = playerImagesToDraft(player.images);
+
+  setDraftImages((prev) => {
+    revokeDraftImageBlobs(prev);
+    return nextDraft;
+  });
+
+  setDraftDefaultImageUiId(resolveDraftDefaultImageUiId(nextDraft, player.defaultImageId ?? undefined));
+};
 
   /* Reset completo (y revoca blobs existentes) */
   const resetDraft = () => {
     setDraftImages((prev) => {
-      prev.forEach((im) => revokeDraftImageBlob(im));
+      revokeDraftImageBlobs(prev);
       return [];
     });
     setDraftDefaultImageUiId(null);
   };
 
-  /** Añadir un File nuevo al draft */
+  /* Añadir un File nuevo al draft */
   const addIncomingImageFile = (file: File) => {
-    const next = createDraftImageFromFile(file);
+    const nextImage = createDraftImageFromFile(file);
 
     setDraftImages((prev) => {
-      const out = [...prev, next];
-      const nextDefault = ensureDefaultImageUiId(out, draftDefaultImageUiId);
-      setDraftDefaultImageUiId(nextDefault ?? next.uiId);
-      return out;
+      const nextList = [...prev, nextImage];
+      return nextList;
     });
 
-    setDraftDefaultImageUiId((cur) => cur ?? next.uiId);
+    setDraftDefaultImageUiId((current) => current ?? nextImage.uiId);
 
-    return next.uiId;
+    return nextImage.uiId;
   };
 
   /* Input file (añadir) */
-  const handleFileChange = (evt: React.ChangeEvent<HTMLInputElement>) => {
-    const file = evt.target.files?.[0] ?? null;
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null;
     if (file) addIncomingImageFile(file);
-    evt.target.value = "";
+    event.target.value = "";
   };
 
-  const handleDragOver = (e: React.DragEvent<HTMLElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const handleDragOver = (event: React.DragEvent<HTMLElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
     setIsDragging(true);
   };
 
-  const handleDragLeave = (e: React.DragEvent<HTMLElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const handleDragLeave = (event: React.DragEvent<HTMLElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
     setIsDragging(false);
   };
 
-  const handleDrop = (e: React.DragEvent<HTMLElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const handleDrop = (event: React.DragEvent<HTMLElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
     setIsDragging(false);
 
-    const file = e.dataTransfer.files?.[0] ?? null;
+    const file = event.dataTransfer.files?.[0] ?? null;
     if (!file) return;
 
     addIncomingImageFile(file);
@@ -128,37 +139,47 @@ useEffect(() => () => draftImages.forEach(revokeDraftImageBlob), []);
   /* Eliminar una imagen del draft */
   const removeDraftImage = (uiId: string) => {
     setDraftImages((prev) => {
-      const img = prev.find((x) => x.uiId === uiId);
-      revokeDraftImageBlob(img);
+      const image = prev.find((current) => current.uiId === uiId);
+      revokeDraftImageBlob(image);
 
-      const out = prev.filter((x) => x.uiId !== uiId);
+      const nextList = prev.filter((current) => current.uiId !== uiId);
 
-      const nextDefault = ensureDefaultImageUiId(out, draftDefaultImageUiId === uiId ? null : draftDefaultImageUiId);
-      setDraftDefaultImageUiId(nextDefault);
+      setDraftDefaultImageUiId((currentDefault) => ensureDefaultImageUiId(nextList, currentDefault === uiId ? null : currentDefault));
 
-      return out;
+      return nextList;
     });
   };
 
   /* Reemplazar el file de una imagen concreta */
   const replaceDraftImageFile = (uiId: string, file: File) => {
     setDraftImages((prev) =>
-      prev.map((im) => {
-        if (im.uiId !== uiId) return im;
+      prev.map((image) => {
+        if (image.uiId !== uiId) return image;
 
-        revokeDraftImageBlob(im);
-        return { ...im, file, previewLogicalPath: URL.createObjectURL(file) };
-      })
+        revokeDraftImageBlob(image);
+
+        return {
+          ...image,
+          file,
+          previewLogicalPath: URL.createObjectURL(file),
+        };
+      }),
+    );
+  };
+
+  const renameDraftImage = (uiId: string, name: string) => {
+    setDraftImages((prev) =>
+      prev.map((image) => image.uiId === uiId ? { ...image, name } : image),
     );
   };
 
   const previewLogicalPath = useMemo(() => {
-    const def = draftImages.find((x) => x.uiId === draftDefaultImageUiId) ?? draftImages[0];
-    return def?.previewLogicalPath;
+    const defaultImage = draftImages.find((image) => image.uiId === draftDefaultImageUiId) ?? draftImages[0];
+
+    return defaultImage?.previewLogicalPath;
   }, [draftImages, draftDefaultImageUiId]);
 
-
-  return { draftImages, setDraftImages, draftDefaultImageUiId, setDraftDefaultImageUiId, fileInputRef, previewLogicalPath, loadFromPlayer, resetDraft,
-    addIncomingImageFile, removeDraftImage, replaceDraftImageFile, handleFileChange, isDragging, setIsDragging, isHoveringSelectButton, setIsHoveringSelectButton,
-    handleDragOver, handleDragLeave, handleDrop };
+  return { draftImages, draftDefaultImageUiId, setDraftDefaultImageUiId, fileInputRef, previewLogicalPath, loadFromPlayer, resetDraft, addIncomingImageFile,
+    renameDraftImage, removeDraftImage, replaceDraftImageFile, handleFileChange, isDragging, setIsDragging, isHoveringSelectButton,
+    setIsHoveringSelectButton, handleDragOver, handleDragLeave, handleDrop };
 }

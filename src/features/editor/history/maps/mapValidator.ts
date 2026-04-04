@@ -46,9 +46,8 @@ export function validateMapDraft(input: MapDraftInput, opts: { mode: "new" | "ed
   }
 
   const data = schemaResult.data;
-  const mapList = opts.project.maps ?? [];
 
-  if (hasDuplicateName({ list: mapList, incomingName: data.name, ignoreId: opts.currentMapId })) errors.name = duplicateNameError;
+  if (hasDuplicateName({ list:  opts.project.maps, incomingName: data.name, ignoreId: opts.currentMapId })) errors.name = duplicateNameError;
 
   const hasFile = data.file instanceof File;
 

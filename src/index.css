@@ -214,6 +214,12 @@ body {
     --accent-hover: theme(colors.lime.500);
   }
 
+    .panel--players {
+    --accent-border: theme(colors.emerald.500);
+    --accent-bg: theme(colors.emerald.700);
+    --accent-hover: theme(colors.emerald.500);
+  }
+
   /* MAP (amber) */
   .panel--map {
     --accent-border: theme(colors.amber.500);

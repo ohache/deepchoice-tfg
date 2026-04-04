@@ -27,11 +27,23 @@ function buildContext(activeLayerId: ID | null): PlacedPlayerEditorContext | nul
   return { layerId: activeLayerId };
 }
 
+function buildCandidateFromDraft(
+  draft: PlacedPlayerDraft & { shape: RegionShape }
+): PlacedPlayer {
+  return {
+    playerId: draft.playerId,
+    initialImageId: draft.initialImageId,
+    shape: draft.shape,
+    initialState: draft.initialState,
+  };
+}
+
 type Store = {
   activeLayerId: ID | null;
   placedPlayerEditor: PlacedPlayerEditorState;
 
   getActivePlacedPlayers: () => PlacedPlayer[];
+  upsertPlacedPlayer: (placedPlayer: PlacedPlayer) => void;
   selectedInteractionKind: "hotspot" | "placedItem" | "placedNpc" | "placedPlayer" | null;
   selectedInteractionId: ID | null;
 };
@@ -58,6 +70,7 @@ export interface EditorPlacedPlayersSlice {
   setPlacedPlayerDraftInitialState: (patch: Partial<PlacedPlayerState>) => void;
 
   validatePlacedPlayerDraft: () => { ok: boolean; error?: string };
+  commitPlacedPlayerDraft: () => { ok: boolean; error?: string; playerId?: ID };
 }
 
 export function createEditorPlacedPlayersSlice(set: (partial: Partial<Store> | ((s: Store) => Partial<Store> | Store)) => void,
@@ -282,12 +295,12 @@ export function createEditorPlacedPlayersSlice(set: (partial: Partial<Store> | (
         return { ok: false, error: "Debes dibujar un área válida antes de guardar el player." };
       }
 
-      const candidate: PlacedPlayer = {
-        playerId: draft.playerId,
-        initialImageId: draft.initialImageId,
+      const draftWithShape: PlacedPlayerDraft & { shape: RegionShape } = {
+        ...draft,
         shape: draft.shape,
-        initialState: draft.initialState,
       };
+
+      const candidate = buildCandidateFromDraft(draftWithShape);
 
       const result = validatePlacedPlayer(candidate);
       if (!result.ok) {
@@ -302,6 +315,44 @@ export function createEditorPlacedPlayersSlice(set: (partial: Partial<Store> | (
       }
 
       return { ok: true };
+    },
+
+    commitPlacedPlayerDraft: () => {
+      const s = get();
+      const draft = s.placedPlayerEditor.draft;
+
+      if (!draft) return { ok: false, error: "No hay borrador de placedPlayer." };
+      if (!draft.shape) {
+        return { ok: false, error: "Debes dibujar un área válida antes de guardar el player." };
+      }
+
+      const draftWithShape: PlacedPlayerDraft & { shape: RegionShape } = {
+        ...draft,
+        shape: draft.shape,
+      };
+
+      const candidate = buildCandidateFromDraft(draftWithShape);
+
+      const result = validatePlacedPlayer(candidate);
+      if (!result.ok) {
+        const msg =
+          result.errors.initialImageId ??
+          result.errors.playerId ??
+          result.errors.shape ??
+          result.errors.initialState ??
+          "El player colocado no es válido.";
+
+        return { ok: false, error: msg };
+      }
+
+      s.upsertPlacedPlayer(candidate);
+
+      set((st) => ({
+        ...st,
+        placedPlayerEditor: initialPlacedPlayerEditorState,
+      }));
+
+      return { ok: true, playerId: candidate.playerId };
     },
   };
 }

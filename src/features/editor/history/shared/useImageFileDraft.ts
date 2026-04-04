@@ -2,18 +2,28 @@ import { useEffect, useRef, useState } from "react";
 import type { DraftMode } from "@/features/editor/history/shared/useAssetDraftPanel";
 import { toast } from "@/shared/toast/toastStore";
 
-type FieldCtx = { mode: DraftMode; selectedId: string | null };
+type FieldCtx = {
+  mode: DraftMode;
+  selectedId: string | null;
+};
 
-export function useImageFileDraft(opts: {
+type UseImageFileDraftOptions = {
   mode: DraftMode;
   selectedId: string | null;
   isDuplicateFile: (file: File, ctx: FieldCtx) => boolean;
-  messages: { duplicateFieldError: string; duplicateToastTitle: string; duplicateToastBody: string; };
-}) {
+  messages: {
+    duplicateFieldError: string;
+    duplicateToastTitle: string;
+    duplicateToastBody: string;
+  };
+};
+
+/* Hook reutilizable para gestionar un archivo de imagen draft */
+export function useImageFileDraft(opts: UseImageFileDraftOptions) {
   const { mode, selectedId, isDuplicateFile, messages } = opts;
 
   const [draftFile, setDraftFile] = useState<File | null>(null);
-  const [draftFileName, setDraftFileName] = useState<string>("");
+  const [draftFileName, setDraftFileName] = useState("");
 
   const [isDragging, setIsDragging] = useState(false);
   const [isHoveringSelectButton, setIsHoveringSelectButton] = useState(false);
@@ -21,16 +31,19 @@ export function useImageFileDraft(opts: {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   const [fileError, setFileError] = useState<string | undefined>(undefined);
+
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const isReady = Boolean(draftFile || previewUrl);
 
+  /* Revoca la blob URL si procede */
   const revokePreview = (url: string | null) => {
     if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
   };
 
   useEffect(() => () => revokePreview(previewUrl), [previewUrl]);
 
+  /* Reemplaza la preview actual por la de un fichero nuevo */
   const setPreviewFromFile = (file: File | null) => {
     setPreviewUrl((prev) => {
       revokePreview(prev);
@@ -39,12 +52,14 @@ export function useImageFileDraft(opts: {
   };
 
   const loadPreviewFromExistingFile = (file: File | undefined) => {
-    if (file) setPreviewFromFile(file);
-    else setPreviewFromFile(null);
+    setPreviewFromFile(file ?? null);
   };
 
-  const clearFileError = () => setFileError(undefined);
+  const clearFileError = () => {
+    setFileError(undefined);
+  };
 
+  /* Procesa un fichero entrante */
   const processIncomingFile = (file: File) => {
     const duplicate = isDuplicateFile(file, { mode, selectedId });
 
@@ -55,46 +70,45 @@ export function useImageFileDraft(opts: {
     }
 
     clearFileError();
-
     setDraftFile(file);
     setDraftFileName(file.name);
     setPreviewFromFile(file);
   };
 
-  const handleFileChange = (evt: React.ChangeEvent<HTMLInputElement>) => {
-    const file = evt.target.files?.[0] ?? null;
+  /* Selección desde input file */
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null;
     if (file) processIncomingFile(file);
 
-    evt.target.value = "";
+    event.target.value = "";
   };
 
-  /* Drag&drop */
-  const handleDragOver = (evt: React.DragEvent<HTMLDivElement>) => {
-    evt.preventDefault();
+  const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
     setIsDragging(true);
   };
 
-  const handleDragLeave = (evt: React.DragEvent<HTMLDivElement>) => {
-    evt.preventDefault();
+  const handleDragLeave = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
     setIsDragging(false);
   };
 
-  const handleDrop = (evt: React.DragEvent<HTMLDivElement>) => {
-    evt.preventDefault();
+  const handleDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
     setIsDragging(false);
 
-    const file = evt.dataTransfer.files?.[0];
+    const file = event.dataTransfer.files?.[0] ?? null;
     if (file) processIncomingFile(file);
   };
 
-  /* Reset “solo imagen draft” */
+  /* Resetea el estado local del draft de imagen */
   const resetImageDraft = () => {
     setDraftFile(null);
     setDraftFileName("");
     setIsDragging(false);
     setIsHoveringSelectButton(false);
     setPreviewFromFile(null);
-    clearFileError();
+    setFileError(undefined);
   };
 
   return { draftFile, draftFileName, previewUrl, isDragging, isHoveringSelectButton, fileError, isReady, fileInputRef, setDraftFileName, setIsHoveringSelectButton,

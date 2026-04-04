@@ -37,9 +37,7 @@ function hasDuplicatePlacedItemLabel(item: PlacedItemLikeForBusinessRules, proje
   return (project.nodes ?? []).some((node) =>
     (node.layers ?? []).some((layer) =>
       (layer.placedItems ?? []).some(
-        (other) =>
-          other.id !== item.id &&
-          (other.label ?? "").trim().toLowerCase() === labelKey
+        (other) => other.id !== item.id && other.label.trim().toLowerCase() === labelKey
       )
     )
   );
@@ -47,21 +45,14 @@ function hasDuplicatePlacedItemLabel(item: PlacedItemLikeForBusinessRules, proje
 
 function hasOwnAddItemEffect(item: PlacedItemLikeForBusinessRules): boolean {
   const targetPlacedItemId = item.id;
+  const allRules = [...(item.rules?.onClick ?? []), ...(item.rules?.onUseItem ?? [])];
 
-  const allRules = [
-    ...(item.rules?.onClick ?? []),
-    ...(item.rules?.onUseItem ?? []),
-  ];
-
-  for (const rule of allRules) {
-    for (const effect of rule.effects ?? []) {
-      if (effect.type === "addItem" && effect.placedItemId === targetPlacedItemId) {
-        return true;
-      }
-    }
-  }
-
-  return false;
+  return allRules.some((rule) =>
+    (rule.effects ?? []).some(
+      (effect) =>
+        effect.type === "addItem" && effect.placedItemId === targetPlacedItemId,
+    ),
+  );
 }
 
 function applyBusinessRules(itemLike: PlacedItemLikeForBusinessRules, errors: PlacedItemFieldErrors, ctx?: { project?: Project | null}): void {

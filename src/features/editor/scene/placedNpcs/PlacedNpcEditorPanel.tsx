@@ -161,7 +161,7 @@ export function PlacedNpcEditorPanel({ draft, selectedCatalogNpcId, projectNpcs,
         </div>
       </div>
 
-      <div className="h-px bg-slate-700 my-2" />
+      <div className="h-[3px] bg-slate-800 my-2" />
 
       <PlaceableStateSection
         initialVisible={initialVisible}
@@ -176,7 +176,7 @@ export function PlacedNpcEditorPanel({ draft, selectedCatalogNpcId, projectNpcs,
         onNotReachableTextChange={onNotReachableTextChange}
       />
 
-      <div className="h-px bg-slate-700 my-2" />
+      <div className="h-[3px] bg-slate-800 my-2" />
 
       <InteractionRulesSection
         owner={owner}

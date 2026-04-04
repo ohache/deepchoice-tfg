@@ -39,7 +39,7 @@ export function SceneTextField({ label = "Texto", active, onToggle, textareaRef,
   const removeLayerTextEntry = useEditorStore((s) => s.removeLayerTextEntry);
   const reorderLayerTextEntries = useEditorStore((s) => s.reorderLayerTextEntries);
 
-  const layers = useMemo<SceneImageLayer[]>(() => (nodeDraft?.layers ?? []) ?? [], [nodeDraft?.layers]);
+  const layers = useMemo<SceneImageLayer[]>(() => nodeDraft?.layers ?? [], [nodeDraft?.layers]);
   const layer = useMemo(() => layers.find((l) => String(l.id) === String(layerId)) ?? null, [layers, layerId]);
 
   const withThisLayerActive = (fn: () => void) => {
@@ -50,7 +50,7 @@ export function SceneTextField({ label = "Texto", active, onToggle, textareaRef,
     fn();
   };
 
-  const entries = useMemo<ConditionalTextEntry[]>(() => (layer?.text ?? []) ?? [], [layer?.text]);
+  const entries = useMemo<ConditionalTextEntry[]>(() => layer?.text ?? [], [layer?.text]);
   const baseEntry = useMemo(() => pickBaseEntry(entries), [entries]);
   const variants = useMemo(() => pickVariants(entries), [entries]);
 
@@ -410,7 +410,7 @@ export function SceneTextField({ label = "Texto", active, onToggle, textareaRef,
                   onClick={openCreateVariant}
                   className="btn border-2 border-cyan-700 bg-cyan-900/60 hover:bg-cyan-800 text-xs text-white"
                 >
-                  Añadir variante
+                  + Añadir variante
                 </button>
               </div>
             </div>
@@ -568,7 +568,7 @@ export function SceneTextField({ label = "Texto", active, onToggle, textareaRef,
                 onClick={openCreateVariant}
                 className="btn border-2 border-cyan-700 bg-cyan-900/60 hover:bg-cyan-800 text-xs text-white"
               >
-                Añadir variante
+                + Añadir variante
               </button>
             </div>
           ) : null}

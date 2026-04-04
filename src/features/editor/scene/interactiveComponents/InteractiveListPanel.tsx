@@ -27,7 +27,7 @@ export function InteractiveListPanel({ items, selectedId, emptyText, editTitle, 
     <div className="space-y-3">
       {onCreate && createLabel ? (
         <div className="pt-2 justify-center">
-          <button type="button" className="btn btn-create-condition" onClick={onCreate}>
+          <button type="button" className="btn btn-create-condition text-xs text-white" onClick={onCreate}>
             {createLabel}
           </button>
         </div>
@@ -53,11 +53,11 @@ export function InteractiveListPanel({ items, selectedId, emptyText, editTitle, 
                     onEdit(item.id);
                   }
                 }}
-                className={`rounded-md border px-3 py-2 cursor-pointer select-none ${
+                className={`rounded-md border-2 px-3 py-2 cursor-pointer select-none ${
                   isSelected
-                    ? "border-fuchsia-500/50 bg-slate-950/60"
+                    ? "border-fuchsia-500/50 bg-fuchsia-950/30"
                     : "border-slate-700 bg-slate-950/30"
-                } hover:bg-fuchsia-900/20`}
+                } hover:bg-fuchsia-950/10 hover:border-fuchsia-500/30`}
                 title={itemTitle}
               >
                 <div className="flex items-center justify-between gap-2">

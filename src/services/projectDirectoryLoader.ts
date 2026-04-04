@@ -1,14 +1,18 @@
 import type { Project } from "@/domain/types";
 import { ProjectSchema } from "@/validation/projectSchemas";
-import type { ZodIssue } from "@/shared/zodIssues";
 
 interface LoadedProjectFromDirectory {
   project: Project;
   files: File[];
 }
 
+type IssueLike = {
+  path?: readonly PropertyKey[];
+  message: string;
+}
+
 /* Formatea los errores de Zod de forma legible */
-function formatZodIssues(issues: ZodIssue[]): string {
+function formatZodIssues(issues: readonly IssueLike[]): string {
   const lines = issues.slice(0, 20).map((issue) => {
     const pathString = issue.path?.length ? issue.path
       .map((segment) => (typeof segment === "string" || typeof segment === "number" ? segment : String(segment)))

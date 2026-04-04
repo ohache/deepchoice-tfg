@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { buildInlineErrorMapByPath, type ZodIssue } from "@/shared/zodIssues";
+import { buildInlineErrorMapByPath } from "@/shared/zodIssues";
 import { effectSchema } from "@/validation/rulesSchemas";
 import {
   type FactoryCtx,
@@ -39,13 +39,13 @@ type ActiveEditorState =
     mode: "edit";
     index: number;
     family: EffectFamilyId;
-    draft: EnabledEffect;
+    draft: EnabledEffect | null;
     showErrors: boolean;
     typeTouched: boolean;
   }
   | null;
 
-function buildPrefixedErrors(prefix: string, issues: ZodIssue[]): Record<string, string> {
+function buildPrefixedErrors(prefix: string, issues: readonly { path?: readonly PropertyKey[]; message: string }[]): Record<string, string> {
   const base = buildInlineErrorMapByPath(issues);
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(base)) out[`${prefix}.${k}`] = v;
@@ -248,7 +248,7 @@ export function EffectPanel({
     if (!parsed.success) {
       setInlineErrorsByPath((m) => ({
         ...m,
-        ...buildPrefixedErrors(errorPrefix, parsed.error.issues as ZodIssue[]),
+        ...buildPrefixedErrors(errorPrefix, parsed.error.issues),
       }));
       return { ok: false as const };
     }
@@ -269,7 +269,7 @@ export function EffectPanel({
   };
 
   const handleSaveEdit = () => {
-    if (!activeEditor || activeEditor.mode !== "edit") return;
+    if (!activeEditor || activeEditor.mode !== "edit" || !activeEditor.draft) return;
 
     const res = validateEffectDraft(activeEditor.draft, `effects.${activeEditor.index}`);
     if (!res.ok) return;
@@ -287,7 +287,6 @@ export function EffectPanel({
 
     const preferredTypeByFamily: Partial<Record<EffectFamilyId, EnabledEffectType>> = {
       message: "showMessage",
-      progress: "goToNode",
       item: "addItem",
       hotspot: "setHotspotVisible",
       npc: "setPlacedNpcVisible",
@@ -308,12 +307,17 @@ export function EffectPanel({
         ? preferredType
         : familySpec?.effectTypes[0];
 
-    const firstDraft = firstType ? createDefaultEffect(factory, firstType) : null;
+    const firstDraft =
+      family === "progress"
+        ? null
+        : firstType
+          ? createDefaultEffect(factory, firstType)
+          : null;
 
     setActiveEditor((prev) => {
       if (!prev) return prev;
 
-      const nextTypeTouched = family === "audio" ? false : true;
+      const nextTypeTouched = family === "audio" || family === "progress" ? false : true;
 
       if (prev.mode === "create") {
         return {
@@ -328,7 +332,7 @@ export function EffectPanel({
       return {
         ...prev,
         family,
-        draft: firstDraft as never,
+        draft: firstDraft,
         showErrors: false,
         typeTouched: nextTypeTouched,
       };
@@ -413,43 +417,41 @@ export function EffectPanel({
                 </div>
               </div>
 
-              {editorEffect ? (
-                <>
-                  {activeEditor.mode === "edit" ? (
-                    <div className="ml-1.5 text-[12px] font-semibold text-slate-50">
-                      {effectLabel(editorEffect.type)}{" "}
-                      <span className="font-normal text-slate-300">
-                        · {summarizeEffect(factory, editorEffect)}
-                      </span>
-                    </div>
-                  ) : null}
+              {editorEffect && activeEditor.mode === "edit" ? (
+                <div className="ml-1.5 text-[12px] font-semibold text-slate-50">
+                  {effectLabel(editorEffect.type)}{" "}
+                  <span className="font-normal text-slate-300">
+                    · {summarizeEffect(factory, editorEffect)}
+                  </span>
+                </div>
+              ) : null}
 
-                  <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
-                    <div className="md:col-span-12 ml-1.5">
-                      <div className="bg-slate-950/25 p-2">
-                        <div onClick={(e) => e.stopPropagation()}>
-                          <EffectLeafEditor
-                            factory={factory}
-                            eff={editorEffect}
-                            selectedFamily={editorFamily}
-                            familyTypeOptions={editorTypeOptions}
-                            onChangeType={handleChangeEditorType}
-                            onChange={handleChangeEditorDraft}
-                            errorsByPath={
-                              activeEditor.mode === "create"
-                                ? activeEditor.showErrors
-                                  ? inlineErrorsByPath
-                                  : {}
-                                : inlineErrorsByPath
-                            }
-                            errorPrefix={editorErrorPrefix}
-                            showLocalErrors={activeEditor.showErrors}
-                          />
-                        </div>
+              {editorFamily ? (
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
+                  <div className="md:col-span-12 ml-1.5">
+                    <div className="bg-slate-950/25 p-2">
+                      <div onClick={(e) => e.stopPropagation()}>
+                        <EffectLeafEditor
+                          factory={factory}
+                          eff={editorEffect}
+                          selectedFamily={editorFamily}
+                          familyTypeOptions={editorTypeOptions}
+                          onChangeType={handleChangeEditorType}
+                          onChange={handleChangeEditorDraft}
+                          errorsByPath={
+                            activeEditor.mode === "create"
+                              ? activeEditor.showErrors
+                                ? inlineErrorsByPath
+                                : {}
+                              : inlineErrorsByPath
+                          }
+                          errorPrefix={editorErrorPrefix}
+                          showLocalErrors={activeEditor.showErrors}
+                        />
                       </div>
                     </div>
                   </div>
-                </>
+                </div>
               ) : null}
             </div>
 
@@ -483,7 +485,7 @@ export function EffectPanel({
                     <div
                       className={"btn btn-create-condition " + (!editorEffect ? "opacity-40 pointer-events-none" : "")}
                       onClick={handleCreate}
-                      title={!editorEffect ? "Selecciona una familia de efecto" : "Crear efecto"}
+                      title={!editorEffect ? "Selecciona una opción de efecto" : "Crear efecto"}
                     >
                       Crear efecto
                     </div>

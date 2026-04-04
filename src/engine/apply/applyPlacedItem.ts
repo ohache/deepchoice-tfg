@@ -17,7 +17,7 @@ function stripOwnAddItemEffect(placedItem: PlacedItem, effects: Effect[]): Effec
 
 export function applyPlacedItemInteraction(state: GameState, placedItem: PlacedItem, ctx: ApplyEffectCtx = {}): GameState {
   if (state.activeDialogue) return state;
-  
+
   const nodeId = state.currentNodeId;
 
   let s = ensureNodeRuntime(state, nodeId);
@@ -36,17 +36,16 @@ export function applyPlacedItemInteraction(state: GameState, placedItem: PlacedI
     return applyEffect(s, { type: "showMessage", text: msg }, ctx);
   }
 
-  const rule = pickClickRule(s, placedItem.rules ?? {});
-  if (!rule) return s;
-
-    if (rule.phrase?.trim()) {
-    s = applyEffect(s, { type: "showMessage", text: rule.phrase.trim() }, ctx);
+  const result = pickClickRule(s, placedItem.rules ?? {});
+  if (result.kind === "none") return s;
+  if (result.kind === "blocked") {
+    return applyEffect(s, { type: "showMessage", text: result.phrase }, ctx);
   }
 
-  const picksUp = picksUpOwnItem(placedItem, rule.effects ?? []);
+  const picksUp = picksUpOwnItem(placedItem, result.rule.effects ?? []);
   const effectsToApply = picksUp
-    ? stripOwnAddItemEffect(placedItem, rule.effects ?? [])
-    : (rule.effects ?? []);
+    ? stripOwnAddItemEffect(placedItem, result.rule.effects ?? [])
+    : (result.rule.effects ?? []);
 
   s = applyEffects(s, effectsToApply, ctx);
 
@@ -83,7 +82,7 @@ export function applyPlacedItemInteraction(state: GameState, placedItem: PlacedI
 
 export function applyPlacedItemUseItem(state: GameState, placedItem: PlacedItem, inventoryInstanceId: ID, ctx: ApplyEffectCtx = {}): GameState {
   if (state.activeDialogue) return state;
-  
+
   const nodeId = state.currentNodeId;
 
   let s = ensureNodeRuntime(state, nodeId);
@@ -102,12 +101,12 @@ export function applyPlacedItemUseItem(state: GameState, placedItem: PlacedItem,
     return applyEffect(s, { type: "showMessage", text: msg }, ctx);
   }
 
-  const rule = pickUseItemRule(s, placedItem.rules ?? {}, inventoryInstanceId);
-  if (!rule) return s;
+  const result = pickUseItemRule(s, placedItem.rules ?? {}, inventoryInstanceId);
+  if (result.kind === "none") return s;
+  if (result.kind === "blocked") {
+    return applyEffect(s, { type: "showMessage", text: result.phrase }, ctx);
+  }
 
-  if (rule.phrase?.trim()) s = applyEffect(s, { type: "showMessage", text: rule.phrase.trim() }, ctx);
-
-  s = applyEffects(s, rule.effects ?? [], ctx);
-
+  s = applyEffects(s, result.rule.effects ?? [], ctx);
   return s;
 }

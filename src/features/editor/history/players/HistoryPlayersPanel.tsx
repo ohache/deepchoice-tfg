@@ -574,7 +574,7 @@ export function HistoryPlayersPanel() {
                     <button
                       type="button"
                       onClick={addVarRow}
-                      className="btn btn-select text-[12px] disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="btn btn-add-variant text-[12px] disabled:opacity-40 disabled:cursor-not-allowed"
                       disabled={disableAddVar}
                       title={openVarId
                         ? "Termina la edición de la variable abierta (guarda o elimina)."

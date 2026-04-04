@@ -120,7 +120,7 @@ export function SceneVariantEditorShell({ labelInputRef, draftLabel, onChangeDra
     <div className="bg-slate-950/40 p-3 space-y-3">
       {/* Label */}
       <div className="-mx-3 space-y-1">
-        <div className="text-[12px] text-white">Etiqueta</div>
+        <div className="text-[12px] text-white">Nombre</div>
 
         <input
           ref={labelInputRef}

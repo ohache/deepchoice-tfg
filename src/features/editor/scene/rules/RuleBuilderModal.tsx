@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { z } from "zod";
-import { buildInlineErrorMapByPath, type ZodIssue } from "@/shared/zodIssues";
+import { buildInlineErrorMapByPath } from "@/shared/zodIssues";
 import type { ID, Project } from "@/domain/types";
 import type { Condition } from "@/domain/conditions";
 import type { Effect } from "@/domain/effects";
@@ -18,12 +18,14 @@ import { toast } from "@/shared/toast/toastStore";
 const RuleSchema = z.object({
   id: IdSchema,
   when: conditionSchema.optional(),
+  phrase: z.string().trim().optional(),
   effects: z.array(effectSchema).default([]),
 });
 
 type RuleDraft = {
   id: ID;
   when: Condition | null;
+  phrase: string;
   effects: EnabledEffect[];
 };
 
@@ -33,11 +35,12 @@ type Props = {
   project: Project | null;
   nodeId: ID;
   owner: EffectOwner;
-  value?: { id: ID; when?: Condition | null; effects?: unknown[] } | null;
+  interactionKind?: "onClick" | "onUseItem";
+  value?: { id: ID; when?: Condition | null; phrase?: string; effects?: unknown[] } | null;
 
   onClose: () => void;
-  onSave: (rule: { id: ID; when?: Condition; effects: Effect[] }) => void;
-  onApply?: (rule: { id: ID; when?: Condition; effects: Effect[] }) => void;
+  onSave: (rule: { id: ID; when?: Condition; phrase?: string; effects: Effect[] }) => void;
+  onApply?: (rule: { id: ID; when?: Condition; phrase?: string; effects: Effect[] }) => void;
 };
 
 type ValidateRuleResult =
@@ -47,6 +50,7 @@ type ValidateRuleResult =
     data: {
       id: ID;
       when?: Condition;
+      phrase?: string;
       effects: EnabledEffect[];
     };
   };
@@ -61,6 +65,7 @@ function signatureOfRule(d: RuleDraft, condDraft: UiDraft): string {
 
   return JSON.stringify({
     cond: minimalCond,
+    phrase: d.phrase ?? "",
     effects: d.effects ?? [],
   });
 }
@@ -72,11 +77,12 @@ function makeInitialDraft(value: Props["value"]): RuleDraft {
   return {
     id: value?.id ?? ("" as ID),
     when: value?.when ?? null,
+    phrase: value?.phrase ?? "",
     effects,
   };
 }
 
-export function RuleBuilderModal({ open, project, nodeId, owner, value, onClose, onSave, onApply }: Props) {
+export function RuleBuilderModal({ open, project, nodeId, owner, interactionKind, value, onClose, onSave, onApply }: Props) {
   const idx = useMemo(() => createProjectIndex(project), [project]);
 
   const factory = useMemo<FactoryCtx>(
@@ -109,13 +115,16 @@ export function RuleBuilderModal({ open, project, nodeId, owner, value, onClose,
   const isDirty = currentSig !== initialSig;
 
   const effectsRequired = owner.kind !== "dialogueLine";
+  const isDialogue = owner.kind === "dialogueLine";
 
   const hasCond = useMemo(() => {
     const cleaned = pruneEmptyGroups(condDraft);
     return cleaned.groups?.some((g) => (g.atoms?.length ?? 0) > 0) ?? false;
   }, [condDraft]);
 
-  const hasSomethingToClear = hasCond || (draft.effects?.length ?? 0) > 0;
+  const phraseEnabled = interactionKind === "onUseItem" || hasCond;
+
+  const hasSomethingToClear = hasCond || Boolean(draft.phrase.trim()) || (draft.effects?.length ?? 0) > 0;
 
   useEffect(() => {
     if (!open) return;
@@ -127,6 +136,10 @@ export function RuleBuilderModal({ open, project, nodeId, owner, value, onClose,
     setCondDraft(initialCondDraft);
     setCondBusy(false);
   }, [open, initialDraft, initialCondDraft]);
+
+  useEffect(() => {
+    if (interactionKind === "onClick" && !hasCond && draft.phrase) setDraft((d) => ({ ...d, phrase: "" }));
+  }, [interactionKind, hasCond, draft.phrase]);
 
   const attemptClose = useCallback(() => {
     if (confirmClearOpen) return;
@@ -158,17 +171,19 @@ export function RuleBuilderModal({ open, project, nodeId, owner, value, onClose,
       whenForPayload = parsedCond.data;
     }
 
+    const trimmedPhrase = draft.phrase.trim();
+
     const payload = {
       id: draft.id || ("rule" as ID),
       when: whenForPayload,
+      phrase: trimmedPhrase || undefined,
       effects: draft.effects ?? [],
     };
 
     const parsed = RuleSchema.safeParse(payload);
 
     if (!parsed.success) {
-      const issues = parsed.error.issues as ZodIssue[];
-      setInlineErrorsByPath(buildInlineErrorMapByPath(issues));
+      setInlineErrorsByPath(buildInlineErrorMapByPath(parsed.error.issues));
       return { ok: false };
     }
 
@@ -183,21 +198,23 @@ export function RuleBuilderModal({ open, project, nodeId, owner, value, onClose,
       data: {
         id: parsed.data.id,
         when: parsed.data.when,
+        phrase: parsed.data.phrase,
         effects: parsed.data.effects as EnabledEffect[],
       },
     };
-  }, [condBusy, condDraft, draft.id, draft.effects, effectsRequired]);
+  }, [condBusy, condDraft, draft.id, draft.phrase, draft.effects, effectsRequired]);
 
   const handleSave = useCallback((): boolean => {
     const res = validateAndBuild();
     if (!res.ok) {
-      toast.error("Regla inválida", "Revisa la condición o los efectos antes de guardar.");
+      toast.error("Regla inválida", "Revisa la condición, la phrase o los efectos antes de guardar.");
       return false;
     }
 
     const normalized = {
       id: res.data.id,
       when: res.data.when,
+      phrase: res.data.phrase,
       effects: res.data.effects as Effect[],
     };
 
@@ -215,10 +232,10 @@ export function RuleBuilderModal({ open, project, nodeId, owner, value, onClose,
   };
 
   const confirmClear = () => {
-    setDraft((d) => ({ ...d, when: null, effects: [] }));
+    setDraft((d) => ({ ...d, when: null, phrase: "", effects: [] }));
     setInlineErrorsByPath({});
     setConfirmClearOpen(false);
-    toast.info("Regla reiniciada", "Has limpiado la condición y los efectos.");
+    toast.info("Regla reiniciada", "Has limpiado la condición, la phrase y los efectos.");
   };
 
   if (!open) return null;
@@ -246,6 +263,30 @@ export function RuleBuilderModal({ open, project, nodeId, owner, value, onClose,
             <div className="pt-3 flex-1 min-h-0 overflow-y-auto editor-scroll">
               <ConditionGroups project={project} currentNodeId={nodeId} value={condDraft} onChange={setCondDraft} onBusyChange={setCondBusy} />
             </div>
+
+            {!isDialogue && (
+              <div className="pt-4 border-t border-slate-800">
+                <div className="pt-2 text-[12px] text-slate-300">
+                    Mensaje que se mostrará cuando no se cumplan las condiciones de esta regla
+                </div>
+                <div className="pt-2">
+                  <textarea
+                    value={draft.phrase}
+                    onChange={(e) => {
+                      const value = e.currentTarget.value;
+                      setDraft((d) => ({ ...d, phrase: value }));
+                    }}
+                    placeholder="Ej: Se necesita una llave para abrir esa puerta."
+                    rows={3}
+                    disabled={!phraseEnabled}
+                    className="input-conditions h-[84px] resize-none overflow-y-auto editor-scroll disabled:opacity-50 disabled:cursor-not-allowed"
+                  />
+                </div>
+                {inlineErrorsByPath["phrase"] ? (
+                  <div className="pt-2 text-[12px] text-rose-300">{inlineErrorsByPath["phrase"]}</div>
+                ) : null}
+              </div>
+            )}
           </div>
 
           <EffectPanel
@@ -295,7 +336,7 @@ export function RuleBuilderModal({ open, project, nodeId, owner, value, onClose,
       <ConfirmDangerModal
         open={confirmClearOpen}
         title="Borrar regla"
-        description="¿Quieres eliminar la condición y todos los efectos de esta regla?"
+        description="¿Quieres eliminar la condición, la phrase y todos los efectos de esta regla?"
         confirmText="Sí, borrar todo"
         cancelText="Cancelar"
         onConfirm={confirmClear}

@@ -8,7 +8,6 @@ export type EntityRuleChannel =
   | { type: "onClick" }
   | { type: "onUseItem"; placedItemId: ID };
 
-export type RuleValue = Omit<BaseInteractionRule, "phrase">;
 
 export type EntityRuleEditingInfo =
   | null
@@ -32,7 +31,7 @@ type UseEntityRulesEditorResult = {
 
   ruleModalOpen: boolean;
   editingInfo: EntityRuleEditingInfo;
-  currentRuleValue: RuleValue | null;
+  currentRuleValue: BaseInteractionRule | null;
 
   openAddClickRule: () => void;
   openEditClickRule: (index: number) => void;
@@ -72,7 +71,7 @@ export function useEntityRulesEditor({
     return useItemRulesAll.filter((r) => r.placedItemId === activeChannel.placedItemId);
   }, [activeChannel, useItemRulesAll]);
 
-  const currentRuleValue = useMemo((): RuleValue | null => {
+  const currentRuleValue = useMemo((): BaseInteractionRule | null => {
     if (!ruleModalOpen || !editingInfo) return null;
 
     if (editingInfo.channel === "onClick") {
@@ -84,6 +83,7 @@ export function useEntityRulesEditor({
       return {
         id: ensureId(hit.id),
         when: hit.when ?? undefined,
+        phrase: hit.phrase ?? undefined,
         effects: hit.effects,
       };
     }
@@ -98,6 +98,7 @@ export function useEntityRulesEditor({
     return {
       id: ensureId(hit.id),
       when: hit.when ?? undefined,
+      phrase: hit.phrase ?? undefined,
       effects: hit.effects,
     };
   }, [ruleModalOpen, editingInfo, clickRules, useItemRulesAll, createId]);
@@ -146,7 +147,7 @@ export function useEntityRulesEditor({
     setEditingInfo(null);
   };
 
-  const saveRule = (rule: { id: ID; when?: Condition; effects: Effect[] }) => {
+  const saveRule = (rule: { id: ID; when?: Condition; phrase?: string; effects: Effect[] }) => {
     if (!editingInfo) return;
 
     if (editingInfo.channel === "onClick") {
@@ -155,6 +156,7 @@ export function useEntityRulesEditor({
       const packed: ClickRule = {
         id: rule.id,
         ...(rule.when ? { when: rule.when } : {}),
+        phrase: rule.phrase,
         effects: rule.effects,
       };
 
@@ -172,6 +174,7 @@ export function useEntityRulesEditor({
       id: rule.id,
       placedItemId,
       ...(rule.when ? { when: rule.when } : {}),
+      ...(rule.phrase ? { phrase: rule.phrase } : {}),
       effects: rule.effects,
     };
 

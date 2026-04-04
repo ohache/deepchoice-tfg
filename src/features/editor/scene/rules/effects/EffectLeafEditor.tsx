@@ -70,7 +70,7 @@ const BoolSelect: FC<{ value: boolean; onChange: (v: boolean) => void }> = ({ va
 /* Component */
 type Props = {
   factory: FactoryCtx;
-  eff: EnabledEffect;
+  eff: EnabledEffect | null;
   selectedFamily?: EffectFamilyId | "";
   familyTypeOptions?: Option<EnabledEffectType>[];
   onChangeType?: (nextType: EnabledEffectType) => void;
@@ -126,15 +126,18 @@ export function EffectLeafEditor({
   showLocalErrors,
   forceEmptyAudioOption = false
 }: Props) {
-  const ui = getEffectUi(eff.type as EnabledEffectType);
-  const family = selectedFamily || effectFamilyOf(eff.type);
+  const family = selectedFamily || (eff ? effectFamilyOf(eff.type) : "");
+  const ui = eff ? getEffectUi(eff.type as EnabledEffectType) : null;
 
   const patch = (p: Partial<EnabledEffect>) => {
+    if (!eff) return;
     const next = applyEffectPatch(factory, eff, p);
     onChange(next);
   };
 
   const validation = useMemo(() => {
+    if (!eff) return { ok: true as const, inline: {} as Record<string, string>, global: "" };
+
     const res = effectSchema.safeParse(eff);
     if (res.success) return { ok: true as const, inline: {} as Record<string, string>, global: "" };
 
@@ -145,6 +148,8 @@ export function EffectLeafEditor({
   }, [eff]);
 
   const renderField = (f: EffectFieldSpec) => {
+    if (!eff) return null;
+
     const visible = f.visibleWhen ? f.visibleWhen(factory, eff) : true;
     if (!visible) return null;
 
@@ -236,6 +241,7 @@ export function EffectLeafEditor({
 
   const filteredFamilyTypeOptions = useMemo<Option<EnabledEffectType>[]>(() => {
     if (!selectedFamily) return familyTypeOptions;
+    if (!eff) return familyTypeOptions;
 
     const allowed = new Set(
       getAvailableEffectTypesForCurrentSelection(factory, selectedFamily, eff)
@@ -277,8 +283,8 @@ export function EffectLeafEditor({
       if (!dedup.has(topLevelType)) {
         const normalizedLabel =
           topLevelType === "setHotspotVar" ||
-            topLevelType === "setNpcVar" ||
-            topLevelType === "setPlayerVar"
+          topLevelType === "setNpcVar" ||
+          topLevelType === "setPlayerVar"
             ? "Variable"
             : opt.label;
 
@@ -305,7 +311,9 @@ export function EffectLeafEditor({
     return out;
   }, [filteredFamilyTypeOptions, family]);
 
-  const currentTopLevelType = useMemo<EnabledEffectType>(() => {
+  const currentTopLevelType = useMemo<EnabledEffectType | "">(() => {
+    if (!eff) return "";
+
     if (
       eff.type === "toggleHotspotVar" ||
       eff.type === "incHotspotVar" ||
@@ -331,9 +339,10 @@ export function EffectLeafEditor({
     }
 
     return eff.type;
-  }, [eff.type]);
+  }, [eff]);
 
   const variableTypeOptions = useMemo<Option<EnabledEffectType>[]>(() => {
+    if (!eff) return [];
     if (family !== "hotspot" && family !== "npc" && family !== "player") return [];
 
     const kind = getEffectVarKind(factory, eff);
@@ -383,22 +392,17 @@ export function EffectLeafEditor({
           family !== "message" &&
           family !== "ending";
 
-  const isUnselectedProgress =
-    family === "progress" &&
-    ((eff.type === "goToNode" && !eff.targetNodeId) ||
-      (eff.type === "setMapRegionAvailable" && !eff.mapId && !eff.regionId));
+  const isUnselectedProgress = family === "progress" && !eff;
 
   const optionField = showOptionField ? (
     <Field label="Opción">
       <Select<EnabledEffectType>
         value={
           family === "progress"
-            ? isUnselectedProgress
-              ? ""
-              : eff.type
+            ? (isUnselectedProgress ? "" : (eff?.type ?? "")) as EnabledEffectType
             : family === "audio" && forceEmptyAudioOption
-              ? ""
-              : currentTopLevelType
+              ? "" as EnabledEffectType
+              : (currentTopLevelType as EnabledEffectType)
         }
         onChange={(v) => {
           if (!v || !onChangeType) return;
@@ -411,14 +415,14 @@ export function EffectLeafEditor({
             ? false
             : family === "player" && topLevelFamilyTypeOptions.length === 1
               ? false
-              : !hasSelectedPrimaryEffectEntity(eff)
+              : !eff || !hasSelectedPrimaryEffectEntity(eff)
         }
       />
     </Field>
   ) : null;
 
   const variableOptionField =
-    variableTypeOptions.length > 1 ? (
+    eff && variableTypeOptions.length > 1 ? (
       <Field label="Opción">
         <Select<EnabledEffectType>
           value={eff.type}
@@ -433,7 +437,7 @@ export function EffectLeafEditor({
       </Field>
     ) : null;
 
-  const fields = ui.fields;
+  const fields = ui?.fields ?? [];
 
   const itemField = getFieldByKey(fields, "placedItemId");
   const hotspotField = getFieldByKey(fields, "hotspotId");
@@ -457,7 +461,7 @@ export function EffectLeafEditor({
     family === "progress" && filteredFamilyTypeOptions.length > 1 ? (
       <Field label="Opción">
         <Select<EnabledEffectType>
-          value={isUnselectedProgress ? "" : eff.type}
+          value={(isUnselectedProgress ? "" : eff?.type ?? "") as EnabledEffectType}
           onChange={(v) => {
             if (!v || !onChangeType) return;
             onChangeType(v);
@@ -479,7 +483,7 @@ export function EffectLeafEditor({
         </div>
       ) : null}
 
-      {(family === "message" || family === "ending") && (
+      {(family === "message" || family === "ending") && eff && (
         <div className="grid grid-cols-1 gap-2">
           {textField ? renderField(textField) : null}
           {messageField ? renderField(messageField) : null}
@@ -492,7 +496,7 @@ export function EffectLeafEditor({
             {inlineOptionFieldForProgress}
           </div>
 
-          {!isUnselectedProgress ? (
+          {!isUnselectedProgress && eff ? (
             eff.type === "goToNode" ? (
               <div className="grid grid-cols-1 gap-2">
                 {nodeField ? renderField(nodeField) : null}
@@ -507,7 +511,7 @@ export function EffectLeafEditor({
         </>
       )}
 
-      {family === "item" && (
+      {family === "item" && eff && (
         <>
           {itemField ? <div className="grid grid-cols-1 gap-2">{renderField(itemField)}</div> : null}
 
@@ -524,7 +528,7 @@ export function EffectLeafEditor({
         </>
       )}
 
-      {family === "hotspot" && (
+      {family === "hotspot" && eff && (
         <>
           {hotspotField ? <div className="grid grid-cols-1 gap-2">{renderField(hotspotField)}</div> : null}
 
@@ -559,7 +563,7 @@ export function EffectLeafEditor({
         </>
       )}
 
-      {family === "npc" && (
+      {family === "npc" && eff && (
         <>
           {npcField ? <div className="grid grid-cols-1 gap-2">{renderField(npcField)}</div> : null}
 
@@ -599,7 +603,7 @@ export function EffectLeafEditor({
         </>
       )}
 
-      {family === "player" && (
+      {family === "player" && eff && (
         <>
           {playerField ? <div className="grid grid-cols-1 gap-2">{renderField(playerField)}</div> : null}
 
@@ -639,7 +643,7 @@ export function EffectLeafEditor({
         </>
       )}
 
-      {family === "audio" && (
+      {family === "audio" && eff && (
         <>
           {eff.type === "playSfx" ? (
             <div className="grid grid-cols-1 md:grid-cols-[180px_minmax(0,1fr)] gap-2">
@@ -660,7 +664,7 @@ export function EffectLeafEditor({
         </>
       )}
 
-      {family === "dialogue" && (
+      {family === "dialogue" && eff && (
         <>
           {optionField}
           <div className="grid grid-cols-1 gap-2">

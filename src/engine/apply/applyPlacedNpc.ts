@@ -7,7 +7,7 @@ import { applyEffect, applyEffects, type ApplyEffectCtx } from "@/engine/apply/a
 
 export function applyPlacedNpcInteraction(state: GameState, placedNpc: PlacedNpc, ctx: ApplyEffectCtx = {}): GameState {
   if (state.activeDialogue) return state;
-  
+
   const nodeId = state.currentNodeId;
 
   let s = ensureNodeRuntime(state, nodeId);
@@ -26,12 +26,14 @@ export function applyPlacedNpcInteraction(state: GameState, placedNpc: PlacedNpc
     return applyEffect(s, { type: "showMessage", text: msg }, ctx);
   }
 
-  const onClickRule = pickClickRule(s, placedNpc.rules ?? {});
+  const onClickResult = pickClickRule(s, placedNpc.rules ?? {});
 
-  if (onClickRule) {
-    if (onClickRule.phrase?.trim()) s = applyEffect(s, { type: "showMessage", text: onClickRule.phrase.trim() }, ctx);
+  if (onClickResult.kind === "blocked") {
+    return applyEffect(s, { type: "showMessage", text: onClickResult.phrase }, ctx);
+  }
 
-    s = applyEffects(s, onClickRule.effects ?? [], ctx);
+  if (onClickResult.kind === "matched") {
+    s = applyEffects(s, onClickResult.rule.effects ?? [], ctx);
   }
 
   return s;
@@ -39,7 +41,7 @@ export function applyPlacedNpcInteraction(state: GameState, placedNpc: PlacedNpc
 
 export function applyPlacedNpcUseItem(state: GameState, placedNpc: PlacedNpc, inventoryInstanceId: ID, ctx: ApplyEffectCtx = {}): GameState {
   if (state.activeDialogue) return state;
-  
+
   const nodeId = state.currentNodeId;
 
   let s = ensureNodeRuntime(state, nodeId);
@@ -58,12 +60,13 @@ export function applyPlacedNpcUseItem(state: GameState, placedNpc: PlacedNpc, in
     return applyEffect(s, { type: "showMessage", text: msg }, ctx);
   }
 
-  const rule = pickUseItemRule(s, placedNpc.rules ?? {}, inventoryInstanceId);
-  if (!rule) return s;
+  const result = pickUseItemRule(s, placedNpc.rules ?? {}, inventoryInstanceId);
+  if (result.kind === "none") return s;
+  if (result.kind === "blocked") {
+    return applyEffect(s, { type: "showMessage", text: result.phrase }, ctx);
+  }
 
-  if (rule.phrase?.trim()) s = applyEffect(s, { type: "showMessage", text: rule.phrase.trim() }, ctx);
-
-  s = applyEffects(s, rule.effects ?? [], ctx);
+  s = applyEffects(s, result.rule.effects ?? [], ctx);
 
   return s;
 }

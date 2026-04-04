@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import type { ID, Dialogue, DialogueLineNode, PlayerDef, NpcDef, Project } from "@/domain/types";
 import { useEditorStore } from "@/store/editorStore";
 import { Select, type Option } from "@/components/Select";
@@ -33,13 +33,19 @@ export function DialogueEditorModal({ open, dialogueDraft, project, nodeId, pane
   const updateDialogueLine = useEditorStore((s) => s.updateDialogueLine);
   const removeDialogueLine = useEditorStore((s) => s.removeDialogueLine);
 
+  const validateDialogueDraft = useEditorStore((s) => s.validateDialogueDraft);
+
   const [dialogueConditionOpen, setDialogueConditionOpen] = useState(false);
   const [lineRuleOpen, setLineRuleOpen] = useState(false);
   const [lineRuleTargetId, setLineRuleTargetId] = useState<ID | null>(null);
 
+  const [localValidationError, setLocalValidationError] = useState<string | null>(null);
+
   const selectedDialogueId = dialogueEditor.selection.selectedDialogueId;
   const selectedNodeId = dialogueEditor.selection.selectedNodeId;
   const lineDraft = dialogueEditor.lineDraft;
+
+  const displayedPanelError = panelError ?? localValidationError;
 
   const playerOptions: Option<string>[] = (project?.players ?? []).map((player: PlayerDef) => ({
     id: player.id,
@@ -52,6 +58,16 @@ export function DialogueEditorModal({ open, dialogueDraft, project, nodeId, pane
   }));
 
   const currentDialogueId = dialogueDraft?.id ?? selectedDialogueId ?? null;
+
+  useEffect(() => {
+  if (!open || !currentDialogueId) {
+    setLocalValidationError(null);
+    return;
+  }
+
+  const result = validateDialogueDraft(currentDialogueId);
+  setLocalValidationError(result.ok ? null : (result.error ?? null));
+}, [open, currentDialogueId, dialogueDraft, validateDialogueDraft]);
 
   const ruleLine = useMemo(() => {
     const targetId = lineRuleTargetId ?? selectedNodeId ?? null;
@@ -171,9 +187,9 @@ const npcName = useMemo(() => {
 
           <div className="grid grid-cols-1 lg:grid-cols-[320px_minmax(0,1fr)] gap-0 h-[calc(92vh-140px)]">
             <section className="border-r-2 border-slate-700 p-2 overflow-y-auto editor-scroll space-y-4">
-              {panelError ? (
-                <div className=" bg-red-950/20 px-3 py-2 text-[12px] text-red-100">
-                  {panelError}
+              {displayedPanelError ? (
+                <div className="bg-red-950/20 px-3 py-2 text-[12px] text-red-100">
+                  {displayedPanelError}
                 </div>
               ) : null}
 

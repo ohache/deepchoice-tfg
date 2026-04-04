@@ -17,18 +17,16 @@ function findPlacedItemByInstanceId(state: GameState, instanceId: ID): PlacedIte
 
 export function applyInventoryItemUseItem(state: GameState, sourceInstanceId: ID, targetItemId: ID, ctx: ApplyEffectCtx = {}): GameState {
   if (state.activeDialogue) return state;
-  
+
   const sourcePlacedItem = findPlacedItemByInstanceId(state, sourceInstanceId);
   if (!sourcePlacedItem) return applyEffect(state, { type: "showMessage", text: "No puedes usar eso ahí." }, ctx);
 
-  const rule = pickUseItemRule(state, sourcePlacedItem.rules ?? {}, targetItemId);
-  if (!rule) return applyEffect(state, { type: "showMessage", text: "No puedes usar eso ahí." }, ctx);
+  const result = pickUseItemRule(state, sourcePlacedItem.rules ?? {}, targetItemId);
+  if (result.kind === "none") return applyEffect(state, { type: "showMessage", text: "No puedes usar eso ahí." }, ctx);
+  if (result.kind === "blocked") return applyEffect(state, { type: "showMessage", text: result.phrase }, ctx);
 
   let s = state;
-
-  if (rule.phrase?.trim()) s = applyEffect(s, { type: "showMessage", text: rule.phrase.trim() }, ctx);
-
-  s = applyEffects(s, rule.effects ?? [], ctx);
+  s = applyEffects(s, result.rule.effects ?? [], ctx);
 
   return s;
 }

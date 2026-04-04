@@ -197,7 +197,7 @@ export function PlacedItemEditorPanel({
       </div>
 
       <div className="space-y-1">
-        <div className="text-xs text-slate-100 mb-1.5">Etiqueta</div>
+        <div className="text-[13px] text-slate-100 mb-1.5">Nombre</div>
 
         <div className="flex items-center gap-2">
           <input
@@ -228,7 +228,7 @@ export function PlacedItemEditorPanel({
         ) : null}
       </div>
 
-      <div className="h-px bg-slate-700 my-2" />
+      <div className="h-[3px] bg-slate-800 my-2" />
 
       <PlaceableStateSection
         initialVisible={initialVisible}
@@ -243,7 +243,7 @@ export function PlacedItemEditorPanel({
         onNotReachableTextChange={onNotReachableTextChange}
       />
 
-      <div className="h-px bg-slate-700 my-2" />
+      <div className="h-[3px] bg-slate-800 my-2" />
 
       <InteractionRulesSection
         owner={owner}

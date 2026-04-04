@@ -82,7 +82,7 @@ type HotspotEditorPanelProps = {
 
 export function HotspotEditorPanel({ draft, isDrawing, hasShape, isExistingHotspot, dupLabelInLayer, hasCollisions, collisionSummary, collisionLock, disableAllEditorFields,
   disableReachable, disableNotReachableText, initialVisible, initialReachable, initialNotReachableText, labelInputRef, notReachableInputRef, onLabelChange, onStartRedrawShape,
-  onVisibleChange, onReachableChange, onNotReachableTextChange, hasAnyVars, hasAnyRules, panelError, varPanelError, showRulesRequiredError, draftVarsUI, openVarId,
+  onVisibleChange, onReachableChange, onNotReachableTextChange, hasAnyRules, panelError, varPanelError, showRulesRequiredError, draftVarsUI, openVarId,
   varErrorsById, onAddVar, onToggleVarOpen, onChangeVar, onSwitchVarType, onSaveVar, onDeleteVar, onBindVarNameInputRef, owner, useItemSourceOptions, activeChannel,
   setActiveChannel, clickRules, useItemRulesForSelected, ruleModalOpen, currentRuleValue, nodeId, project, onOpenAddClickRule, onOpenEditClickRule,
   onRemoveClickRule, onOpenAddUseItemRule, onOpenEditUseItemRule, onRemoveUseItemRule, onCloseRuleModal, onSaveRule, onDelete, onCancel, onCommit }: HotspotEditorPanelProps) {
@@ -108,7 +108,7 @@ export function HotspotEditorPanel({ draft, isDrawing, hasShape, isExistingHotsp
       )}
 
       <div className="space-y-1">
-        <div className="text-xs text-slate-100 mb-1.5">Etiqueta</div>
+        <div className="text-[13px] text-slate-100 mb-1.5">Nombre</div>
 
         <div className="flex items-center gap-2">
           <input
@@ -139,7 +139,7 @@ export function HotspotEditorPanel({ draft, isDrawing, hasShape, isExistingHotsp
         ) : null}
       </div>
 
-      <div className="h-px bg-slate-700 my-2" />
+      <div className="h-[3px] bg-slate-800 my-2" />
 
       <PlaceableStateSection
         initialVisible={initialVisible}
@@ -154,15 +154,15 @@ export function HotspotEditorPanel({ draft, isDrawing, hasShape, isExistingHotsp
         onNotReachableTextChange={onNotReachableTextChange}
       />
 
-      <div className="h-px bg-slate-700 my-2" />
+      <div className="h-[3px] bg-slate-800 my-2" />
 
       <div className="bg-slate-950/30 px-2 py-2">
-        <div className="text-xs text-slate-300 text-center">Variables</div>
+        <div className="text-[13px] text-slate-100 text-center">Variables</div>
 
         <div className="mt-2 flex justify-center">
           <button
             type="button"
-            className="btn btn-select text-[12px] disabled:opacity-40 disabled:cursor-not-allowed"
+            className="btn btn-add-variant text-[12px] disabled:opacity-40 disabled:cursor-not-allowed"
             disabled={disableAllEditorFields || openVarId !== null}
             onClick={onAddVar}
             title={openVarId ? "Termina la edición de la variable abierta (guarda o descarta cambios)." : "Añadir variable"}
@@ -171,11 +171,6 @@ export function HotspotEditorPanel({ draft, isDrawing, hasShape, isExistingHotsp
           </button>
         </div>
 
-        {!hasAnyVars ? (
-          <div className="mt-3 text-[11px] text-slate-400 text-center">
-            Este hotspot no tiene variables.
-          </div>
-        ) : (
           <div className="space-y-2 mt-3">
             {draftVarsUI.map((row, idxRow) => {
               const isOpen = row.id === openVarId;
@@ -202,7 +197,7 @@ export function HotspotEditorPanel({ draft, isDrawing, hasShape, isExistingHotsp
               );
             })}
           </div>
-        )}
+
 
         {varPanelError ? (
           <div className="mt-3 rounded-md border border-red-500/40 bg-red-950/20 px-2 py-1 text-[11px] text-red-100">
@@ -211,7 +206,7 @@ export function HotspotEditorPanel({ draft, isDrawing, hasShape, isExistingHotsp
         ) : null}
       </div>
 
-      <div className="h-px bg-slate-700 my-2" />
+      <div className="h-[3px] bg-slate-800 my-2" />
 
       <InteractionRulesSection
         owner={owner}

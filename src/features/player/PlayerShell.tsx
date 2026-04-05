@@ -438,31 +438,36 @@ const runtimeNode = useMemo(() => {
     return findCurrentDialogueNode(gameState);
   }, [gameState]);
 
-  const dialogueOptions = useMemo(() => {
-    if (!gameState || !activeDialogue || !currentDialogueNode) return [];
+const dialogueOptions = useMemo(() => {
+  if (!gameState || !activeDialogue || !currentDialogueNode) return [];
+  if (gameState.activeDialogue?.phase !== "choosing") return [];
 
-    return currentDialogueNode.childrenIds
-      .map((childId) => activeDialogue.nodes.find((n) => n.id === childId))
-      .filter((node): node is NonNullable<typeof node> => !!node)
-      .filter((node) => node.type === "line")
-      .filter((node) => node.speaker === "player")
-      .filter((node) => !node.when || evaluateCondition(gameState, node.when));
-  }, [gameState, activeDialogue, currentDialogueNode]);
+  return currentDialogueNode.childrenIds
+    .map((childId) => activeDialogue.nodes.find((n) => n.id === childId))
+    .filter((node): node is NonNullable<typeof node> => !!node)
+    .filter((node) => node.type === "line")
+    .filter((node) => node.speaker === "player")
+    .filter((node) => !node.when || evaluateCondition(gameState, node.when));
+}, [gameState, activeDialogue, currentDialogueNode]);
 
   const isDialogueOpen = !!gameState?.activeDialogue && !!activeDialogue && !!currentDialogueNode;
 
   const isMapOpen = Boolean(gameState?.map.isOpen);
 
-  const activeDialogueLine = currentDialogueNode && currentDialogueNode.type === "line" ? currentDialogueNode : null;
+const activeDialogueLine =
+  currentDialogueNode &&
+  currentDialogueNode.type === "line" &&
+  gameState?.activeDialogue?.phase === "speaking"
+    ? currentDialogueNode
+    : null;
 
-  const dialogueBubbleText = activeDialogueLine?.text ?? "";
-  const dialogueBubbleSpeaker = activeDialogueLine?.speaker ?? null;
+const dialogueBubbleText = activeDialogueLine?.text ?? "";
+const dialogueBubbleSpeaker = activeDialogueLine?.speaker ?? null;
 
-  const shouldShowDialogueChoices = useMemo(() => {
-    if (!isDialogueOpen || !currentDialogueNode) return false;
-    return dialogueOptions.length > 0;
-  }, [isDialogueOpen, dialogueOptions.length]);
-
+const shouldShowDialogueChoices = useMemo(() => {
+  if (!isDialogueOpen || !currentDialogueNode || !gameState?.activeDialogue) return false;
+  return gameState.activeDialogue.phase === "choosing" && dialogueOptions.length > 0;
+}, [isDialogueOpen, currentDialogueNode, gameState?.activeDialogue, dialogueOptions.length]);
 
   const isFinal = currentNode?.isFinal === true;
 
@@ -634,16 +639,25 @@ const runtimeNode = useMemo(() => {
     setPlayerCursor((prev) => ({ ...prev, visible: true, kind: "dialogue" }));
   }, [isDialogueOpen]);
 
-  useEffect(() => {
-    if (!isDialogueOpen || !activeDialogueLine) return;
-    if (dialogueOptions.length > 0) return;
+useEffect(() => {
+  if (!isDialogueOpen || !currentDialogueNode || !gameState?.activeDialogue) return;
+  if (gameState.activeDialogue.phase !== "speaking") return;
+  if (dialogueOptions.length > 0) return;
 
-    const timer = window.setTimeout(() => {
-      useGameStore.getState().advanceDialogue();
-    }, DIALOGUE_AUTO_ADVANCE_MS);
+  const delay = currentDialogueNode.type === "root" ? 0 : DIALOGUE_AUTO_ADVANCE_MS;
 
-    return () => window.clearTimeout(timer);
-  }, [isDialogueOpen, activeDialogueLine?.id, dialogueOptions.length]);
+  const timer = window.setTimeout(() => {
+    useGameStore.getState().advanceDialogue();
+  }, delay);
+
+  return () => window.clearTimeout(timer);
+}, [
+  isDialogueOpen,
+  currentDialogueNode?.id,
+  currentDialogueNode?.type,
+  gameState?.activeDialogue?.phase,
+  dialogueOptions.length,
+]);
 
   const handlePrev = useCallback(() => {
     if (!canGoPrev || isMapOpen) return;

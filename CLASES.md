@@ -101,7 +101,7 @@ X  `src/features/editor/layout/EditorLayout.tsx`
 X  `src/features/editor/layout/TopBar.tsx`
 X  `src/features/editor/pages/EditorShell.tsx`
 
-// MODALS (4)
+// MODALS
 -  `src/features/editor/modals/ConfirmDangerModal.tsx`
 -  `src/features/editor/modals/ConfirmExitModal.tsx`
 -  `src/features/editor/modals/DeleteProjectEntityModal.tsx`
@@ -112,7 +112,7 @@ X  `src/features/editor/pages/EditorShell.tsx`
 -  `src/features/editor/scene/rules/RuleBuilderModal.tsx`
 -  `src/features/editor/scene/dialogues/DialogueEditorModal.tsx`
 
-// SCENE (4)
+// SCENE
 -  `src/features/editor/scene/SceneCommon.tsx`
 -  `src/features/editor/scene/SceneEditorView.tsx`
 -  `src/features/editor/scene/SceneFieldBlocks.tsx`
@@ -120,7 +120,7 @@ X  `src/features/editor/pages/EditorShell.tsx`
 -  `src/features/editor/scene/SceneRenderPreview.tsx`
 -  `src/components/SceneVariantsSection.tsx`
 
-// FIELDS (5)
+// FIELDS
 -  `src/features/editor/scene/fields/SceneImageField.tsx`
 -  `src/features/editor/scene/fields/SceneLayersField.tsx`
 -  `src/features/editor/scene/fields/SceneTextField.tsx`
@@ -130,7 +130,7 @@ X  `src/features/editor/pages/EditorShell.tsx`
 -  `src/features/editor/scene/music/SceneMusicField.tsx`
 -  `src/features/editor/scene/music/useScenePreviewAudio.ts`
 
-// DIALOGUES (6)
+// DIALOGUES
 -  `src/features/editor/scene/dialogues/DialogueEditorPanel.tsx`
 -  `src/features/editor/scene/dialogues/dialogueEditorTypes.ts`
 -  `src/features/editor/scene/dialogues/dialogueHelpers.ts`
@@ -140,7 +140,7 @@ X  `src/features/editor/pages/EditorShell.tsx`
 -  `src/features/editor/scene/dialogues/editorDialogueSlice.ts`
 -  `src/features/editor/scene/dialogues/SceneDialogueField.tsx`
 
-// INTERACTIVE (6)
+// INTERACTIVE
 -  `src/features/editor/scene/interactiveComponents/fieldHelpers.ts`
 -  `src/features/editor/scene/interactiveComponents/InteractionRulesSection.tsx`
 -  `src/features/editor/scene/interactiveComponents/interactiveEditorTypes.ts`
@@ -148,14 +148,14 @@ X  `src/features/editor/pages/EditorShell.tsx`
 -  `src/features/editor/scene/interactiveComponents/PlaceableStateSection.tsx`
 -  `src/features/editor/scene/interactiveComponents/RegionStatusNotice.tsx`
 
-// HOTSPOTS (6)
+// HOTSPOTS
 -  `src/features/editor/scene/hotspots/editorHotspotsSlice.ts`
 -  `src/features/editor/scene/hotspots/HotspotEditorPanel.tsx`
 -  `src/features/editor/scene/hotspots/hotspotEditorTypes.ts`
 -  `src/features/editor/scene/hotspots/HotspotListPanel.tsx`
 -  `src/features/editor/scene/hotspots/SceneHotspotField.tsx`
 
-// PLACED (10)
+// PLACED
 -  `src/features/editor/scene/placedItems/editorPlacedItemSlice.ts`
 -  `src/features/editor/scene/placedItems/PlacedItemEditorPanel.tsx`
 -  `src/features/editor/scene/placedItems/placedItemEditorTypes.ts`
@@ -175,7 +175,7 @@ X  `src/features/editor/pages/EditorShell.tsx`
 -  `src/features/editor/scene/placedPlayers/PlacedPlayerPreview.tsx`
 -  `src/features/editor/scene/placedPlayers/ScenePlacedPlayerField.tsx`
 
-// RULES (15)
+// RULES
 -  `src/features/editor/scene/rules/conditions/conditionDraftMapper.ts`
 -  `src/features/editor/scene/rules/conditions/ConditionGroups.tsx`
 -  `src/features/editor/scene/rules/conditions/ConditionLeafEditor.tsx`
@@ -194,12 +194,12 @@ X  `src/features/editor/pages/EditorShell.tsx`
 -  `src/features/editor/scene/layer/editorLayerSlice.ts`  --> ¿Mover assetBackground de EditorStore?
 -  `src/features/editor/scene/node/editorNodeSlice.ts`
 
-// TOKENS (16)
+// TOKENS
 -  `src/features/editor/scene/textTokens/ResolveTextTokens.tsx`
 -  `src/features/editor/scene/textTokens/tokenCatalog.ts`
 -  `src/features/editor/scene/textTokens/tokenFormat.ts`
 
-
+// VARIOS
 -  `src/features/home/components/CreateAdventureModal.tsx`
 -  `src/features/home/components/UserManualModal.tsx`
 -  `src/features/home/HomePage.tsx` -->
@@ -249,7 +249,7 @@ X  `src/features/editor/pages/EditorShell.tsx`
 -  `src/engine/state/runtimeState.ts`
 -  `src/engine/state/slices/musicSlice.ts`
 
-
+// GENÉRICOS
 -  `src/App.tsx`
 -  `src/index.css`
 -  `src/main.tsx`

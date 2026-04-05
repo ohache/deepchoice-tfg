@@ -201,6 +201,18 @@ function withResolvedMusicTarget(state: GameState): GameState {
   };
 }
 
+function setActiveDialogueState(state: GameState, patch: Partial<NonNullable<GameState["activeDialogue"]>>): GameState {
+  if (!state.activeDialogue) return state;
+
+  return {
+    ...state,
+    activeDialogue: {
+      ...state.activeDialogue,
+      ...patch,
+    },
+  };
+}
+
 function findActiveDialogue(state: GameState) {
   const active = state.activeDialogue;
   if (!active) return null;
@@ -238,15 +250,10 @@ function getFirstValidNpcChild(dialogue: NonNullable<ReturnType<typeof findActiv
 }
 
 function goToDialogueRoot(state: GameState, dialogue: NonNullable<ReturnType<typeof findActiveDialogue>>) {
-  if (!state.activeDialogue) return state;
-
-  return {
-    ...state,
-    activeDialogue: {
-      ...state.activeDialogue,
-      currentNodeId: dialogue.rootId,
-    },
-  };
+  return setActiveDialogueState(state, {
+    currentNodeId: dialogue.rootId,
+    phase: "speaking",
+  });
 }
 
 export const useGameStore = create<GameStoreState>((set, get) => ({
@@ -384,6 +391,21 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       }
 
       if (currentNode.type === "root") {
+        const firstNpcChild = getFirstValidNpcChild(dialogue, currentNode, gameState);
+        if (firstNpcChild) {
+          set({
+            gameState: withResolvedMusicTarget(
+              withPreparedRuntimeForCurrentNode(
+                setActiveDialogueState(gameState, {
+                  currentNodeId: firstNpcChild.id,
+                  phase: "speaking",
+                })
+              )
+            ),
+          });
+          return;
+        }
+
         const validPlayerChildren = getValidPlayerChildren(dialogue, currentNode, gameState);
 
         if (validPlayerChildren.length === 0) {
@@ -392,30 +414,82 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
 
         if (validPlayerChildren.length === 1) {
           set({
-            gameState: withResolvedMusicTarget(withPreparedRuntimeForCurrentNode({
-              ...gameState,
-              activeDialogue: {
-                ...active,
-                currentNodeId: validPlayerChildren[0].id,
-              },
-            })),
+            gameState: withResolvedMusicTarget(
+              withPreparedRuntimeForCurrentNode(
+                setActiveDialogueState(gameState, {
+                  currentNodeId: validPlayerChildren[0].id,
+                  phase: "speaking",
+                })
+              )
+            ),
           });
           return;
         }
 
-        if (!nextNodeId) return;
+        if (!nextNodeId) {
+          set({
+            gameState: withResolvedMusicTarget(
+              withPreparedRuntimeForCurrentNode(
+                setActiveDialogueState(gameState, {
+                  currentNodeId: currentNode.id,
+                  phase: "choosing",
+                })
+              )
+            ),
+          });
+          return;
+        }
 
         const selected = validPlayerChildren.find((n) => n.id === nextNodeId);
         if (!selected) return;
 
         set({
-          gameState: withResolvedMusicTarget(withPreparedRuntimeForCurrentNode({
-            ...gameState,
-            activeDialogue: {
-              ...active,
-              currentNodeId: selected.id,
-            },
-          })),
+          gameState: withResolvedMusicTarget(
+            withPreparedRuntimeForCurrentNode(
+              setActiveDialogueState(gameState, {
+                currentNodeId: selected.id,
+                phase: "speaking",
+              })
+            )
+          ),
+        });
+        return;
+      }
+
+      if (currentNode.type !== "line") return;
+
+      if (active.phase === "choosing") {
+        const validPlayerChildren = getValidPlayerChildren(dialogue, currentNode, gameState);
+
+        if (validPlayerChildren.length === 0) {
+          set({
+            gameState: withResolvedMusicTarget(
+              withPreparedRuntimeForCurrentNode(goToDialogueRoot(gameState, dialogue))
+            ),
+          });
+          return;
+        }
+
+        if (!nextNodeId) {
+          set({ gameState });
+          return;
+        }
+
+        const selected = validPlayerChildren.find((n) => n.id === nextNodeId);
+        if (!selected) {
+          set({ gameState });
+          return;
+        }
+
+        set({
+          gameState: withResolvedMusicTarget(
+            withPreparedRuntimeForCurrentNode(
+              setActiveDialogueState(gameState, {
+                currentNodeId: selected.id,
+                phase: "speaking",
+              })
+            )
+          ),
         });
         return;
       }
@@ -431,20 +505,23 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
       const updatedActive = s.activeDialogue;
 
       if (!updatedDialogue || !updatedNode || !updatedActive || updatedNode.type !== "line") {
-        set({ gameState: withResolvedMusicTarget(withPreparedRuntimeForCurrentNode(s)) });
+        set({
+          gameState: withResolvedMusicTarget(withPreparedRuntimeForCurrentNode(s)),
+        });
         return;
       }
 
       const firstNpcChild = getFirstValidNpcChild(updatedDialogue, updatedNode, s);
       if (firstNpcChild) {
         set({
-          gameState: withResolvedMusicTarget(withPreparedRuntimeForCurrentNode({
-            ...s,
-            activeDialogue: {
-              ...updatedActive,
-              currentNodeId: firstNpcChild.id,
-            },
-          })),
+          gameState: withResolvedMusicTarget(
+            withPreparedRuntimeForCurrentNode(
+              setActiveDialogueState(s, {
+                currentNodeId: firstNpcChild.id,
+                phase: "speaking",
+              })
+            )
+          ),
         });
         return;
       }
@@ -453,43 +530,36 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
 
       if (validPlayerChildren.length === 0) {
         set({
-          gameState: withResolvedMusicTarget(withPreparedRuntimeForCurrentNode(goToDialogueRoot(s, updatedDialogue))),
+          gameState: withResolvedMusicTarget(
+            withPreparedRuntimeForCurrentNode(goToDialogueRoot(s, updatedDialogue))
+          ),
         });
         return;
       }
 
       if (validPlayerChildren.length === 1) {
         set({
-          gameState: withResolvedMusicTarget(withPreparedRuntimeForCurrentNode({
-            ...s,
-            activeDialogue: {
-              ...updatedActive,
-              currentNodeId: validPlayerChildren[0].id,
-            },
-          })),
+          gameState: withResolvedMusicTarget(
+            withPreparedRuntimeForCurrentNode(
+              setActiveDialogueState(s, {
+                currentNodeId: validPlayerChildren[0].id,
+                phase: "speaking",
+              })
+            )
+          ),
         });
         return;
       }
 
-      if (!nextNodeId) {
-        set({ gameState: s });
-        return;
-      }
-
-      const selected = validPlayerChildren.find((n) => n.id === nextNodeId);
-      if (!selected) {
-        set({ gameState: s });
-        return;
-      }
-
       set({
-        gameState: withResolvedMusicTarget(withPreparedRuntimeForCurrentNode({
-          ...s,
-          activeDialogue: {
-            ...updatedActive,
-            currentNodeId: selected.id,
-          },
-        })),
+        gameState: withResolvedMusicTarget(
+          withPreparedRuntimeForCurrentNode(
+            setActiveDialogueState(s, {
+              currentNodeId: updatedNode.id,
+              phase: "choosing",
+            })
+          )
+        ),
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

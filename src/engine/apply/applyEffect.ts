@@ -150,6 +150,7 @@ export function applyEffect(state: GameState, eff: Effect, ctx: ApplyEffectCtx =
           nodeId: state.currentNodeId,
           dialogueId: eff.nodeDialogueId,
           currentNodeId: dialogue.rootId,
+          phase: "speaking",
         },
       };
     }

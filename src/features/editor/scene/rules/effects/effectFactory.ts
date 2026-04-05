@@ -295,8 +295,11 @@ export function enabledEffectTypes(factory: FactoryCtx): EnabledEffectType[] {
       return Array.from(new Set(filtered));
     }
 
-    case "dialogueLine": {
-      const dialogueOnly: EnabledEffectType[] = [...filtered, "endDialogue"];
+        case "dialogueLine": {
+      const dialogueOnly: EnabledEffectType[] = [
+        ...filtered.filter((type) => type !== "showMessage"),
+        "endDialogue",
+      ];
 
       if (hasPlacedNpcs) {
         dialogueOnly.push("giveItemToNpc", "receiveItemFromNpc");
@@ -1432,6 +1435,8 @@ export function getAvailableEffectTypesForCurrentSelection(
 
     return enabled.filter((t) => structural.includes(t) || t === "setPlayerVar");
   }
+
+  if (familyId === "dialogue") return enabled.filter((type) => type !== "showMessage");
 
   return enabled;
 }

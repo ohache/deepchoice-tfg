@@ -31,7 +31,7 @@ export const DialogueSchema = z.object({
   id: IdSchema,
   playerId: IdSchema,
   npcId: IdSchema,
-  title: z.string().trim().optional(),
+  title: z.string().trim().min(1, "El título es obligatorio"),
   description: z.string().trim().optional(),
   when: conditionSchema.optional(),
   rootId: IdSchema,

@@ -7,6 +7,7 @@ type DialogueTreeNodeCardProps = {
   playerName: string;
   npcName: string;
   line: DialogueLineNode;
+  parentId: ID;
   depth: number;
   selectedLineId: ID | null;
   editingLineDraft: DialogueLineNode | null;
@@ -16,6 +17,7 @@ type DialogueTreeNodeCardProps = {
   onUpdateLine: (lineId: ID, patch: Partial<DialogueLineNode>) => void;
   onSaveLine: (lineId: ID) => void;
   onOpenLineRule: (lineId: ID) => void;
+  onReorderSiblings: (parentId: ID, fromIndex: number, toIndex: number) => void;
 };
 
 function isLineNode(node: DialogueNode): node is DialogueLineNode {
@@ -50,8 +52,8 @@ function speakerBadgeTone(speaker: DialogueLineNode["speaker"]): string {
     : "border-sky-700/50 bg-sky-950/40 text-sky-100";
 }
 
-export function DialogueTreeNodeCard({ dialogue, playerName, npcName, line, depth, selectedLineId, editingLineDraft, onSelectLine,
-  onAddChild, onDeleteLine, onUpdateLine, onSaveLine, onOpenLineRule }: DialogueTreeNodeCardProps) {
+export function DialogueTreeNodeCard({ dialogue, playerName, npcName, line, parentId, depth, selectedLineId, editingLineDraft, onSelectLine,
+  onAddChild, onDeleteLine, onUpdateLine, onSaveLine, onOpenLineRule, onReorderSiblings }: DialogueTreeNodeCardProps) {
   const selected = selectedLineId === line.id;
 
   const renderedLine: DialogueLineNode = selected && editingLineDraft?.id === line.id ? editingLineDraft : line;
@@ -59,12 +61,23 @@ export function DialogueTreeNodeCard({ dialogue, playerName, npcName, line, dept
   const [collapsed, setCollapsed] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
+  const [isDraggingSelf, setIsDraggingSelf] = useState(false);
+  const [isDragOverSelf, setIsDragOverSelf] = useState(false);
+
   const childIds = line.childrenIds ?? [];
   const children = childIds
     .map((childId) => getLineById(dialogue, childId))
     .filter((child): child is DialogueLineNode => Boolean(child));
 
   const hasChildren = children.length > 0;
+
+  const parentNode = getNodeById(dialogue, parentId);
+  const siblingIds = parentNode?.childrenIds ?? [];
+  const siblingLines = siblingIds
+    .map((childId) => getLineById(dialogue, childId))
+    .filter((child): child is DialogueLineNode => Boolean(child));
+
+  const currentSiblingIndex = siblingLines.findIndex((sibling) => sibling.id === line.id);
 
   const nextSpeaker: DialogueLineNode["speaker"] = line.speaker === "player" ? "npc" : "player";
   const hasText = renderedLine.text.trim().length > 0;
@@ -90,8 +103,70 @@ export function DialogueTreeNodeCard({ dialogue, playerName, npcName, line, dept
       <div style={{ marginLeft: `${depth * 24}px` }}>
         <div
           onClick={() => { if (!selected) onSelectLine(line.id) }}
-          className={`rounded-lg border px-3 py-3 ${selected ? "" : "cursor-pointer"} select-none transition-colors ${speakerTone(renderedLine.speaker, selected)}`}
+          className={`rounded-lg border px-3 py-3 ${selected ? "" : "cursor-pointer"} select-none transition-colors ${speakerTone(renderedLine.speaker, selected)
+            } ${isDraggingSelf ? "opacity-50" : ""
+            } ${isDragOverSelf ? "ring-2 ring-fuchsia-500/70" : ""
+            }`}
           title="Seleccionar línea"
+          draggable={currentSiblingIndex >= 0}
+                    onDragStart={(e) => {
+            e.stopPropagation();
+            if (currentSiblingIndex < 0) return;
+
+            const payload = JSON.stringify({
+              parentId,
+              fromIndex: currentSiblingIndex,
+              lineId: line.id,
+            });
+
+            e.dataTransfer.effectAllowed = "move";
+            e.dataTransfer.setData("text/plain", payload);
+            e.dataTransfer.setData("application/x-dialogue-sibling-reorder", payload);
+
+            setIsDraggingSelf(true);
+          }}
+          onDragEnd={(e) => {
+            e.stopPropagation();
+            setIsDraggingSelf(false);
+            setIsDragOverSelf(false);
+          }}
+                    onDragOver={(e) => {
+            if (currentSiblingIndex < 0) return;
+
+            e.preventDefault();
+            e.stopPropagation();
+            e.dataTransfer.dropEffect = "move";
+            setIsDragOverSelf(true);
+          }}
+          onDragLeave={(e) => {
+            e.stopPropagation();
+            setIsDragOverSelf(false);
+          }}
+                   onDrop={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setIsDragOverSelf(false);
+
+            if (currentSiblingIndex < 0) return;
+
+            const raw =
+              e.dataTransfer.getData("application/x-dialogue-sibling-reorder") ||
+              e.dataTransfer.getData("text/plain");
+
+            if (!raw) return;
+
+            try {
+              const data = JSON.parse(raw) as { parentId: ID; fromIndex: number; lineId: ID };
+
+              if (data.parentId !== parentId) return;
+              if (data.lineId === line.id) return;
+              if (data.fromIndex < 0 || data.fromIndex === currentSiblingIndex) return;
+
+              onReorderSiblings(parentId, data.fromIndex, currentSiblingIndex);
+            } catch {
+              return;
+            }
+          }}
         >
           {selected ? (
             <div className="flex items-start justify-between gap-3">
@@ -254,6 +329,7 @@ export function DialogueTreeNodeCard({ dialogue, playerName, npcName, line, dept
             playerName={playerName}
             npcName={npcName}
             line={child}
+            parentId={line.id}
             depth={depth + 1}
             selectedLineId={selectedLineId}
             editingLineDraft={editingLineDraft}
@@ -263,6 +339,7 @@ export function DialogueTreeNodeCard({ dialogue, playerName, npcName, line, dept
             onUpdateLine={onUpdateLine}
             onSaveLine={onSaveLine}
             onOpenLineRule={onOpenLineRule}
+            onReorderSiblings={onReorderSiblings}
           />
         ))}
     </div>

@@ -1,6 +1,8 @@
 import type { ID, PlaceableState, PlacedPlayerState, Project } from "@/domain/types";
 import { createInitialMusicRuntime, type MusicRuntimeState } from "@/engine/state/slices/musicSlice";
 
+export type DialoguePhase = "speaking" | "choosing";
+
 export interface WorldMapRuntime {
   isOpen: boolean;
   activeMapId?: ID;
@@ -19,6 +21,7 @@ export interface ActiveDialogueState {
   nodeId: ID;
   dialogueId: ID;
   currentNodeId: ID;
+  phase: DialoguePhase;
 }
 
 /* Estado runtime por nodo (persistente por nodeId) */
@@ -46,6 +49,8 @@ export interface GameState {
   gameEnded: boolean;
   endGameMessage?: string;
 }
+
+
 
 function createInitialMapRuntime(): WorldMapRuntime {
   return {

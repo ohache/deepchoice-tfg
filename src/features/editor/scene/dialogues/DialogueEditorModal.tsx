@@ -34,6 +34,7 @@ export function DialogueEditorModal({ open, dialogueDraft, project, nodeId, pane
   const removeDialogueLine = useEditorStore((s) => s.removeDialogueLine);
 
   const validateDialogueDraft = useEditorStore((s) => s.validateDialogueDraft);
+  const reorderDialogueLines = useEditorStore((s) => s.reorderDialogueLines);
 
   const [dialogueConditionOpen, setDialogueConditionOpen] = useState(false);
   const [lineRuleOpen, setLineRuleOpen] = useState(false);
@@ -60,14 +61,14 @@ export function DialogueEditorModal({ open, dialogueDraft, project, nodeId, pane
   const currentDialogueId = dialogueDraft?.id ?? selectedDialogueId ?? null;
 
   useEffect(() => {
-  if (!open || !currentDialogueId) {
-    setLocalValidationError(null);
-    return;
-  }
+    if (!open || !currentDialogueId) {
+      setLocalValidationError(null);
+      return;
+    }
 
-  const result = validateDialogueDraft(currentDialogueId);
-  setLocalValidationError(result.ok ? null : (result.error ?? null));
-}, [open, currentDialogueId, dialogueDraft, validateDialogueDraft]);
+    const result = validateDialogueDraft(currentDialogueId);
+    setLocalValidationError(result.ok ? null : (result.error ?? null));
+  }, [open, currentDialogueId, dialogueDraft, validateDialogueDraft]);
 
   const ruleLine = useMemo(() => {
     const targetId = lineRuleTargetId ?? selectedNodeId ?? null;
@@ -77,24 +78,24 @@ export function DialogueEditorModal({ open, dialogueDraft, project, nodeId, pane
   }, [dialogueDraft, lineRuleTargetId, selectedNodeId]);
 
   const playerName = useMemo(() => {
-  if (!dialogueDraft?.playerId) return "Player";
-  const player = (project?.players ?? []).find((p) => p.id === dialogueDraft.playerId);
-  return player?.name?.trim() || dialogueDraft.playerId;
-}, [project, dialogueDraft?.playerId]);
+    if (!dialogueDraft?.playerId) return "Player";
+    const player = (project?.players ?? []).find((p) => p.id === dialogueDraft.playerId);
+    return player?.name?.trim() || dialogueDraft.playerId;
+  }, [project, dialogueDraft?.playerId]);
 
-const npcName = useMemo(() => {
-  if (!dialogueDraft?.npcId) return "NPC";
-  const npc = (project?.npcs ?? []).find((n) => n.id === dialogueDraft.npcId);
-  return npc?.name?.trim() || dialogueDraft.npcId;
-}, [project, dialogueDraft?.npcId]);
+  const npcName = useMemo(() => {
+    if (!dialogueDraft?.npcId) return "NPC";
+    const npc = (project?.npcs ?? []).find((n) => n.id === dialogueDraft.npcId);
+    return npc?.name?.trim() || dialogueDraft.npcId;
+  }, [project, dialogueDraft?.npcId]);
 
   const lineRuleOwner = currentDialogueId && ruleLine
-      ? {
-        kind: "dialogueLine" as const,
-        dialogueId: currentDialogueId,
-        lineId: ruleLine.id,
-      }
-      : null;
+    ? {
+      kind: "dialogueLine" as const,
+      dialogueId: currentDialogueId,
+      lineId: ruleLine.id,
+    }
+    : null;
 
   const lineRuleValue = ruleLine
     ? {
@@ -223,7 +224,9 @@ const npcName = useMemo(() => {
                     options={playerOptions}
                     placeholder="Seleccionar player"
                     disabled={!playerOptions.length}
-                    className="w-full rounded-md bg-slate-900/30 border-2 border-emerald-800 px-2 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-transparent focus:ring-2 focus:ring-fuchsia-500 disabled:opacity-50"
+                    className="w-full"
+                    buttonClassName="border-2 border-emerald-800 bg-slate-900/30"
+                    menuClassName="border-emerald-800/60"
                   />
                 </div>
 
@@ -235,7 +238,9 @@ const npcName = useMemo(() => {
                     options={npcOptions}
                     placeholder="Seleccionar NPC"
                     disabled={!npcOptions.length}
-                    className="w-full rounded-md bg-slate-900/30 border-2 border-sky-800 px-2 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-transparent focus:ring-2 focus:ring-fuchsia-500 disabled:opacity-50"
+                    className="w-full"
+                    buttonClassName="border-2 border-sky-800 bg-slate-900/30"
+                    menuClassName="border-sky-800/60"
                   />
                 </div>
 
@@ -279,6 +284,9 @@ const npcName = useMemo(() => {
                 onUpdateLine={(lineId, patch) => updateDialogueLine(currentDialogueId, lineId, patch)}
                 onSaveLine={handleSaveLine}
                 onOpenLineRule={handleOpenLineRule}
+                onReorderSiblings={(parentId, fromIndex, toIndex) =>
+                  reorderDialogueLines(currentDialogueId, parentId, fromIndex, toIndex)
+                }
               />
             </section>
           </div>

@@ -42,7 +42,7 @@ export interface EditorDialoguesSlice {
   addDialogueLine: (dialogueId: ID, args?: { speaker?: DialogueLineNode["speaker"]; text?: string; parentId?: ID }) => ID | null;
   updateDialogueLine: (dialogueId: ID, lineId: ID, patch: Partial<DialogueLineNode>) => void;
   removeDialogueLine: (dialogueId: ID, lineId: ID) => void;
-  reorderDialogueLines: (dialogueId: ID, fromIndex: number, toIndex: number) => void;
+  reorderDialogueLines: (dialogueId: ID, parentId: ID, fromIndex: number, toIndex: number) => void;
 
   validateDialogueDraft: (dialogueId?: ID | null) => { ok: boolean; error?: string };
 }
@@ -356,6 +356,7 @@ export function createEditorDialoguesSlice(set: (partial: Partial<Store> | ((s: 
       const validation = validateDialogue(materialized);
       if (!validation.ok) {
         const error =
+          validation.errors.title ??
           validation.errors.nodes ??
           validation.errors.rootId ??
           validation.errors.playerId ??
@@ -616,7 +617,35 @@ export function createEditorDialoguesSlice(set: (partial: Partial<Store> | ((s: 
         };
       }),
 
-    reorderDialogueLines: (_dialogueId, _fromIndex, _toIndex) => get().dialogueEditor && set((s) => s),
+    reorderDialogueLines: (dialogueId, parentId, fromIndex, toIndex) =>
+      set((s) => {
+        const ed0 = { ...commitCurrentLineIntoDraft(s) };
+        const dialogueDraft = ed0.dialogueDraft;
+        if (!dialogueDraft || dialogueDraft.id !== dialogueId) return s;
+
+        const parent = findNode(dialogueDraft, parentId);
+        if (!parent) return s;
+
+        const childrenIds0 = parent.childrenIds ?? [];
+        const childrenIds1 = reorder(childrenIds0, fromIndex, toIndex);
+
+        if (childrenIds1 === childrenIds0) return s;
+
+        const nextParent: DialogueNode = {
+          ...parent,
+          childrenIds: childrenIds1,
+        };
+
+        const nextDialogueDraft = replaceNodeInDialogue(dialogueDraft, nextParent);
+
+        return {
+          ...s,
+          dialogueEditor: {
+            ...ed0,
+            dialogueDraft: nextDialogueDraft,
+          },
+        };
+      }),
 
     validateDialogueDraft: (dialogueId) => {
       const s = get();
@@ -631,6 +660,7 @@ export function createEditorDialoguesSlice(set: (partial: Partial<Store> | ((s: 
       const result = validateDialogue(materialized);
       if (!result.ok) {
         const msg =
+          result.errors.title ??
           result.errors.nodes ??
           result.errors.rootId ??
           result.errors.playerId ??

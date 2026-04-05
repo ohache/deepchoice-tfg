@@ -1,7 +1,7 @@
-import { DialogueSchema, type Dialogue, type DialogueLineNode } from "@/features/editor/scene/dialogues/dialogueSchemas";
+import { DialogueSchema, type Dialogue, type DialogueLineNode, type DialogueNode } from "@/features/editor/scene/dialogues/dialogueSchemas";
 import { createFieldErrors, validateWithSchema } from "@/features/editor/scene/interactiveComponents/interactiveValidator";
 
-const dialogueErrorKeys = ["playerId", "npcId", "rootId", "nodes"] as const;
+const dialogueErrorKeys = ["title", "playerId", "npcId", "rootId", "nodes"] as const;
 
 export type DialogueFieldErrors = Record<(typeof dialogueErrorKeys)[number], string | undefined>;
 
@@ -12,8 +12,8 @@ const invalidChildrenError = "childrenIds debe apuntar solo a nodos válidos.";
 const invalidTreeError = "El diálogo debe formar un árbol válido.";
 const multipleRootsError = "El diálogo solo puede tener un nodo root.";
 const missingEndDialogueError = "El diálogo debe tener al menos una línea con el efecto de salir del diálogo.";
-const multipleUnconditionalNpcOptionsError = "Una línea del Player no puede tener más de una respuesta de NPC sin condición."
-const playerLineWithoutNpcResponseError = "Una línea del Player debe tener al menos una respuesta de NPC, salvo que termine el diálogo.";
+const invalidNpcFallbackCountError = "Las respuestas alternativas de NPC a una línea del Player deben tener exactamente una opción sin condición.";
+const playerLineWithoutNpcResponseError = "Una línea inicial del Player debe tener una respuesta de NPC, salvo que termine el diálogo.";
 
 function createDialogueFieldErrors(): DialogueFieldErrors {
   return createFieldErrors(dialogueErrorKeys);
@@ -81,38 +81,57 @@ function hasEndDialogueEffect(node: DialogueLineNode): boolean {
   return (node.effects ?? []).some((eff) => eff.type === "endDialogue");
 }
 
-function hasMultipleUnconditionalNpcResponsesFromPlayer(nodes: Dialogue["nodes"]): boolean {
-  const byId = new Map(nodes.map((node) => [node.id, node]));
+function getLineChildrenBySpeaker(
+  parent: DialogueNode,
+  byId: Map<string, DialogueNode>,
+  speaker: DialogueLineNode["speaker"]
+): DialogueLineNode[] {
+  return parent.childrenIds
+    .map((childId) => byId.get(childId))
+    .filter((child): child is DialogueNode => child != null)
+    .filter((child): child is DialogueLineNode => isLineNode(child) && child.speaker === speaker);
+}
+
+function hasInvalidNpcFallbackCountFromPlayer(nodes: Dialogue["nodes"]): boolean {
+  const byId = new Map(nodes.map((node) => [node.id, node] as const));
 
   for (const node of nodes) {
     if (!isLineNode(node) || node.speaker !== "player") continue;
+    if (hasEndDialogueEffect(node)) continue;
 
-    const unconditionalNpcChildren = node.childrenIds
-      .map((childId) => byId.get(childId))
-      .filter((child): child is Dialogue["nodes"][number] => child != null)
-      .filter((child): child is DialogueLineNode => isLineNode(child) && child.speaker === "npc")
-      .filter((child) => child.when == null);
+    const npcChildren = getLineChildrenBySpeaker(node, byId, "npc");
+    if (npcChildren.length === 0) continue;
 
-    if (unconditionalNpcChildren.length > 1) return true;
+    const npcFallbackCount = npcChildren.filter((child) => child.when == null).length;
+
+    if (npcFallbackCount !== 1) return true;
   }
 
   return false;
 }
 
-function hasPlayerLineWithoutNpcResponse(nodes: Dialogue["nodes"]): boolean {
-  const byId = new Map(nodes.map((node) => [node.id, node]));
+function hasPlayerLineWithoutNpcResponse(dialogue: Dialogue): boolean {
+  const byId = new Map(dialogue.nodes.map((node) => [node.id, node] as const));
 
-  for (const node of nodes) {
+  const parentByChildId = new Map<string, Dialogue["nodes"][number]>();
+  for (const node of dialogue.nodes) {
+    for (const childId of node.childrenIds ?? []) {
+      parentByChildId.set(childId, node);
+    }
+  }
+
+  for (const node of dialogue.nodes) {
     if (!isLineNode(node) || node.speaker !== "player") continue;
-
     if (hasEndDialogueEffect(node)) continue;
 
-    const hasNpcChild = node.childrenIds
-      .map((childId) => byId.get(childId))
-      .filter((child): child is Dialogue["nodes"][number] => child != null)
-      .some((child) => isLineNode(child) && child.speaker === "npc");
+    const parent = parentByChildId.get(node.id);
+    const isRootChild = parent?.id === dialogue.rootId;
 
-    if (!hasNpcChild) return true;
+    if (!isRootChild) continue;
+
+    const npcChildren = getLineChildrenBySpeaker(node, byId, "npc");
+
+    if (npcChildren.length === 0) return true;
   }
 
   return false;
@@ -160,12 +179,12 @@ function applyBusinessRules(dialogue: Dialogue, errors: DialogueFieldErrors): vo
 
   if (!hasAtLeastOneEndDialogue(dialogue)) errors.nodes ??= missingEndDialogueError;
 
-  if (hasMultipleUnconditionalNpcResponsesFromPlayer(nodes)) {
-    errors.nodes ??= multipleUnconditionalNpcOptionsError;
+  if (hasInvalidNpcFallbackCountFromPlayer(nodes)) {
+    errors.nodes ??= invalidNpcFallbackCountError;
     return;
   }
 
-  if (hasPlayerLineWithoutNpcResponse(nodes)) errors.nodes ??= playerLineWithoutNpcResponseError;
+  if (hasPlayerLineWithoutNpcResponse(dialogue)) errors.nodes ??= playerLineWithoutNpcResponseError;
 }
 
 export function validateDialogue(input: unknown) {

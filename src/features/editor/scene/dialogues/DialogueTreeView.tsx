@@ -14,6 +14,7 @@ type DialogueTreeViewProps = {
   onUpdateLine: (lineId: ID, patch: Partial<DialogueLineNode>) => void;
   onSaveLine: (lineId: ID) => void;
   onOpenLineRule: (lineId: ID) => void;
+  onReorderSiblings: (parentId: ID, fromIndex: number, toIndex: number) => void;
 };
 
 function getNodeById(dialogue: Dialogue, nodeId: ID | null | undefined): DialogueNode | null {
@@ -27,7 +28,7 @@ function getLineById(dialogue: Dialogue, lineId: ID | null | undefined): Dialogu
 }
 
 export function DialogueTreeView({ dialogue, playerName, npcName, selectedLineId, editingLineDraft, onSelectLine, onAddRootLine,
-  onAddChild, onDeleteLine, onUpdateLine, onSaveLine, onOpenLineRule }: DialogueTreeViewProps) {
+  onAddChild, onDeleteLine, onUpdateLine, onSaveLine, onOpenLineRule, onReorderSiblings }: DialogueTreeViewProps) {
   const root = getNodeById(dialogue, dialogue.rootId);
   const rootChildren = root?.childrenIds
     ?.map((childId) => getLineById(dialogue, childId))
@@ -58,6 +59,7 @@ export function DialogueTreeView({ dialogue, playerName, npcName, selectedLineId
               playerName={playerName}
               npcName={npcName}
               line={line}
+              parentId={dialogue.rootId}
               depth={0}
               selectedLineId={selectedLineId}
               editingLineDraft={editingLineDraft}
@@ -67,6 +69,7 @@ export function DialogueTreeView({ dialogue, playerName, npcName, selectedLineId
               onUpdateLine={onUpdateLine}
               onSaveLine={onSaveLine}
               onOpenLineRule={onOpenLineRule}
+              onReorderSiblings={onReorderSiblings}
             />
           ))}
         </div>

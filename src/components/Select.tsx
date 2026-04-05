@@ -10,6 +10,9 @@ type Props<K extends string> = {
   placeholder?: string;
   disabled?: boolean;
   className?: string;
+  buttonClassName?: string;
+  menuClassName?: string;
+  optionClassName?: string;
 };
 
 type MenuPosition = {
@@ -18,14 +21,7 @@ type MenuPosition = {
   width: number;
 };
 
-export function Select<K extends string>({
-  value,
-  onChange,
-  options,
-  placeholder,
-  disabled,
-  className,
-}: Props<K>) {
+export function Select<K extends string>({ value, onChange, options, placeholder, disabled, className, buttonClassName, menuClassName, optionClassName }: Props<K>) {
   const [open, setOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null);
 
@@ -62,9 +58,7 @@ export function Select<K extends string>({
       const clickedInsideRoot = !!rootRef.current?.contains(target);
       const clickedInsideMenu = !!menuRef.current?.contains(target);
 
-      if (!clickedInsideRoot && !clickedInsideMenu) {
-        setOpen(false);
-      }
+      if (!clickedInsideRoot && !clickedInsideMenu) setOpen(false);
     }
 
     function handleEscape(event: KeyboardEvent) {
@@ -101,53 +95,60 @@ export function Select<K extends string>({
   const menu =
     open && !disabled && menuPosition
       ? createPortal(
-          <div
-            ref={menuRef}
-            style={{
-              position: "fixed",
-              top: menuPosition.top,
-              left: menuPosition.left,
-              width: menuPosition.width,
-              zIndex: 9999,
+        <div
+          ref={menuRef}
+          style={{
+            position: "fixed",
+            top: menuPosition.top,
+            left: menuPosition.left,
+            width: menuPosition.width,
+            zIndex: 9999,
+          }}
+          className={
+            "max-h-60 overflow-auto rounded-md border border-slate-700 bg-slate-900 p-1 shadow-lg " +
+            (menuClassName ?? "")
+          }
+        >
+          <button
+            type="button"
+            onClick={() => {
+              onChange("");
+              setOpen(false);
             }}
-            className="max-h-60 overflow-auto rounded-md border border-slate-700 bg-slate-900 p-1 shadow-lg"
+            className={
+              "block w-full rounded px-2 py-1 text-left text-xs text-slate-300 hover:bg-fuchsia-600 hover:text-white " +
+              (optionClassName ?? "")
+            }
           >
-            <button
-              type="button"
-              onClick={() => {
-                onChange("");
-                setOpen(false);
-              }}
-              className="block w-full rounded px-2 py-1 text-left text-xs text-slate-300 hover:bg-fuchsia-600 hover:text-white"
-            >
-              {placeholder ?? "Selecciona…"}
-            </button>
+            {placeholder ?? "Selecciona…"}
+          </button>
 
-            {options.map((o) => {
-              const isSelected = o.id === value;
+          {options.map((o) => {
+            const isSelected = o.id === value;
 
-              return (
-                <button
-                  key={o.id}
-                  type="button"
-                  onClick={() => {
-                    onChange(o.id);
-                    setOpen(false);
-                  }}
-                  className={
-                    "block w-full rounded px-2 py-1 text-left text-xs transition-colors " +
-                    (isSelected
-                      ? "bg-fuchsia-700 text-white"
-                      : "text-slate-200 hover:bg-fuchsia-600 hover:text-white")
-                  }
-                >
-                  {o.label}
-                </button>
-              );
-            })}
-          </div>,
-          document.body
-        )
+            return (
+              <button
+                key={o.id}
+                type="button"
+                onClick={() => {
+                  onChange(o.id);
+                  setOpen(false);
+                }}
+                className={
+                  "block w-full rounded px-2 py-1 text-left text-xs transition-colors " +
+                  (isSelected
+                    ? "bg-fuchsia-700 text-white "
+                    : "text-slate-200 hover:bg-fuchsia-600 hover:text-white ") +
+                  (optionClassName ?? "")
+                }
+              >
+                {o.label}
+              </button>
+            );
+          })}
+        </div>,
+        document.body
+      )
       : null;
 
   return (
@@ -159,10 +160,9 @@ export function Select<K extends string>({
           disabled={disabled}
           onClick={() => setOpen((prev) => !prev)}
           className={
-            "flex w-full items-center justify-between rounded-md border border-slate-700 " +
-            "bg-slate-900 px-2 py-1 text-xs text-white " +
-            "focus:outline-none focus:ring-2 focus:ring-fuchsia-500 " +
-            "disabled:opacity-50"
+            "flex w-full items-center justify-between rounded-md border bg-slate-900 px-2 py-1 text-xs text-white " +
+            "focus:outline-none focus:ring-2 focus:ring-fuchsia-500 disabled:opacity-50 " +
+            (buttonClassName ?? "border-slate-700")
           }
         >
           <span className={selected ? "text-white" : "text-slate-400"}>

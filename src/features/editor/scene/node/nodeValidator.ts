@@ -1,4 +1,5 @@
-import type { z, ZodError } from "zod";
+import type { ZodError } from "zod";
+import type { Node } from "@/domain/types";
 import { nodeDraftSchema, nodeSchema } from "@/features/editor/scene/node/nodeSchemas";
 import { issuesToFieldErrors } from "@/shared/zodIssues";
 import { conditionSchema, effectSchema, interactionRulesSchema } from "@/validation/rulesSchemas";
@@ -14,10 +15,7 @@ export type NodeFieldErrors = {
   meta?: string;
 };
 
-type NodeInput = z.input<typeof nodeSchema>;
-type NodeDraftInput = z.input<typeof nodeDraftSchema>;
-
-type NodeLikeForBusinessRules = Pick<z.output<typeof nodeSchema>, "layers" | "dialogues">;
+type NodeLikeForBusinessRules = Pick<Node, "layers" | "dialogues">;
 
 type ValidateNodeDraftOptions = {
   projectNodes?: Array<{ id: string; title: string }>;
@@ -109,26 +107,26 @@ function applyDuplicateTitleRule(input: { title?: string | null }, errors: NodeF
   if (duplicated) errors.title ??= "Ya existe una escena con ese título.";
 }
 
-export function validateNode(input: NodeInput): { ok: boolean; errors: NodeFieldErrors; zodError?: ZodError } {
+export function validateNode(input: Node): { ok: boolean; errors: NodeFieldErrors; zodError?: ZodError } {
   const result = nodeSchema.safeParse(input);
   const zodError = result.success ? undefined : result.error;
 
   const errors = issuesToFieldErrors(zodError, createNodeFieldErrors());
 
-  if (result.success) applyBusinessRules(result.data, errors);
+  if (result.success) applyBusinessRules(input, errors);
 
   return { ok: Object.values(errors).every((value) => value == null), errors, zodError };
 }
 
-export function validateNodeDraft(input: NodeDraftInput, opts?: ValidateNodeDraftOptions): { ok: boolean; errors: NodeFieldErrors; zodError?: ZodError } {
+export function validateNodeDraft(input: Node, opts?: ValidateNodeDraftOptions): { ok: boolean; errors: NodeFieldErrors; zodError?: ZodError } {
   const result = nodeDraftSchema.safeParse(input);
   const zodError = result.success ? undefined : result.error;
 
   const errors = issuesToFieldErrors(zodError, createNodeFieldErrors());
 
   if (result.success) {
-    applyBusinessRules(result.data, errors);
-    applyDuplicateTitleRule(result.data, errors, opts);
+    applyBusinessRules(input, errors);
+    applyDuplicateTitleRule(input, errors, opts);
   }
 
   return { ok: Object.values(errors).every((value) => value == null), errors, zodError };

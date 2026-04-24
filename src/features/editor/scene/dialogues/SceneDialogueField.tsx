@@ -208,7 +208,6 @@ export function SceneDialogueField({ label = "Diálogos", active, onToggle }: Sc
           <InteractiveListPanel
             items={dialogueListEntries}
             selectedId={selectedDialogueId}
-            emptyText="No hay diálogos en esta escena"
             itemTitle="Editar diálogo"
             editTitle="Editar"
             editAriaLabel="Editar diálogo"

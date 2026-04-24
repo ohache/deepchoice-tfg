@@ -1,42 +1,9 @@
 import type { ID, PlacedPlayer, PlacedPlayerState, RegionShape } from "@/domain/types";
-import type { PlacedPlayerDraft, PlacedPlayerEditorContext, PlacedPlayerEditorState } from "@/features/editor/scene/placedPlayers/placedPlayerEditorTypes";
-import { validatePlacedPlayer } from "@/features/editor/scene/placedPlayers/placedPlayerValidator";
-
-export const initialPlacedPlayerEditorState: PlacedPlayerEditorState = {
-  context: null,
-  mode: { type: "idle" },
-  selection: { playerId: null },
-  draft: null,
-  drawing: null,
-};
-
-function defaultInitialState(): PlacedPlayerState {
-  return { visible: true };
-}
-
-function rectFromGesture(g: { startX: number; startY: number; currentX: number; currentY: number }): RegionShape {
-  const x = Math.min(g.startX, g.currentX);
-  const y = Math.min(g.startY, g.currentY);
-  const w = Math.abs(g.currentX - g.startX);
-  const h = Math.abs(g.currentY - g.startY);
-  return { type: "rect", x, y, w, h };
-}
-
-function buildContext(activeLayerId: ID | null): PlacedPlayerEditorContext | null {
-  if (!activeLayerId) return null;
-  return { layerId: activeLayerId };
-}
-
-function buildCandidateFromDraft(
-  draft: PlacedPlayerDraft & { shape: RegionShape }
-): PlacedPlayer {
-  return {
-    playerId: draft.playerId,
-    initialImageId: draft.initialImageId,
-    shape: draft.shape,
-    initialState: draft.initialState,
-  };
-}
+import type { PlacedPlayerEditorState } from "@/features/editor/scene/placedPlayers/placedPlayerEditorTypes";
+import {
+  buildContext, buildDraftFromPlacedPlayer, buildEmptyPlacedPlayerDraft, buildPlacedPlayerCandidateFromDraft,
+  initialPlacedPlayerEditorState, rectFromGesture, validatePlacedPlayerDraftCandidate
+} from "@/features/editor/scene/interactiveComponents/interactiveEditorHelpers";
 
 type Store = {
   activeLayerId: ID | null;
@@ -79,41 +46,32 @@ export function createEditorPlacedPlayersSlice(set: (partial: Partial<Store> | (
     placedPlayerEditor: initialPlacedPlayerEditorState,
 
     setPlacedPlayerSelection: (input) =>
-      set((s) => ({
-        ...s,
+      set((state) => ({
+        ...state,
         placedPlayerEditor: {
-          ...s.placedPlayerEditor,
-          selection: {
-            playerId: input.playerId,
-          },
+          ...state.placedPlayerEditor,
+          selection: { playerId: input.playerId },
         },
       })),
 
     clearPlacedPlayerEditor: () =>
-      set((s) => ({
-        ...s,
+      set((state) => ({
+        ...state,
         placedPlayerEditor: initialPlacedPlayerEditorState,
       })),
 
     startPlacingPlacedPlayer: (input) =>
-      set((s) => {
-        if (!s.activeLayerId) return s;
+      set((state) => {
+        if (!state.activeLayerId) return state;
 
-        const draft: PlacedPlayerDraft = {
-          playerId: input.playerId,
-          initialImageId: input.initialImageId,
-          shape: null,
-          initialState: defaultInitialState(),
-        };
+        const draft = buildEmptyPlacedPlayerDraft(input);
 
         return {
-          ...s,
+          ...state,
           placedPlayerEditor: {
-            context: buildContext(s.activeLayerId),
+            context: buildContext(state.activeLayerId),
             mode: { type: "drawing" },
-            selection: {
-              playerId: draft.playerId,
-            },
+            selection: { playerId: draft.playerId },
             draft,
             drawing: null,
           },
@@ -121,163 +79,151 @@ export function createEditorPlacedPlayersSlice(set: (partial: Partial<Store> | (
       }),
 
     setPlacedPlayerDraftPlayerId: (playerId) =>
-      set((s) => {
-        const draft = s.placedPlayerEditor.draft;
-        if (!draft) return s;
-        if (draft.playerId === playerId) return s;
+      set((state) => {
+        const draft = state.placedPlayerEditor.draft;
+        if (!draft) return state;
+        if (draft.playerId === playerId) return state;
 
         return {
-          ...s,
+          ...state,
           placedPlayerEditor: {
-            ...s.placedPlayerEditor,
+            ...state.placedPlayerEditor,
             draft: { ...draft, playerId },
           },
         };
       }),
 
     setPlacedPlayerDraftInitialImageId: (initialImageId) =>
-      set((s) => {
-        const draft = s.placedPlayerEditor.draft;
-        if (!draft) return s;
-        if (draft.initialImageId === initialImageId) return s;
+      set((state) => {
+        const draft = state.placedPlayerEditor.draft;
+        if (!draft) return state;
+        if (draft.initialImageId === initialImageId) return state;
 
         return {
-          ...s,
+          ...state,
           placedPlayerEditor: {
-            ...s.placedPlayerEditor,
+            ...state.placedPlayerEditor,
             draft: { ...draft, initialImageId },
           },
         };
       }),
 
     setPlacedPlayerDraftShape: (shape) =>
-      set((s) => {
-        const draft = s.placedPlayerEditor.draft;
-        if (!draft) return s;
+      set((state) => {
+        const draft = state.placedPlayerEditor.draft;
+        if (!draft) return state;
 
         return {
-          ...s,
+          ...state,
           placedPlayerEditor: {
-            ...s.placedPlayerEditor,
+            ...state.placedPlayerEditor,
             draft: { ...draft, shape },
           },
         };
       }),
 
     clearPlacedPlayerDraftShape: () =>
-      set((s) => {
-        const draft = s.placedPlayerEditor.draft;
-        if (!draft) return s;
+      set((state) => {
+        const draft = state.placedPlayerEditor.draft;
+        if (!draft) return state;
 
         return {
-          ...s,
+          ...state,
           placedPlayerEditor: {
-            ...s.placedPlayerEditor,
+            ...state.placedPlayerEditor,
             draft: { ...draft, shape: null },
           },
         };
       }),
 
     updateDrawingPlacedPlayer: (pt) =>
-      set((s) => {
-        const ed = s.placedPlayerEditor;
-        if (ed.mode.type !== "drawing" || !ed.draft) return s;
+      set((state) => {
+        const editor = state.placedPlayerEditor;
+        if (editor.mode.type !== "drawing" || !editor.draft) return state;
 
-        const drawing0 = ed.drawing;
-        const nextDrawing = drawing0
-          ? { ...drawing0, currentX: pt.x, currentY: pt.y }
+        const currentDrawing = editor.drawing;
+        const nextDrawing = currentDrawing
+          ? { ...currentDrawing, currentX: pt.x, currentY: pt.y }
           : { startX: pt.x, startY: pt.y, currentX: pt.x, currentY: pt.y };
 
         const shape = rectFromGesture(nextDrawing);
 
         return {
-          ...s,
+          ...state,
           placedPlayerEditor: {
-            ...ed,
+            ...editor,
             drawing: nextDrawing,
-            draft: { ...ed.draft, shape },
+            draft: { ...editor.draft, shape },
           },
         };
       }),
 
     finishDrawingPlacedPlayer: () =>
-      set((s) => {
-        const ed = s.placedPlayerEditor;
-        if (ed.mode.type !== "drawing" || !ed.draft) return s;
+      set((state) => {
+        const editor = state.placedPlayerEditor;
+        if (editor.mode.type !== "drawing" || !editor.draft) return state;
 
         return {
-          ...s,
+          ...state,
           placedPlayerEditor: {
-            ...ed,
-            mode: { type: "editing", playerId: ed.draft.playerId },
+            ...editor,
+            mode: { type: "editing", playerId: editor.draft.playerId },
             drawing: null,
           },
         };
       }),
 
     startRedrawPlacedPlayerShape: () =>
-      set((s) => {
-        const ed = s.placedPlayerEditor;
-        if (!ed.draft) return s;
+      set((state) => {
+        const editor = state.placedPlayerEditor;
+        if (!editor.draft) return state;
 
         return {
-          ...s,
+          ...state,
           placedPlayerEditor: {
-            ...ed,
+            ...editor,
             mode: { type: "drawing" },
             drawing: null,
-            draft: { ...ed.draft, shape: null },
-            selection: {
-              playerId: ed.draft.playerId,
-            },
+            draft: { ...editor.draft, shape: null },
+            selection: { playerId: editor.draft.playerId },
           },
         };
       }),
 
     editPlacedPlayer: (playerId) =>
-      set((s) => {
-        if (!s.activeLayerId) return s;
+      set((state) => {
+        if (!state.activeLayerId) return state;
 
-        const placedPlayers = s.getActivePlacedPlayers() ?? [];
-        const placedPlayer = placedPlayers.find((p) => p.playerId === playerId);
-        if (!placedPlayer) return s;
-
-        const draft: PlacedPlayerDraft = {
-          playerId: placedPlayer.playerId,
-          initialImageId: placedPlayer.initialImageId,
-          shape: placedPlayer.shape,
-          initialState: placedPlayer.initialState,
-        };
+        const placedPlayer = (state.getActivePlacedPlayers() ?? []).find((player) => player.playerId === playerId,);
+        if (!placedPlayer) return state;
 
         return {
-          ...s,
+          ...state,
           placedPlayerEditor: {
-            context: buildContext(s.activeLayerId),
+            context: buildContext(state.activeLayerId),
             mode: { type: "editing", playerId },
-            selection: {
-              playerId,
-            },
-            draft,
+            selection: { playerId },
+            draft: buildDraftFromPlacedPlayer(placedPlayer),
             drawing: null,
           },
         };
       }),
 
     cancelPlacedPlayerDraft: () =>
-      set((s) => ({
-        ...s,
+      set((state) => ({
+        ...state,
         placedPlayerEditor: initialPlacedPlayerEditorState,
       })),
 
     setPlacedPlayerDraftInitialState: (patch) =>
-      set((s) => {
-        const draft = s.placedPlayerEditor.draft;
-        if (!draft) return s;
+      set((state) => {
+        const draft = state.placedPlayerEditor.draft;
+        if (!draft) return state;
 
         return {
-          ...s,
+          ...state,
           placedPlayerEditor: {
-            ...s.placedPlayerEditor,
+            ...state.placedPlayerEditor,
             draft: {
               ...draft,
               initialState: { ...draft.initialState, ...patch },
@@ -287,72 +233,34 @@ export function createEditorPlacedPlayersSlice(set: (partial: Partial<Store> | (
       }),
 
     validatePlacedPlayerDraft: () => {
-      const s = get();
-      const draft = s.placedPlayerEditor.draft;
+      const state = get();
+      const result = validatePlacedPlayerDraftCandidate(state.placedPlayerEditor.draft);
 
-      if (!draft) return { ok: false, error: "No hay borrador de placedPlayer." };
-      if (!draft.shape) {
-        return { ok: false, error: "Debes dibujar un área válida antes de guardar el player." };
-      }
-
-      const draftWithShape: PlacedPlayerDraft & { shape: RegionShape } = {
-        ...draft,
-        shape: draft.shape,
-      };
-
-      const candidate = buildCandidateFromDraft(draftWithShape);
-
-      const result = validatePlacedPlayer(candidate);
-      if (!result.ok) {
-        const msg =
-          result.errors.initialImageId ??
-          result.errors.playerId ??
-          result.errors.shape ??
-          result.errors.initialState ??
-          "El player colocado no es válido.";
-
-        return { ok: false, error: msg };
-      }
+      if (!result.ok) return { ok: false, error: result.error };
 
       return { ok: true };
     },
 
     commitPlacedPlayerDraft: () => {
-      const s = get();
-      const draft = s.placedPlayerEditor.draft;
+      const state = get();
+      const draft = state.placedPlayerEditor.draft;
 
-      if (!draft) return { ok: false, error: "No hay borrador de placedPlayer." };
-      if (!draft.shape) {
-        return { ok: false, error: "Debes dibujar un área válida antes de guardar el player." };
-      }
+      if (!draft) return { ok: false, code: "missing_draft", error: "No hay borrador de PlacedPlayer." } as const;
+  
+      const result = validatePlacedPlayerDraftCandidate(draft);
 
-      const draftWithShape: PlacedPlayerDraft & { shape: RegionShape } = {
-        ...draft,
-        shape: draft.shape,
-      };
+      if (!result.ok) return { ok: false, code: "invalid_draft", error: result.error } as const;
 
-      const candidate = buildCandidateFromDraft(draftWithShape);
+      const candidate = buildPlacedPlayerCandidateFromDraft({ ...draft, shape: draft.shape! });
 
-      const result = validatePlacedPlayer(candidate);
-      if (!result.ok) {
-        const msg =
-          result.errors.initialImageId ??
-          result.errors.playerId ??
-          result.errors.shape ??
-          result.errors.initialState ??
-          "El player colocado no es válido.";
+      state.upsertPlacedPlayer(candidate);
 
-        return { ok: false, error: msg };
-      }
-
-      s.upsertPlacedPlayer(candidate);
-
-      set((st) => ({
-        ...st,
+      set((storeState) => ({
+        ...storeState,
         placedPlayerEditor: initialPlacedPlayerEditorState,
       }));
 
-      return { ok: true, playerId: candidate.playerId };
+      return { ok: true, playerId: candidate.playerId } as const;
     },
   };
 }

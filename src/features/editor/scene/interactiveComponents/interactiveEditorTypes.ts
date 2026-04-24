@@ -14,7 +14,7 @@ export type EditorContext = {
 export type EditorMode<EntityIdKey extends string> =
   | { type: "idle" }
   | { type: "drawing" }
-  | { type: "editing" } & Record<EntityIdKey, ID>;
+  | ({ type: "editing" } & Record<EntityIdKey, ID>);
 
 export type RuleChannel =
   | { type: "onClick" }

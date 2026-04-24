@@ -2,9 +2,9 @@ import { useEffect, useMemo, useRef } from "react";
 import type { Hotspot, ID, PlacedItem, PlacedNpc, PlacedPlayer, Project, SceneImageLayer } from "@/domain/types";
 import type { ClickableRegion } from "@/features/editor/scene/clickableCollisions";
 
-/* Normaliza una clave de texto para comparaciones: trim + lowercase */
-export function normKey(s: string | null | undefined) {
-  return (s ?? "").trim().toLowerCase();
+
+export function normKey(value: string | null | undefined): string {
+  return (value ?? "").trim().toLowerCase();
 }
 
 type BuildClickableRegionsArgs = {
@@ -15,58 +15,43 @@ type BuildClickableRegionsArgs = {
   placedPlayers: PlacedPlayer[];
 };
 
-/* Construye la lista de regiones interactivas visibles en la escena para detección de clics y colisiones */
+/* Construye la lista de regiones interactivas visibles de la escena para detección de clics y colisiones */
 export function buildClickableRegions({ project, hotspots, placedItems, placedNpcs, placedPlayers }: BuildClickableRegionsArgs): ClickableRegion[] {
-  const itemsById = new Map((project?.items ?? []).map((it) => [it.id, it]));
-  const npcsById = new Map((project?.npcs ?? []).map((n) => [n.id, n]));
-  const playersById = new Map((project?.players ?? []).map((p) => [p.id, p]));
+  const itemsById = new Map((project?.items ?? []).map((item) => [item.id, item]));
+  const npcsById = new Map((project?.npcs ?? []).map((npc) => [npc.id, npc]));
+  const playersById = new Map((project?.players ?? []).map((player) => [player.id, player]));
 
-  const out: ClickableRegion[] = [];
+  const regions: ClickableRegion[] = [];
 
-  for (const hs of hotspots) {
-    out.push({
-      kind: "hotspot",
-      id: hs.id,
-      label: hs.label.trim() || "(sin label)",
-      shape: hs.shape,
-    });
+  for (const hotspot of hotspots) {
+    regions.push({ kind: "hotspot", id: hotspot.id, label: hotspot.label.trim() || "(sin label)", shape: hotspot.shape });
   }
 
-  for (const pi of placedItems) {
-    const baseName = itemsById.get(pi.itemId)?.name ?? "Item";
-    const inst = String(pi.label ?? "").trim();
+  for (const placedItem of placedItems) {
+    const baseName = itemsById.get(placedItem.itemId)?.name ?? "Item";
+    const instanceLabel = String(placedItem.label ?? "").trim();
 
-    out.push({
+    regions.push({
       kind: "item",
-      id: pi.id,
-      label: inst ? `${baseName} (${inst})` : baseName,
-      shape: pi.shape,
+      id: placedItem.id,
+      label: instanceLabel ? `${baseName} (${instanceLabel})` : baseName,
+      shape: placedItem.shape,
     });
   }
 
-  for (const pn of placedNpcs) {
-    const name = npcsById.get(pn.npcId)?.name ?? "PNJ";
+  for (const placedNpc of placedNpcs) {
+    const name = npcsById.get(placedNpc.npcId)?.name ?? "PNJ";
 
-    out.push({
-      kind: "npc",
-      id: pn.npcId,
-      label: name,
-      shape: pn.shape,
-    });
+    regions.push({ kind: "npc", id: placedNpc.npcId, label: name, shape: placedNpc.shape });
   }
 
-  for (const pp of placedPlayers) {
-    const name = playersById.get(pp.playerId)?.name ?? "Player";
+  for (const placedPlayer of placedPlayers) {
+    const name = playersById.get(placedPlayer.playerId)?.name ?? "Player";
 
-    out.push({
-      kind: "player",
-      id: pp.playerId,
-      label: name,
-      shape: pp.shape,
-    });
+    regions.push({ kind: "player", id: placedPlayer.playerId, label: name, shape: placedPlayer.shape });
   }
 
-  return out;
+  return regions;
 }
 
 type UseActiveSceneLayerArgs = {
@@ -77,40 +62,44 @@ type UseActiveSceneLayerArgs = {
   layers: SceneImageLayer[];
 };
 
-/* Al activar el field, su capa se convierta en la capa activa del editor */
+/* Cuando el field está activo, fuerza su capa como capa activa del editor */
 export function useActiveSceneLayer({ active, layerId, activeLayerId, setActiveLayerId, layers }: UseActiveSceneLayerArgs) {
   useEffect(() => {
     if (!active) return;
-    if (activeLayerId === layerId) return;
+    if (String(activeLayerId ?? "") === String(layerId)) return;
+
     setActiveLayerId(layerId);
   }, [active, activeLayerId, layerId, setActiveLayerId]);
 
-  const layer = useMemo(() => layers.find((l) => String(l.id) === String(layerId)) ?? null, [layers, layerId]);
+  const layer = useMemo(
+    () => layers.find((currentLayer) => String(currentLayer.id) === String(layerId)) ?? null,
+    [layers, layerId],
+  );
 
   return { layer };
 }
 
-/* Foco automático a un input/textarea cuando la condición "enabled" pasa de false a true */
-export function useFocusWhenEnabled<T extends HTMLInputElement | HTMLTextAreaElement>(enabled: boolean ) {
+/* Hace focus automático a un input/textarea cuando `enabled` pasa de false a true */
+export function useFocusWhenEnabled<T extends HTMLInputElement | HTMLTextAreaElement>(enabled: boolean) {
   const inputRef = useRef<T | null>(null);
   const prevEnabledRef = useRef(false);
 
   useEffect(() => {
-    const prev = prevEnabledRef.current;
+    const wasEnabled = prevEnabledRef.current;
     prevEnabledRef.current = enabled;
 
-    if (!prev && enabled) {
-      requestAnimationFrame(() => {
-        const el = inputRef.current;
-        if (!el) return;
+    if (wasEnabled || !enabled) return;
 
-        el.focus();
+    requestAnimationFrame(() => {
+      const element = inputRef.current;
+      if (!element) return;
 
-        const len = el.value.length;
-        try { el.setSelectionRange(len, len);}        
-        catch {}
-      });
-    }
+      element.focus();
+
+      const textLength = element.value.length;
+      try { element.setSelectionRange(textLength, textLength) }
+      catch { }
+    });
   }, [enabled]);
 
   return inputRef;

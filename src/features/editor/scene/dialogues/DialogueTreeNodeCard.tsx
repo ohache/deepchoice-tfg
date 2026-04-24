@@ -1,6 +1,7 @@
-import { useState, useRef, useEffect } from "react";
-import type { ID, Dialogue, DialogueLineNode, DialogueNode } from "@/domain/types";
-import { Check, ChevronDown, ChevronRight, Plus, Ruler, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import type { ID, Dialogue, DialogueLineNode } from "@/domain/types";
+import { DialogueTreeNodeContent } from "@/features/editor/scene/dialogues/DialogueTreeNodeContent";
+import { buildDialogueIndex, findDialogueLineNodeInIndex, findDialogueNodeInIndex } from "@/features/editor/scene/dialogues/dialogueHelpersSlice";
 
 type DialogueTreeNodeCardProps = {
   dialogue: Dialogue;
@@ -11,7 +12,7 @@ type DialogueTreeNodeCardProps = {
   depth: number;
   selectedLineId: ID | null;
   editingLineDraft: DialogueLineNode | null;
-  onSelectLine: (lineId: ID) => void;
+  onSelectLine: (lineId: ID | null) => void;
   onAddChild: (parentId: ID, speaker: DialogueLineNode["speaker"]) => void;
   onDeleteLine: (lineId: ID) => void;
   onUpdateLine: (lineId: ID, patch: Partial<DialogueLineNode>) => void;
@@ -20,20 +21,7 @@ type DialogueTreeNodeCardProps = {
   onReorderSiblings: (parentId: ID, fromIndex: number, toIndex: number) => void;
 };
 
-function isLineNode(node: DialogueNode): node is DialogueLineNode {
-  return node.type === "line";
-}
-
-function getNodeById(dialogue: Dialogue, nodeId: ID | null | undefined): DialogueNode | null {
-  if (!nodeId) return null;
-  return dialogue.nodes.find((node) => node.id === nodeId) ?? null;
-}
-
-function getLineById(dialogue: Dialogue, lineId: ID | null | undefined): DialogueLineNode | null {
-  const node = getNodeById(dialogue, lineId);
-  return node && isLineNode(node) ? node : null;
-}
-
+/* Helpers de estilo */
 function speakerTone(speaker: DialogueLineNode["speaker"], selected: boolean): string {
   if (speaker === "player") {
     return selected
@@ -46,54 +34,142 @@ function speakerTone(speaker: DialogueLineNode["speaker"], selected: boolean): s
     : "border-2 border-sky-800 bg-sky-950/30";
 }
 
-function speakerBadgeTone(speaker: DialogueLineNode["speaker"]): string {
-  return speaker === "player"
-    ? "border-emerald-700/50 bg-emerald-950/40 text-emerald-100"
-    : "border-sky-700/50 bg-sky-950/40 text-sky-100";
+function hasDialogueRule(line: DialogueLineNode): boolean {
+  return Boolean(line.when) || (line.effects?.length ?? 0) > 0;
 }
 
-export function DialogueTreeNodeCard({ dialogue, playerName, npcName, line, parentId, depth, selectedLineId, editingLineDraft, onSelectLine,
-  onAddChild, onDeleteLine, onUpdateLine, onSaveLine, onOpenLineRule, onReorderSiblings }: DialogueTreeNodeCardProps) {
+function parseSiblingReorderPayload(raw: string): { parentId: ID; fromIndex: number; lineId: ID } | null {
+  try {
+    const data = JSON.parse(raw) as { parentId: ID; fromIndex: number; lineId: ID };
+
+    if (!data?.parentId || typeof data.fromIndex !== "number" || !data?.lineId) return null;
+
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+export function DialogueTreeNodeCard({ dialogue, playerName, npcName, line, parentId, depth, selectedLineId, editingLineDraft, onSelectLine, onAddChild,
+  onDeleteLine, onUpdateLine, onSaveLine, onOpenLineRule, onReorderSiblings }: DialogueTreeNodeCardProps) {
+  const dialogueIndex = useMemo(() => buildDialogueIndex(dialogue), [dialogue]);
+
   const selected = selectedLineId === line.id;
 
   const renderedLine: DialogueLineNode = selected && editingLineDraft?.id === line.id ? editingLineDraft : line;
 
   const [collapsed, setCollapsed] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-
   const [isDraggingSelf, setIsDraggingSelf] = useState(false);
   const [isDragOverSelf, setIsDragOverSelf] = useState(false);
 
-  const childIds = line.childrenIds ?? [];
-  const children = childIds
-    .map((childId) => getLineById(dialogue, childId))
-    .filter((child): child is DialogueLineNode => Boolean(child));
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const children = useMemo<DialogueLineNode[]>(() => (line.childrenIds ?? [])
+    .map((childId) => findDialogueLineNodeInIndex(dialogueIndex, childId))
+    .filter((child): child is DialogueLineNode => Boolean(child)),
+    [line.childrenIds, dialogueIndex]
+  );
 
   const hasChildren = children.length > 0;
 
-  const parentNode = getNodeById(dialogue, parentId);
-  const siblingIds = parentNode?.childrenIds ?? [];
-  const siblingLines = siblingIds
-    .map((childId) => getLineById(dialogue, childId))
-    .filter((child): child is DialogueLineNode => Boolean(child));
+  const siblingLines = useMemo<DialogueLineNode[]>(() => {
+    const parentNode = findDialogueNodeInIndex(dialogueIndex, parentId);
+    const siblingIds = parentNode?.childrenIds ?? [];
+
+    return siblingIds.map((childId) => findDialogueLineNodeInIndex(dialogueIndex, childId))
+      .filter((child): child is DialogueLineNode => Boolean(child));
+  }, [dialogueIndex, parentId]);
 
   const currentSiblingIndex = siblingLines.findIndex((sibling) => sibling.id === line.id);
 
   const nextSpeaker: DialogueLineNode["speaker"] = line.speaker === "player" ? "npc" : "player";
+
   const hasText = renderedLine.text.trim().length > 0;
+  const hasRule = hasDialogueRule(renderedLine);
   const speakerLabel = renderedLine.speaker === "player" ? playerName : npcName;
+
+  const isDraggable = currentSiblingIndex >= 0;
+
+  const cardClassName =
+    "rounded-lg border px-3 py-3 select-none transition-colors " +
+    (selected ? "" : "cursor-pointer ") +
+    speakerTone(renderedLine.speaker, selected) + " " +
+    (isDraggingSelf ? "opacity-50 " : "") +
+    (isDragOverSelf ? "ring-2 ring-fuchsia-500/70" : "");
+
+  const handleSelect = () => { onSelectLine(selected ? null : line.id)};
+
+  const handleDragStart = (event: DragEvent<HTMLDivElement>) => {
+    event.stopPropagation();
+    if (!isDraggable) return;
+
+    const payload = JSON.stringify({
+      parentId,
+      fromIndex: currentSiblingIndex,
+      lineId: line.id,
+    });
+
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", payload);
+    event.dataTransfer.setData("application/x-dialogue-sibling-reorder", payload);
+
+    setIsDraggingSelf(true);
+  };
+
+  const handleDragEnd = (event: DragEvent<HTMLDivElement>) => {
+    event.stopPropagation();
+    setIsDraggingSelf(false);
+    setIsDragOverSelf(false);
+  };
+
+  const handleDragOver = (event: DragEvent<HTMLDivElement>) => {
+    if (!isDraggable) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "move";
+    setIsDragOverSelf(true);
+  };
+
+  const handleDragLeave = (event: DragEvent<HTMLDivElement>) => {
+    event.stopPropagation();
+    setIsDragOverSelf(false);
+  };
+
+  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDragOverSelf(false);
+
+    if (!isDraggable) return;
+
+    const raw =
+      event.dataTransfer.getData("application/x-dialogue-sibling-reorder") ||
+      event.dataTransfer.getData("text/plain");
+
+    if (!raw) return;
+
+    const data = parseSiblingReorderPayload(raw);
+    if (!data) return;
+
+    if (data.parentId !== parentId) return;
+    if (data.lineId === line.id) return;
+    if (data.fromIndex < 0 || data.fromIndex === currentSiblingIndex) return;
+
+    onReorderSiblings(parentId, data.fromIndex, currentSiblingIndex);
+  };
 
   useEffect(() => {
     if (!selected) return;
 
     requestAnimationFrame(() => {
-      const el = textareaRef.current;
-      if (!el) return;
+      const element = textareaRef.current;
+      if (!element) return;
 
-      el.focus();
+      element.focus();
 
-      const len = el.value.length;
-      try { el.setSelectionRange(len, len); }
+      const textLength = element.value.length;
+      try { element.setSelectionRange(textLength, textLength); }
       catch { }
     });
   }, [selected]);
@@ -102,222 +178,33 @@ export function DialogueTreeNodeCard({ dialogue, playerName, npcName, line, pare
     <div className="space-y-2">
       <div style={{ marginLeft: `${depth * 24}px` }}>
         <div
-          onClick={() => { if (!selected) onSelectLine(line.id) }}
-          className={`rounded-lg border px-3 py-3 ${selected ? "" : "cursor-pointer"} select-none transition-colors ${speakerTone(renderedLine.speaker, selected)
-            } ${isDraggingSelf ? "opacity-50" : ""
-            } ${isDragOverSelf ? "ring-2 ring-fuchsia-500/70" : ""
-            }`}
+          onClick={handleSelect}
+          className={cardClassName}
           title="Seleccionar línea"
-          draggable={currentSiblingIndex >= 0}
-                    onDragStart={(e) => {
-            e.stopPropagation();
-            if (currentSiblingIndex < 0) return;
-
-            const payload = JSON.stringify({
-              parentId,
-              fromIndex: currentSiblingIndex,
-              lineId: line.id,
-            });
-
-            e.dataTransfer.effectAllowed = "move";
-            e.dataTransfer.setData("text/plain", payload);
-            e.dataTransfer.setData("application/x-dialogue-sibling-reorder", payload);
-
-            setIsDraggingSelf(true);
-          }}
-          onDragEnd={(e) => {
-            e.stopPropagation();
-            setIsDraggingSelf(false);
-            setIsDragOverSelf(false);
-          }}
-                    onDragOver={(e) => {
-            if (currentSiblingIndex < 0) return;
-
-            e.preventDefault();
-            e.stopPropagation();
-            e.dataTransfer.dropEffect = "move";
-            setIsDragOverSelf(true);
-          }}
-          onDragLeave={(e) => {
-            e.stopPropagation();
-            setIsDragOverSelf(false);
-          }}
-                   onDrop={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            setIsDragOverSelf(false);
-
-            if (currentSiblingIndex < 0) return;
-
-            const raw =
-              e.dataTransfer.getData("application/x-dialogue-sibling-reorder") ||
-              e.dataTransfer.getData("text/plain");
-
-            if (!raw) return;
-
-            try {
-              const data = JSON.parse(raw) as { parentId: ID; fromIndex: number; lineId: ID };
-
-              if (data.parentId !== parentId) return;
-              if (data.lineId === line.id) return;
-              if (data.fromIndex < 0 || data.fromIndex === currentSiblingIndex) return;
-
-              onReorderSiblings(parentId, data.fromIndex, currentSiblingIndex);
-            } catch {
-              return;
-            }
-          }}
+          draggable={isDraggable}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
         >
-          {selected ? (
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0 flex-1 space-y-2">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span
-                    className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${speakerBadgeTone(renderedLine.speaker)}`}
-                  >
-                    {speakerLabel}
-                  </span>
-                </div>
-
-                <textarea
-                  ref={textareaRef}
-                  value={renderedLine.text}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onClick={(e) => e.stopPropagation()}
-                  onChange={(e) => onUpdateLine(line.id, { text: e.currentTarget.value })}
-                  rows={3}
-                  placeholder="Texto de la línea"
-                  className="w-full rounded-md border border-indigo-400 px-2 py-1.5 text-sm text-white placeholder:text-slate-500 resize-none 
-                    focus:outline-none focus:border-transparent focus:ring-2 focus:ring-fuchsia-500 editor-scroll"
-                />
-              </div>
-
-              <div className="flex items-center gap-2 shrink-0">
-                {hasChildren ? (
-                  <button
-                    type="button"
-                    className="btn border-2 border-slate-700 bg-slate-900 hover:bg-slate-800 text-xs text-white"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setCollapsed((prev) => !prev);
-                    }}
-                    title={collapsed ? "Expandir hijos" : "Colapsar hijos"}
-                  >
-                    {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                  </button>
-                ) : null}
-
-                <button
-                  type="button"
-                  className="btn border-2 border-emerald-700/60 bg-emerald-950/30 hover:bg-emerald-900/40 text-xs text-emerald-100 disabled:opacity-40 disabled:cursor-not-allowed"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onSaveLine(line.id);
-                  }}
-                  title={!hasText ? "No puedes guardar una línea vacía" : "Guardar línea"}
-                  disabled={!hasText}
-                >
-                  <Check className="w-4 h-4" />
-                </button>
-
-                <button
-                  type="button"
-                  className="btn border-2 border-amber-700/60 bg-amber-950/30 hover:bg-amber-900/40 text-xs text-amber-100"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onOpenLineRule(line.id);
-                  }}
-                  title={renderedLine.when || (renderedLine.effects?.length ?? 0) > 0 ? "Editar regla" : "Añadir regla"}
-                >
-                  <Ruler className="w-4 h-4" />
-                </button>
-
-                <button
-                  type="button"
-                  className="btn border-2 border-slate-700 bg-slate-900 hover:bg-slate-800 text-xs text-white disabled:opacity-40 disabled:cursor-not-allowed"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onAddChild(line.id, nextSpeaker);
-                  }}
-                  title={!hasText ? "No puedes añadir un hijo a una línea vacía" : "Añadir hijo"}
-                  disabled={!hasText}
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
-
-                <button
-                  type="button"
-                  className="btn border-2 border-rose-700/60 bg-rose-950/30 hover:bg-rose-950/50 text-xs text-rose-100"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDeleteLine(line.id);
-                  }}
-                  title="Eliminar línea"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0 flex-1 text-sm text-white text-left truncate ml-1">
-                {renderedLine.text.trim() || <span className="text-slate-500">(sin texto)</span>}
-              </div>
-
-              <div className="flex items-center gap-2 shrink-0">
-                {hasChildren ? (
-                  <button
-                    type="button"
-                    className="btn border-2 border-slate-700 bg-slate-900 hover:bg-slate-800 text-xs text-white"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setCollapsed((prev) => !prev);
-                    }}
-                    title={collapsed ? "Expandir hijos" : "Colapsar hijos"}
-                  >
-                    {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                  </button>
-                ) : null}
-
-                <button
-                  type="button"
-                  className="btn border-2 border-amber-700/60 bg-amber-950/30 hover:bg-amber-900/40 text-xs text-amber-100"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onOpenLineRule(line.id);
-                  }}
-                  title={renderedLine.when || (renderedLine.effects?.length ?? 0) > 0 ? "Editar regla" : "Añadir regla"}
-                >
-                  <Ruler className="w-4 h-4" />
-                </button>
-
-                <button
-                  type="button"
-                  className="btn border-2 border-slate-700 bg-slate-900 hover:bg-slate-800 text-xs text-white disabled:opacity-40 disabled:cursor-not-allowed"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onAddChild(line.id, nextSpeaker);
-                  }}
-                  title={!hasText ? "No puedes añadir un hijo a una línea vacía" : "Añadir hijo"}
-                  disabled={!hasText}
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
-
-                <button
-                  type="button"
-                  className="btn border-2 border-rose-700/60 bg-rose-950/30 hover:bg-rose-950/50 text-xs text-rose-100"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDeleteLine(line.id);
-                  }}
-                  title="Eliminar línea"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          )}
+          <DialogueTreeNodeContent
+            selected={selected}
+            renderedLine={renderedLine}
+            speakerLabel={speakerLabel}
+            hasChildren={hasChildren}
+            collapsed={collapsed}
+            hasText={hasText}
+            hasRule={hasRule}
+            nextSpeaker={nextSpeaker}
+            textareaRef={textareaRef}
+            onToggleCollapsed={() => setCollapsed((prev) => !prev)}
+            onUpdateLine={onUpdateLine}
+            onSaveLine={onSaveLine}
+            onOpenLineRule={onOpenLineRule}
+            onAddChild={onAddChild}
+            onDeleteLine={onDeleteLine}
+          />
         </div>
       </div>
 

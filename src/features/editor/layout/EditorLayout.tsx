@@ -9,6 +9,7 @@ import { HistoryPlayersPanel } from "@/features/editor/history/players/HistoryPl
 import { HistorySfxPanel } from "@/features/editor/history/sfx/HistorySfxPanel";
 import { HistoryNpcsPanel } from "@/features/editor/history/npcs/HistoryNpcsPanel";
 import { SceneEditorView } from "@/features/editor/scene/SceneEditorView";
+import { SceneTestView } from "../scene/test/SceneTestView";
 
 function renderHistoryContent(secondaryMode: string) {
   switch (secondaryMode) {
@@ -49,6 +50,9 @@ function renderSceneContent(secondaryMode: string) {
     case "buscar":
       return <SceneListView />;
 
+    case "test":
+      return <SceneTestView />;
+
     default:
       return null;
   }
@@ -67,7 +71,7 @@ export function EditorLayout() {
   }
 
   return (
-    <main data-editor-scroll="true" className="editor-scroll flex-1 min-h-0 p-4 overflow-auto bg-slate-900/40">
+    <main data-editor-scroll="true" className="editor-scroll flex-1 min-h-0 p-4 overflow-auto bg-slate-950">
       {content}
     </main>
   );

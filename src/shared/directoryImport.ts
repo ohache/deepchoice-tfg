@@ -54,12 +54,12 @@ export function resolveDirectoryImport(project: Project, files: File[]) {
   const assetFilesById: Record<ID, File> = {};
 
   for (const asset of project.assets ?? []) {
-    const logicalFile = ensureAssetsPrefix(String(asset.file ?? ""));
-    const normalizedAsset = { ...asset, file: logicalFile };
-    normalizedAssets.push(normalizedAsset);
+    const assetPath = ensureAssetsPrefix(String(asset.file ?? ""));
+    const assetWithNormalizedPath = { ...asset, file: assetPath };
+    normalizedAssets.push(assetWithNormalizedPath);
 
-    const file = logicalFile ? pickedFilesByPath[logicalFile] : undefined;
-    if (file) assetFilesById[normalizedAsset.id] = file;
+    const file = assetPath ? pickedFilesByPath[assetPath] : undefined;
+    if (file) assetFilesById[assetWithNormalizedPath.id] = file;
   }
 
   return { normalizedAssets, assetFilesById };

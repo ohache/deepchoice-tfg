@@ -5,6 +5,7 @@ import type { ProjectIndex } from "@/features/editor/scene/rules/conditions/cond
 
 type LeafByType<T extends Condition["type"]> = Extract<Condition, { type: T }>;
 
+/* Subconjunto de condiciones soportadas en UI */
 export type EnabledLeafCondition =
   | LeafByType<"nodeVisited">
   | LeafByType<"hasItem">
@@ -22,23 +23,11 @@ export type EnabledLeafCondition =
 
 export type EnabledLeafType = EnabledLeafCondition["type"];
 
-export type ConditionFamilyId =
-  | "progress"
-  | "item"
-  | "hotspot"
-  | "npc"
-  | "player";
+export type ConditionFamilyId = "progress" | "item" | "hotspot" | "npc" | "player";
 
 export type LeafCtx = { idx: ProjectIndex; currentNodeId?: ID };
 
-type LeafFieldControl =
-  | "id-select"
-  | "text"
-  | "bool"
-  | "number"
-  | "op-select"
-  | "var-op-select"
-  | "var-value";
+type LeafFieldControl = "id-select" | "text" | "bool" | "number" | "op-select" | "var-op-select" | "var-value";
 
 export type LeafFieldSpec = {
   key: string;
@@ -98,25 +87,67 @@ function normalizeNumber(value: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-function idOptionsFromProject(
-  ctx: LeafCtx,
-  source: "items" | "nodes" | "maps" | "players" | "npcs" | "hotspots" | "placedPlayers"
-): Option<ID>[] {
+/* Normalización común para condiciones con variables */
+function normalizeVarLeaf(ctx: LeafCtx, next: Extract<EnabledLeafCondition, { type: "playerVar" | "npcVar" | "hotspotVar" }>):
+  Extract<EnabledLeafCondition, { type: "playerVar" | "npcVar" | "hotspotVar" }> {
+  const n = { ...next };
+
+  switch (next.type) {
+    case "playerVar": {
+      if (!next.playerId) n.varId = "";
+
+      const def = ctx.idx.getVarDef("player", next.playerId, next.varId);
+      const kind = getVarKindFromDef(def);
+
+      n.op = normalizeOpForVarKind(n.op, kind) as typeof n.op;
+      n.value = kind === "boolean"
+        ? normalizeBoolean(n.value)
+        : normalizeNumber(n.value);
+
+      return n;
+    }
+
+    case "npcVar": {
+      if (!next.npcId) n.varId = "";
+
+      const def = ctx.idx.getVarDef("npc", next.npcId, next.varId);
+      const kind = getVarKindFromDef(def);
+
+      n.op = normalizeOpForVarKind(n.op, kind) as typeof n.op;
+      n.value = kind === "boolean"
+        ? normalizeBoolean(n.value)
+        : normalizeNumber(n.value);
+
+      return n;
+    }
+
+    case "hotspotVar": {
+      if (!next.hotspotId) n.varId = "";
+
+      const def = ctx.idx.getVarDef("hotspot", next.hotspotId, next.varId);
+      const kind = getVarKindFromDef(def);
+
+      n.op = normalizeOpForVarKind(n.op, kind) as typeof n.op;
+      n.value = kind === "boolean"
+        ? normalizeBoolean(n.value)
+        : normalizeNumber(n.value);
+
+      return n;
+    }
+  }
+}
+
+/* Centraliza acceso a opciones */
+function idOptionsFromProject(ctx: LeafCtx, source: LeafFieldSpec["optionsSource"]): Option<ID>[] {
   switch (source) {
-    case "items":
-      return ctx.idx.getPlacedItemOptions();
-    case "nodes":
-      return ctx.idx.getNodeOptions({ excludeNodeId: ctx.currentNodeId });
-    case "maps":
-      return ctx.idx.getMapOptions();
-    case "players":
-      return ctx.idx.getPlayerOptions();
-    case "npcs":
-      return ctx.idx.getNpcOptions();
-    case "hotspots":
-      return ctx.idx.getHotspotOptions();
-    case "placedPlayers":
-      return ctx.idx.getPlacedPlayerOptions();
+    case "items": return ctx.idx.getPlacedItemOptions();
+    case "nodes": return ctx.idx.getNodeOptions({ excludeNodeId: ctx.currentNodeId });
+    case "maps": return ctx.idx.getMapOptions();
+    case "players": return ctx.idx.getPlayerOptions();
+    case "npcs": return ctx.idx.getNpcOptions();
+    case "hotspots": return ctx.idx.getHotspotOptions();
+    case "placedPlayers": return ctx.idx.getPlacedPlayerOptions();
+    default: return [];
   }
 }
 
@@ -125,19 +156,24 @@ function getSingleMapId(ctx: LeafCtx): ID {
 }
 
 function hasVarsForCondition(ctx: LeafCtx, cond: EnabledLeafCondition): boolean {
-  if (cond.type === "playerVar" || cond.type === "placedPlayerVisible") {
-    return ctx.idx.getVarOptions("player", cond.playerId).length > 0;
-  }
+  switch (cond.type) {
+    case "playerVar":
+    case "placedPlayerVisible":
+      return ctx.idx.getVarOptions("player", cond.playerId).length > 0;
 
-  if (cond.type === "npcVar" || cond.type === "placedNpcVisible" || cond.type === "placedNpcReachable") {
-    return ctx.idx.getVarOptions("npc", cond.npcId).length > 0;
-  }
+    case "npcVar":
+    case "placedNpcVisible":
+    case "placedNpcReachable":
+      return ctx.idx.getVarOptions("npc", cond.npcId).length > 0;
 
-  if (cond.type === "hotspotVar" || cond.type === "hotspotVisible" || cond.type === "hotspotReachable") {
-    return ctx.idx.getVarOptions("hotspot", cond.hotspotId).length > 0;
-  }
+    case "hotspotVar":
+    case "hotspotVisible":
+    case "hotspotReachable":
+      return ctx.idx.getVarOptions("hotspot", cond.hotspotId).length > 0;
 
-  return false;
+    default:
+      return false;
+  }
 }
 
 type LeafSpec<T extends EnabledLeafType> = {
@@ -564,22 +600,37 @@ export function leafLabel(type: EnabledLeafType): string {
   return LEAF_REGISTRY[type].label;
 }
 
+const FAMILY_BY_TYPE: Record<EnabledLeafType, ConditionFamilyId> = {
+  nodeVisited: "progress",
+  mapRegionVisited: "progress",
+
+  hasItem: "item",
+  placedItemVisible: "item",
+  placedItemReachable: "item",
+
+  hotspotVisible: "hotspot",
+  hotspotReachable: "hotspot",
+  hotspotVar: "hotspot",
+
+  placedNpcVisible: "npc",
+  placedNpcReachable: "npc",
+  npcVar: "npc",
+
+  placedPlayerVisible: "player",
+  playerVar: "player",
+};
+
 export function leafFamily(type: EnabledLeafType): ConditionFamilyId {
-  if (type === "nodeVisited" || type === "mapRegionVisited") return "progress";
-  if (type === "hasItem" || type === "placedItemVisible" || type === "placedItemReachable") return "item";
-  if (type === "hotspotVisible" || type === "hotspotReachable" || type === "hotspotVar") return "hotspot";
-  if (type === "placedNpcVisible" || type === "placedNpcReachable" || type === "npcVar") return "npc";
-  return "player";
+  return FAMILY_BY_TYPE[type];
 }
 
 export function getConditionFamilies(ctx: LeafCtx): ConditionFamilySpec[] {
   const enabled = new Set(enabledLeafTypesForContext(ctx));
 
-  return CONDITION_FAMILIES
-    .map((family) => ({
-      ...family,
-      leafTypes: family.leafTypes.filter((type) => enabled.has(type)),
-    }))
+  return CONDITION_FAMILIES.map((family) => ({
+    ...family,
+    leafTypes: family.leafTypes.filter((type) => enabled.has(type)),
+  }))
     .filter((family) => family.leafTypes.length > 0);
 }
 
@@ -587,27 +638,17 @@ export function getFamilyById(ctx: LeafCtx, familyId: ConditionFamilyId): Condit
   return getConditionFamilies(ctx).find((f) => f.id === familyId) ?? null;
 }
 
-export function getAvailableLeafTypesForFamily(
-  ctx: LeafCtx,
-  familyId: ConditionFamilyId,
-  currentCond?: EnabledLeafCondition | null
-): EnabledLeafType[] {
+export function getAvailableLeafTypesForFamily(ctx: LeafCtx, familyId: ConditionFamilyId, currentCond?: EnabledLeafCondition | null): EnabledLeafType[] {
   const family = getFamilyById(ctx, familyId);
   if (!family) return [];
 
   if (!currentCond) return family.leafTypes;
 
-  if (familyId === "hotspot") {
-    return family.leafTypes.filter((type) => type !== "hotspotVar" || hasVarsForCondition(ctx, currentCond));
-  }
+  if (familyId === "hotspot") return family.leafTypes.filter((type) => type !== "hotspotVar" || hasVarsForCondition(ctx, currentCond));
 
-  if (familyId === "npc") {
-    return family.leafTypes.filter((type) => type !== "npcVar" || hasVarsForCondition(ctx, currentCond));
-  }
+  if (familyId === "npc") return family.leafTypes.filter((type) => type !== "npcVar" || hasVarsForCondition(ctx, currentCond));
 
-  if (familyId === "player") {
-    return family.leafTypes.filter((type) => type !== "playerVar" || hasVarsForCondition(ctx, currentCond));
-  }
+  if (familyId === "player") return family.leafTypes.filter((type) => type !== "playerVar" || hasVarsForCondition(ctx, currentCond));
 
   return family.leafTypes;
 }
@@ -616,52 +657,38 @@ export function createDefaultLeaf<T extends EnabledLeafType>(type: T): Extract<E
   return LEAF_REGISTRY[type].makeDefault();
 }
 
-export function createSiblingLeafPreservingSelection(
-  ctx: LeafCtx,
-  prev: EnabledLeafCondition,
-  nextType: EnabledLeafType
-): EnabledLeafCondition {
+export function createSiblingLeafPreservingSelection(ctx: LeafCtx, prev: EnabledLeafCondition, nextType: EnabledLeafType): EnabledLeafCondition {
   const base = createDefaultLeaf(nextType) as EnabledLeafCondition;
 
   if (prev.type === nextType) return prev;
 
-  if (
-    (prev.type === "hasItem" || prev.type === "placedItemVisible" || prev.type === "placedItemReachable") &&
-    (nextType === "hasItem" || nextType === "placedItemVisible" || nextType === "placedItemReachable")
-  ) {
+  if ((prev.type === "hasItem" || prev.type === "placedItemVisible" || prev.type === "placedItemReachable") &&
+    (nextType === "hasItem" || nextType === "placedItemVisible" || nextType === "placedItemReachable")) {
     const placedItemId = prev.placedItemId;
     return applyLeafPatch(ctx, { ...base, placedItemId } as EnabledLeafCondition, {});
   }
 
-  if (
-    (prev.type === "hotspotVisible" || prev.type === "hotspotReachable" || prev.type === "hotspotVar") &&
-    (nextType === "hotspotVisible" || nextType === "hotspotReachable" || nextType === "hotspotVar")
-  ) {
+  if ((prev.type === "hotspotVisible" || prev.type === "hotspotReachable" || prev.type === "hotspotVar") &&
+    (nextType === "hotspotVisible" || nextType === "hotspotReachable" || nextType === "hotspotVar")) {
     const hotspotId = prev.hotspotId;
     return applyLeafPatch(ctx, { ...base, hotspotId } as EnabledLeafCondition, {});
   }
 
-  if (
-    (prev.type === "placedNpcVisible" || prev.type === "placedNpcReachable" || prev.type === "npcVar") &&
-    (nextType === "placedNpcVisible" || nextType === "placedNpcReachable" || nextType === "npcVar")
-  ) {
+  if ((prev.type === "placedNpcVisible" || prev.type === "placedNpcReachable" || prev.type === "npcVar") &&
+    (nextType === "placedNpcVisible" || nextType === "placedNpcReachable" || nextType === "npcVar")) {
     const npcId = prev.npcId;
     return applyLeafPatch(ctx, { ...base, npcId } as EnabledLeafCondition, {});
   }
 
-  if (
-    (prev.type === "placedPlayerVisible" || prev.type === "playerVar") &&
-    (nextType === "placedPlayerVisible" || nextType === "playerVar")
-  ) {
+  if ((prev.type === "placedPlayerVisible" || prev.type === "playerVar") &&
+    (nextType === "placedPlayerVisible" || nextType === "playerVar")) {
     const playerId = prev.playerId;
     return applyLeafPatch(ctx, { ...base, playerId } as EnabledLeafCondition, {});
   }
 
   if (nextType === "mapRegionVisited") {
     const next = { ...base } as LeafByType<"mapRegionVisited">;
-    if (!next.mapId && ctx.idx.getMapOptions().length === 1) {
-      next.mapId = getSingleMapId(ctx);
-    }
+    if (!next.mapId && ctx.idx.getMapOptions().length === 1) next.mapId = getSingleMapId(ctx);
     return applyLeafPatch(ctx, next, {});
   }
 
@@ -701,114 +728,56 @@ export function getVarOpOptions(ctx: LeafCtx, cond: EnabledLeafCondition): Optio
 export function applyLeafPatch(ctx: LeafCtx, prev: EnabledLeafCondition, patch: Partial<EnabledLeafCondition>): EnabledLeafCondition {
   const next = { ...prev, ...patch } as EnabledLeafCondition;
 
-  if (prev.type === "playerVar" && next.type === "playerVar") {
-    const ownerChanged = prev.playerId !== next.playerId;
-    const pNext = { ...next } as LeafByType<"playerVar">;
+  switch (next.type) {
+    case "playerVar":
+    case "npcVar":
+    case "hotspotVar":
+      return normalizeVarLeaf(ctx, next);
 
-    if (ownerChanged) pNext.varId = "";
+    default: {
+      const normalized = {
+        ...next,
+        value: normalizeBoolean((next as { value?: unknown }).value),
+      };
 
-    const def = ctx.idx.getVarDef("player", pNext.playerId, pNext.varId);
-    const kind = getVarKindFromDef(def);
+      if (normalized.type === "mapRegionVisited") {
+        if (!normalized.mapId && ctx.idx.getMapOptions().length === 1) normalized.mapId = getSingleMapId(ctx);
 
-    pNext.op = normalizeOpForVarKind(pNext.op, kind) as typeof pNext.op;
-    pNext.value = kind === "boolean" ? normalizeBoolean(pNext.value) : normalizeNumber(pNext.value);
-    return pNext;
-  }
-
-  if (prev.type === "npcVar" && next.type === "npcVar") {
-    const ownerChanged = prev.npcId !== next.npcId;
-    const nNext = { ...next } as LeafByType<"npcVar">;
-
-    if (ownerChanged) nNext.varId = "";
-
-    const def = ctx.idx.getVarDef("npc", nNext.npcId, nNext.varId);
-    const kind = getVarKindFromDef(def);
-
-    nNext.op = normalizeOpForVarKind(nNext.op, kind) as typeof nNext.op;
-    nNext.value = kind === "boolean" ? normalizeBoolean(nNext.value) : normalizeNumber(nNext.value);
-    return nNext;
-  }
-
-  if (prev.type === "hotspotVar" && next.type === "hotspotVar") {
-    const ownerChanged = prev.hotspotId !== next.hotspotId;
-    const hNext = { ...next } as LeafByType<"hotspotVar">;
-
-    if (ownerChanged) hNext.varId = "";
-
-    const def = ctx.idx.getVarDef("hotspot", hNext.hotspotId, hNext.varId);
-    const kind = getVarKindFromDef(def);
-
-    hNext.op = normalizeOpForVarKind(hNext.op, kind) as typeof hNext.op;
-    hNext.value = kind === "boolean" ? normalizeBoolean(hNext.value) : normalizeNumber(hNext.value);
-    return hNext;
-  }
-
-  if (
-    next.type === "nodeVisited" ||
-    next.type === "hasItem" ||
-    next.type === "hotspotVisible" ||
-    next.type === "hotspotReachable" ||
-    next.type === "placedItemVisible" ||
-    next.type === "placedItemReachable" ||
-    next.type === "placedNpcVisible" ||
-    next.type === "placedNpcReachable" ||
-    next.type === "placedPlayerVisible" ||
-    next.type === "mapRegionVisited"
-  ) {
-    const normalized = { ...next, value: normalizeBoolean((next as { value?: unknown }).value) } as EnabledLeafCondition;
-
-    if (normalized.type === "mapRegionVisited") {
-      if (!normalized.mapId && ctx.idx.getMapOptions().length === 1) {
-        normalized.mapId = getSingleMapId(ctx);
+        if (prev.type === "mapRegionVisited" && prev.mapId !== normalized.mapId) normalized.regionId = "";
       }
 
-      const prevMapId = prev.type === "mapRegionVisited" ? prev.mapId : undefined;
-      const mapChanged = prevMapId !== normalized.mapId;
-
-      if (mapChanged) {
-        normalized.regionId = "";
-      }
+      return normalized;
     }
-
-    return normalized;
   }
-
-  return next;
 }
 
 export function enabledLeafTypesForContext(ctx: LeafCtx): EnabledLeafType[] {
   const p = ctx.idx.project;
   if (!p) return ["nodeVisited", "hasItem"];
 
-  const playerHasVarsById = new Map(
-    (p.players ?? []).map((player) => [player.id, (player.vars ?? []).length > 0] as const)
-  );
-  const hasPlacedPlayers = ctx.idx.getPlacedPlayers().length > 0;
-  const hasPlacedPlayerVars = ctx.idx
-    .getPlacedPlayers()
-    .some((placedPlayer) => playerHasVarsById.get(placedPlayer.playerId));
-
-  const hasNpcs = (p.npcs ?? []).length > 0;
-  const hasNpcVars = (p.npcs ?? []).some((x) => (x.vars ?? []).length > 0);
-
   const hasPlacedItems = ctx.idx.getPlacedItems().length > 0;
   const hasHotspots = ctx.idx.getHotspots().length > 0;
-  const hasHotspotVars = ctx.idx.getHotspots().some((h) => (h.vars ?? []).length > 0);
-
   const hasPlacedNpcs = ctx.idx.getPlacedNpcs().length > 0;
+  const hasPlacedPlayers = ctx.idx.getPlacedPlayers().length > 0;
 
-  const hasRegions = (p.maps ?? []).some((m) => (m.regions ?? []).length > 0);
+  const hasHotspotVars = ctx.idx.getHotspots().some((h) => h.vars?.length);
+  const hasNpcVars = p.npcs?.some((n) => n.vars?.length);
+  const hasPlayerVars = ctx.idx.getPlacedPlayers().some((pl) =>
+    p.players.find((p) => p.id === pl.playerId)?.vars?.length
+  );
+
+  const hasRegions = p.maps?.some((m) => m.regions?.length);
 
   const out: EnabledLeafType[] = ["nodeVisited"];
 
   if (hasPlacedItems) out.push("hasItem", "placedItemVisible", "placedItemReachable");
-  if (hasNpcs && hasNpcVars) out.push("npcVar");
   if (hasHotspots) out.push("hotspotVisible", "hotspotReachable");
   if (hasHotspotVars) out.push("hotspotVar");
   if (hasPlacedNpcs) out.push("placedNpcVisible", "placedNpcReachable");
+  if (hasNpcVars) out.push("npcVar");
   if (hasPlacedPlayers) {
     out.push("placedPlayerVisible");
-    if (hasPlacedPlayerVars) out.push("playerVar");
+    if (hasPlayerVars) out.push("playerVar");
   }
   if (hasRegions) out.push("mapRegionVisited");
 

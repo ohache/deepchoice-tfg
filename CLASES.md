@@ -48,7 +48,7 @@ X  `src/shared/zodIssues.ts`
 X  `src/store/editorStore.ts`
 X  `src/store/utils/editorPersistence.ts`
 X  `src/store/utils/editorStoreUtils.ts`
--  `src/features/editor/core/editorGenericSlice.ts`
+X  `src/features/editor/core/editorGenericSlice.ts`
 X  `src/features/editor/core/editorModes.ts`
 -  `src/features/editor/core/editorProjectWalkers.ts`
 
@@ -99,123 +99,119 @@ X  `src/features/editor/scene/useEntityCollisionGuard.ts`
 X  `src/features/editor/layout/BottomBar.tsx`
 X  `src/features/editor/layout/EditorLayout.tsx`
 X  `src/features/editor/layout/TopBar.tsx`
-X  `src/features/editor/pages/EditorShell.tsx`
+-  `src/features/editor/pages/EditorShell.tsx` --> Pendiente closeOrModal y Modal de shortcuts (extraer)
 
 // MODALS
--  `src/features/editor/modals/ConfirmDangerModal.tsx`
--  `src/features/editor/modals/ConfirmExitModal.tsx`
--  `src/features/editor/modals/DeleteProjectEntityModal.tsx`
--  `src/features/editor/modals/ExitWithoutSaveModal.tsx`
--  `src/features/editor/modals/InsertTextTokenModal.tsx`
--  `src/features/editor/modals/StartConflictModal.tsx`
--  `src/features/editor/scene/rules/conditions/ConditionBuilderModal.tsx`
--  `src/features/editor/scene/rules/RuleBuilderModal.tsx`
--  `src/features/editor/scene/dialogues/DialogueEditorModal.tsx`
+X  `src/features/editor/modals/ConfirmDangerModal.tsx`
+X  `src/features/editor/modals/ConfirmExitModal.tsx`
+X  `src/features/editor/modals/DeleteProjectEntityModal.tsx`
+X  `src/features/editor/modals/ExitWithoutSaveModal.tsx`
+X  `src/features/editor/modals/InsertTextTokenModal.tsx`
+X  `src/features/editor/modals/StartConflictModal.tsx`
+X  `src/features/editor/scene/rules/conditions/ConditionBuilderModal.tsx`
+X  `src/features/editor/scene/rules/RuleBuilderModal.tsx`
+X  `src/features/editor/scene/dialogues/DialogueEditorModal.tsx`
 
 // SCENE
--  `src/features/editor/scene/SceneCommon.tsx`
--  `src/features/editor/scene/SceneEditorView.tsx`
--  `src/features/editor/scene/SceneFieldBlocks.tsx`
--  `src/features/editor/scene/SceneListView.tsx`
--  `src/features/editor/scene/SceneRenderPreview.tsx`
--  `src/components/SceneVariantsSection.tsx`
+X  `src/features/editor/scene/SceneCommon.tsx`
+X  `src/features/editor/scene/SceneEditorView.tsx`
+X  `src/features/editor/scene/SceneFieldBlocks.tsx`
+X  `src/features/editor/scene/SceneListView.tsx`
+X  `src/features/editor/scene/SceneRenderPreview.tsx`
+X  `src/components/SceneVariantsSection.tsx`
 
 // FIELDS
--  `src/features/editor/scene/fields/SceneImageField.tsx`
--  `src/features/editor/scene/fields/SceneLayersField.tsx`
--  `src/features/editor/scene/fields/SceneTextField.tsx`
--  `src/features/editor/scene/fields/SceneTitleField.tsx`
--  `src/features/editor/scene/fields/SceneTypeField.tsx`
--  `src/features/editor/scene/maps/SceneMapField.tsx`
--  `src/features/editor/scene/music/SceneMusicField.tsx`
--  `src/features/editor/scene/music/useScenePreviewAudio.ts`
+X  `src/features/editor/scene/fields/SceneImageField.tsx`
+X  `src/features/editor/scene/fields/SceneLayersField.tsx`
+X  `src/features/editor/scene/fields/SceneTextField.tsx`
+X  `src/features/editor/scene/fields/SceneTitleField.tsx`
+X  `src/features/editor/scene/fields/SceneTypeField.tsx`
+X  `src/features/editor/scene/maps/SceneMapField.tsx`
+X  `src/features/editor/scene/music/SceneMusicField.tsx`
+X  `src/features/editor/scene/music/useScenePreviewAudio.ts`
 
 // DIALOGUES
--  `src/features/editor/scene/dialogues/DialogueEditorPanel.tsx`
--  `src/features/editor/scene/dialogues/dialogueEditorTypes.ts`
--  `src/features/editor/scene/dialogues/dialogueHelpers.ts`
--  `src/features/editor/scene/dialogues/DialogueListPanel.tsx`
--  `src/features/editor/scene/dialogues/DialogueTreeNodeCard.tsx`
--  `src/features/editor/scene/dialogues/DialogueTreeView.tsx`
--  `src/features/editor/scene/dialogues/editorDialogueSlice.ts`
--  `src/features/editor/scene/dialogues/SceneDialogueField.tsx`
+X  `src/features/editor/scene/dialogues/dialogueEditorTypes.ts`
+X  `src/features/editor/scene/dialogues/dialogueHelpers.ts`
+X  `src/features/editor/scene/dialogues/DialogueTreeNodeCard.tsx`
+X  `src/features/editor/scene/dialogues/DialogueTreeView.tsx`
+X  `src/features/editor/scene/dialogues/editorDialogueSlice.ts`
+X  `src/features/editor/scene/dialogues/SceneDialogueField.tsx`
 
 // INTERACTIVE
--  `src/features/editor/scene/interactiveComponents/fieldHelpers.ts`
--  `src/features/editor/scene/interactiveComponents/InteractionRulesSection.tsx`
--  `src/features/editor/scene/interactiveComponents/interactiveEditorTypes.ts`
--  `src/features/editor/scene/interactiveComponents/InteractiveListPanel.tsx`
--  `src/features/editor/scene/interactiveComponents/PlaceableStateSection.tsx`
--  `src/features/editor/scene/interactiveComponents/RegionStatusNotice.tsx`
+X  `src/features/editor/scene/interactiveComponents/fieldHelpers.ts`
+X  `src/features/editor/scene/interactiveComponents/InteractionRulesSection.tsx`
+X  `src/features/editor/scene/interactiveComponents/interactiveEditorTypes.ts`
+X  `src/features/editor/scene/interactiveComponents/InteractiveListPanel.tsx`
+X  `src/features/editor/scene/interactiveComponents/PlaceableStateSection.tsx`
+X  `src/features/editor/scene/interactiveComponents/RegionStatusNotice.tsx`
 
 // HOTSPOTS
--  `src/features/editor/scene/hotspots/editorHotspotsSlice.ts`
--  `src/features/editor/scene/hotspots/HotspotEditorPanel.tsx`
--  `src/features/editor/scene/hotspots/hotspotEditorTypes.ts`
--  `src/features/editor/scene/hotspots/HotspotListPanel.tsx`
--  `src/features/editor/scene/hotspots/SceneHotspotField.tsx`
+X  `src/features/editor/scene/hotspots/editorHotspotsSlice.ts`
+X  `src/features/editor/scene/hotspots/HotspotEditorPanel.tsx`
+X  `src/features/editor/scene/hotspots/hotspotEditorTypes.ts`
+X  `src/features/editor/scene/hotspots/SceneHotspotField.tsx`
 
 // PLACED
--  `src/features/editor/scene/placedItems/editorPlacedItemSlice.ts`
+X  `src/features/editor/scene/placedItems/editorPlacedItemSlice.ts`
 -  `src/features/editor/scene/placedItems/PlacedItemEditorPanel.tsx`
--  `src/features/editor/scene/placedItems/placedItemEditorTypes.ts`
--  `src/features/editor/scene/placedItems/PlacedItemListPanel.tsx`
+X  `src/features/editor/scene/placedItems/placedItemEditorTypes.ts`
 -  `src/features/editor/scene/placedItems/PlacedItemPreview.tsx`
 -  `src/features/editor/scene/placedItems/ScenePlacedItemField.tsx`
--  `src/features/editor/scene/placedNpcs/editorPlacedNpcslice.ts`
+
+X  `src/features/editor/scene/placedNpcs/editorPlacedNpcslice.ts`
 -  `src/features/editor/scene/placedNpcs/PlacedNpcEditorPanel.tsx`
--  `src/features/editor/scene/placedNpcs/placedNpcEditorTypes.ts`
--  `src/features/editor/scene/placedNpcs/PlacedNpcListPanel.tsx`
+X  `src/features/editor/scene/placedNpcs/placedNpcEditorTypes.ts`
 -  `src/features/editor/scene/placedNpcs/PlacedNpcPreview.tsx`
 -  `src/features/editor/scene/placedNpcs/ScenePlacedNpcField.tsx`
--  `src/features/editor/scene/placedPlayers/editorPlacedPlayerSlice.ts`
+
+X  `src/features/editor/scene/placedPlayers/editorPlacedPlayerSlice.ts`
 -  `src/features/editor/scene/placedPlayers/PlacedPlayerEditorPanel.tsx`
--  `src/features/editor/scene/placedPlayers/placedPlayerEditorTypes.ts`
--  `src/features/editor/scene/placedPlayers/PlacedPlayerListPanel.tsx`
+X  `src/features/editor/scene/placedPlayers/placedPlayerEditorTypes.ts`
 -  `src/features/editor/scene/placedPlayers/PlacedPlayerPreview.tsx`
 -  `src/features/editor/scene/placedPlayers/ScenePlacedPlayerField.tsx`
 
 // RULES
--  `src/features/editor/scene/rules/conditions/conditionDraftMapper.ts`
--  `src/features/editor/scene/rules/conditions/ConditionGroups.tsx`
--  `src/features/editor/scene/rules/conditions/ConditionLeafEditor.tsx`
--  `src/features/editor/scene/rules/conditions/conditionLeafRegistry.ts`
--  `src/features/editor/scene/rules/conditions/conditionProjectIndex.ts`
--  `src/features/editor/scene/rules/effects/effectFactory.ts`
--  `src/features/editor/scene/rules/effects/effectFamilies.ts`
--  `src/features/editor/scene/rules/effects/EffectLeafEditor.tsx`
--  `src/features/editor/scene/rules/effects/EffectPanel.tsx`
--  `src/features/editor/scene/rules/effects/effectProjectIndex.ts`
--  `src/features/editor/scene/rules/effects/effectShared.ts`
--  `src/features/editor/scene/rules/entityRulesEditor.ts`
+X  `src/features/editor/scene/rules/conditions/conditionDraftMapper.ts`
+X  `src/features/editor/scene/rules/conditions/ConditionGroups.tsx`
+X  `src/features/editor/scene/rules/conditions/ConditionLeafEditor.tsx`
+X  `src/features/editor/scene/rules/conditions/conditionLeafRegistry.ts`
+X  `src/features/editor/scene/rules/conditions/conditionProjectIndex.ts`
+X  `src/features/editor/scene/rules/effects/effectFactory.ts`
+X  `src/features/editor/scene/rules/effects/effectFamilies.ts`
+X  `src/features/editor/scene/rules/effects/EffectLeafEditor.tsx`
+X  `src/features/editor/scene/rules/effects/EffectPanel.tsx`
+X  `src/features/editor/scene/rules/effects/effectProjectIndex.ts`
+X  `src/features/editor/scene/rules/effects/effectShared.ts`
+X  `src/features/editor/scene/rules/entityRulesEditor.ts`
 
 
--  `src/features/editor/scene/layer/editorLayerInteractionSlice.ts`
--  `src/features/editor/scene/layer/editorLayerSlice.ts`  --> ¿Mover assetBackground de EditorStore?
--  `src/features/editor/scene/node/editorNodeSlice.ts`
+X  `src/features/editor/scene/layer/editorLayerInteractionSlice.ts`
+X  `src/features/editor/scene/layer/editorLayerSlice.ts` 
+X  `src/features/editor/scene/node/editorNodeSlice.ts`
 
 // TOKENS
--  `src/features/editor/scene/textTokens/ResolveTextTokens.tsx`
--  `src/features/editor/scene/textTokens/tokenCatalog.ts`
--  `src/features/editor/scene/textTokens/tokenFormat.ts`
+X  `src/features/editor/scene/textTokens/ResolveTextTokens.tsx`
+X  `src/features/editor/scene/textTokens/tokenCatalog.ts`
+X  `src/features/editor/scene/textTokens/tokenFormat.ts`
 
 // VARIOS
--  `src/features/home/components/CreateAdventureModal.tsx`
+X  `src/features/home/components/CreateAdventureModal.tsx`
 -  `src/features/home/components/UserManualModal.tsx`
--  `src/features/home/HomePage.tsx` -->
--  `src/services/projectDirectoryLoader.ts`
--  `src/shared/directoryImport.ts`
+X  `src/features/home/HomePage.tsx`
+X  `src/services/projectDirectoryLoader.ts`
+X  `src/shared/directoryImport.ts`
 
 
--  `src/components/Select.tsx`
--  `src/shared/toast/toastStore.ts`
--  `src/shared/toast/ToastViewport.tsx`
--  `src/shared/vars/useEntityVarsEditor.ts`
--  `src/shared/vars/varRow.ts`
--  `src/shared/vars/varRowCard.tsx`
+X  `src/components/Select.tsx`
+X  `src/shared/toast/toastStore.ts`
+X  `src/shared/toast/ToastViewport.tsx`
+X  `src/shared/vars/useEntityVarsEditor.ts`
+X  `src/shared/vars/varRow.ts`
+X  `src/shared/vars/varRowCard.tsx`
 
--  `src/shared/keyboard.ts`
--  `src/utils/id.ts`
+X  `src/shared/keyboard.ts`
+X  `src/utils/id.ts`
 
 // PLAYER
 -  `src/store/gameStore.ts`
@@ -250,6 +246,6 @@ X  `src/features/editor/pages/EditorShell.tsx`
 -  `src/engine/state/slices/musicSlice.ts`
 
 // GENÉRICOS
--  `src/App.tsx`
+X  `src/App.tsx`
 -  `src/index.css`
--  `src/main.tsx`
+X  `src/main.tsx`

@@ -4,6 +4,7 @@ import type { Effect, EffectType } from "@/domain/effects";
 type OwnerVarRef = Readonly<{ ownerId: ID; varId: ID }>;
 type MapRegionRef = Readonly<{ mapId: ID; regionId: ID }>;
 
+/* Referencias detectadas dentro de un efecto */
 export type EffectRefs = Partial<{
   npcIds: readonly ID[];
   playerIds: readonly ID[];
@@ -20,274 +21,202 @@ export type EffectRefs = Partial<{
   npcVars: readonly OwnerVarRef[];
 }>;
 
-/* Helper para crear extractores por type manteniendo tipado por unión discriminada */
-type ExtractorMap = { [T in EffectType]: (e: Extract<Effect, { type: T }>) => EffectRefs };
-
-/* Registro único de “qué ids toca cada Effect.type” */
-const EXTRACT_REFS: ExtractorMap = {
-  goToNode: (e) => ({ nodeIds: [e.targetNodeId] }),
-
-  addItem: (e) => ({ placedItemIds: [e.placedItemId] }),
-  removeItem: (e) => ({ placedItemIds: [e.placedItemId] }),
-
-  startDialogue: (e) => ({ dialogueIds: [e.nodeDialogueId] }),
-  endDialogue: (_e) => ({}),
-
-  giveItemToNpc: (e) => ({
-    npcIds: [e.npcId],
-    placedItemIds: [e.placedItemId],
-  }),
-  receiveItemFromNpc: (e) => ({
-    npcIds: [e.npcId],
-    placedItemIds: [e.placedItemId],
-  }),
-
-  showMessage: (_e) => ({}),
-
-  setPlacedItemVisible: (e) => ({
-    nodeIds: [e.nodeId],
-    placedItemIds: [e.placedItemId],
-  }),
-  setPlacedItemReachable: (e) => ({
-    nodeIds: [e.nodeId],
-    placedItemIds: [e.placedItemId],
-  }),
-
-  setHotspotVisible: (e) => ({ hotspotIds: [e.hotspotId] }),
-  setHotspotReachable: (e) => ({ hotspotIds: [e.hotspotId] }),
-
-  setHotspotVar: (e) => ({
-    hotspotIds: [e.hotspotId],
-    hotspotVars: [{ ownerId: e.hotspotId, varId: e.varId }],
-  }),
-  toggleHotspotVar: (e) => ({
-    hotspotIds: [e.hotspotId],
-    hotspotVars: [{ ownerId: e.hotspotId, varId: e.varId }],
-  }),
-  incHotspotVar: (e) => ({
-    hotspotIds: [e.hotspotId],
-    hotspotVars: [{ ownerId: e.hotspotId, varId: e.varId }],
-  }),
-  decHotspotVar: (e) => ({
-    hotspotIds: [e.hotspotId],
-    hotspotVars: [{ ownerId: e.hotspotId, varId: e.varId }],
-  }),
-
-  setPlacedPlayerVisible: (e) => ({
-    nodeIds: [e.nodeId],
-    playerIds: [e.playerId],
-  }),
-  setPlacedPlayerImage: (e) => ({
-    nodeIds: [e.nodeId],
-    playerIds: [e.playerId],
-    imageAssetIds: [e.imageId],
-  }),
-
-  setPlacedNpcVisible: (e) => ({
-    nodeIds: [e.nodeId],
-    npcIds: [e.npcId],
-  }),
-  setPlacedNpcReachable: (e) => ({
-    nodeIds: [e.nodeId],
-    npcIds: [e.npcId],
-  }),
-
-  setPlayerVar: (e) => ({
-    playerIds: [e.playerId],
-    playerVars: [{ ownerId: e.playerId, varId: e.varId }],
-  }),
-  togglePlayerVar: (e) => ({
-    playerIds: [e.playerId],
-    playerVars: [{ ownerId: e.playerId, varId: e.varId }],
-  }),
-  incPlayerVar: (e) => ({
-    playerIds: [e.playerId],
-    playerVars: [{ ownerId: e.playerId, varId: e.varId }],
-  }),
-  decPlayerVar: (e) => ({
-    playerIds: [e.playerId],
-    playerVars: [{ ownerId: e.playerId, varId: e.varId }],
-  }),
-
-  setNpcVar: (e) => ({
-    npcIds: [e.npcId],
-    npcVars: [{ ownerId: e.npcId, varId: e.varId }],
-  }),
-  toggleNpcVar: (e) => ({
-    npcIds: [e.npcId],
-    npcVars: [{ ownerId: e.npcId, varId: e.varId }],
-  }),
-  incNpcVar: (e) => ({
-    npcIds: [e.npcId],
-    npcVars: [{ ownerId: e.npcId, varId: e.varId }],
-  }),
-  decNpcVar: (e) => ({
-    npcIds: [e.npcId],
-    npcVars: [{ ownerId: e.npcId, varId: e.varId }],
-  }),
-
-  playSfx: (e) => ({ sfxIds: [e.sfxId] }),
-
-  playMusic: (e) => ({ musicTrackIds: [e.trackId] }),
-  pauseMusic: (_e) => ({}),
-  stopMusic: (_e) => ({}),
-
-  setMapRegionAvailable: (e) => ({ mapRegions: [{ mapId: e.mapId, regionId: e.regionId }] }),
-
-  endGame: (_e) => ({}),
+type ExtractorMap = {
+  [T in EffectType]: (effect: Extract<Effect, { type: T }>) => EffectRefs
 };
 
-function getEffectRefs<T extends EffectType>(e: Extract<Effect, { type: T }>): EffectRefs;
-function getEffectRefs(e: Effect): EffectRefs {
-  switch (e.type) {
-    case "goToNode":
-      return EXTRACT_REFS.goToNode(e);
+/* Qué referencias toca cada tipo de efecto */
+const EXTRACT_REFS: ExtractorMap = {
+  /* Navegación */
+  goToNode: (effect) => ({ nodeIds: [effect.targetNodeId] }),
 
-    case "addItem":
-      return EXTRACT_REFS.addItem(e);
-    case "removeItem":
-      return EXTRACT_REFS.removeItem(e);
+  /* Inventario */
+  addItem: (effect) => ({ placedItemIds: [effect.placedItemId] }),
+  removeItem: (effect) => ({ placedItemIds: [effect.placedItemId] }),
 
-    case "startDialogue":
-      return EXTRACT_REFS.startDialogue(e);
-    case "endDialogue":
-      return EXTRACT_REFS.endDialogue(e);
+  /* Diálogo / PNJ */
+  startDialogue: (effect) => ({ dialogueIds: [effect.nodeDialogueId] }),
+  endDialogue: () => ({}),
 
-    case "giveItemToNpc":
-      return EXTRACT_REFS.giveItemToNpc(e);
-    case "receiveItemFromNpc":
-      return EXTRACT_REFS.receiveItemFromNpc(e);
+  giveItemToNpc: (effect) => ({
+    npcIds: [effect.npcId],
+    placedItemIds: [effect.placedItemId],
+  }),
+  receiveItemFromNpc: (effect) => ({
+    npcIds: [effect.npcId],
+    placedItemIds: [effect.placedItemId],
+  }),
 
-    case "showMessage":
-      return EXTRACT_REFS.showMessage(e);
+  /* Feedback */
+  showMessage: () => ({}),
 
-    case "setPlacedItemVisible":
-      return EXTRACT_REFS.setPlacedItemVisible(e);
-    case "setPlacedItemReachable":
-      return EXTRACT_REFS.setPlacedItemReachable(e);
+  /* Estado de items colocados */
+  setPlacedItemVisible: (effect) => ({
+    nodeIds: [effect.nodeId],
+    placedItemIds: [effect.placedItemId],
+  }),
+  setPlacedItemReachable: (effect) => ({
+    nodeIds: [effect.nodeId],
+    placedItemIds: [effect.placedItemId],
+  }),
 
-    case "setHotspotVisible":
-      return EXTRACT_REFS.setHotspotVisible(e);
-    case "setHotspotReachable":
-      return EXTRACT_REFS.setHotspotReachable(e);
+  /* Estado de hotspot */
+  setHotspotVisible: (effect) => ({ hotspotIds: [effect.hotspotId] }),
+  setHotspotReachable: (effect) => ({ hotspotIds: [effect.hotspotId] }),
 
-    case "setHotspotVar":
-      return EXTRACT_REFS.setHotspotVar(e);
-    case "toggleHotspotVar":
-      return EXTRACT_REFS.toggleHotspotVar(e);
-    case "incHotspotVar":
-      return EXTRACT_REFS.incHotspotVar(e);
-    case "decHotspotVar":
-      return EXTRACT_REFS.decHotspotVar(e);
+  /* Variables de hotspot */
+  setHotspotVar: (effect) => ({
+    hotspotIds: [effect.hotspotId],
+    hotspotVars: [{ ownerId: effect.hotspotId, varId: effect.varId }],
+  }),
+  toggleHotspotVar: (effect) => ({
+    hotspotIds: [effect.hotspotId],
+    hotspotVars: [{ ownerId: effect.hotspotId, varId: effect.varId }],
+  }),
+  incHotspotVar: (effect) => ({
+    hotspotIds: [effect.hotspotId],
+    hotspotVars: [{ ownerId: effect.hotspotId, varId: effect.varId }],
+  }),
+  decHotspotVar: (effect) => ({
+    hotspotIds: [effect.hotspotId],
+    hotspotVars: [{ ownerId: effect.hotspotId, varId: effect.varId }],
+  }),
 
-    case "setPlacedPlayerVisible":
-      return EXTRACT_REFS.setPlacedPlayerVisible(e);
-    case "setPlacedPlayerImage":
-      return EXTRACT_REFS.setPlacedPlayerImage(e);
+  /* Estado de player colocado */
+  setPlacedPlayerVisible: (effect) => ({
+    nodeIds: [effect.nodeId],
+    playerIds: [effect.playerId],
+  }),
+  setPlacedPlayerImage: (effect) => ({
+    nodeIds: [effect.nodeId],
+    playerIds: [effect.playerId],
+    imageAssetIds: [effect.imageId],
+  }),
 
-    case "setPlacedNpcVisible":
-      return EXTRACT_REFS.setPlacedNpcVisible(e);
-    case "setPlacedNpcReachable":
-      return EXTRACT_REFS.setPlacedNpcReachable(e);
+  /* Estado de npc colocado */
+  setPlacedNpcVisible: (effect) => ({
+    nodeIds: [effect.nodeId],
+    npcIds: [effect.npcId],
+  }),
+  setPlacedNpcReachable: (effect) => ({
+    nodeIds: [effect.nodeId],
+    npcIds: [effect.npcId],
+  }),
 
-    case "setPlayerVar":
-      return EXTRACT_REFS.setPlayerVar(e);
-    case "togglePlayerVar":
-      return EXTRACT_REFS.togglePlayerVar(e);
-    case "incPlayerVar":
-      return EXTRACT_REFS.incPlayerVar(e);
-    case "decPlayerVar":
-      return EXTRACT_REFS.decPlayerVar(e);
+  /* Variables de player */
+  setPlayerVar: (effect) => ({
+    playerIds: [effect.playerId],
+    playerVars: [{ ownerId: effect.playerId, varId: effect.varId }],
+  }),
+  togglePlayerVar: (effect) => ({
+    playerIds: [effect.playerId],
+    playerVars: [{ ownerId: effect.playerId, varId: effect.varId }],
+  }),
+  incPlayerVar: (effect) => ({
+    playerIds: [effect.playerId],
+    playerVars: [{ ownerId: effect.playerId, varId: effect.varId }],
+  }),
+  decPlayerVar: (effect) => ({
+    playerIds: [effect.playerId],
+    playerVars: [{ ownerId: effect.playerId, varId: effect.varId }],
+  }),
 
-    case "setNpcVar":
-      return EXTRACT_REFS.setNpcVar(e);
-    case "toggleNpcVar":
-      return EXTRACT_REFS.toggleNpcVar(e);
-    case "incNpcVar":
-      return EXTRACT_REFS.incNpcVar(e);
-    case "decNpcVar":
-      return EXTRACT_REFS.decNpcVar(e);
+  /* Variables de npc */
+  setNpcVar: (effect) => ({
+    npcIds: [effect.npcId],
+    npcVars: [{ ownerId: effect.npcId, varId: effect.varId }],
+  }),
+  toggleNpcVar: (effect) => ({
+    npcIds: [effect.npcId],
+    npcVars: [{ ownerId: effect.npcId, varId: effect.varId }],
+  }),
+  incNpcVar: (effect) => ({
+    npcIds: [effect.npcId],
+    npcVars: [{ ownerId: effect.npcId, varId: effect.varId }],
+  }),
+  decNpcVar: (effect) => ({
+    npcIds: [effect.npcId],
+    npcVars: [{ ownerId: effect.npcId, varId: effect.varId }],
+  }),
 
-    case "playSfx":
-      return EXTRACT_REFS.playSfx(e);
+  /* Audio */
+  playSfx: (effect) => ({ sfxIds: [effect.sfxId] }),
+  playMusic: (effect) => ({ musicTrackIds: [effect.trackId] }),
+  pauseMusic: () => ({}),
+  stopMusic: () => ({}),
 
-    case "playMusic":
-      return EXTRACT_REFS.playMusic(e);
-    case "pauseMusic":
-      return EXTRACT_REFS.pauseMusic(e);
-    case "stopMusic":
-      return EXTRACT_REFS.stopMusic(e);
+  /* Mapa */
+  setMapRegionAvailable: (effect) => ({ mapRegions: [{ mapId: effect.mapId, regionId: effect.regionId }] }),
 
-    case "setMapRegionAvailable":
-      return EXTRACT_REFS.setMapRegionAvailable(e);
+  /* Finalizar juego */
+  endGame: () => ({}),
+};
 
-    case "endGame":
-      return EXTRACT_REFS.endGame(e);
-  }
+type EffectLeaf = Effect;
+type EffectLeafType = EffectLeaf["type"];
+
+function getEffectRefs(effect: Effect): EffectRefs {
+  const extractor = EXTRACT_REFS[effect.type as EffectLeafType] as (value: typeof effect) => EffectRefs;
+
+  return extractor(effect);
 }
 
-/* Predicados listos para slices */
-export function effectReferencesNpc(e: Effect, npcId: ID): boolean {
-  const refs = getEffectRefs(e);
-  return (refs.npcIds ?? []).includes(npcId);
+function includes<T>(values: readonly T[] | undefined, target: T): boolean {
+  return values?.includes(target) ?? false;
 }
 
-export function effectReferencesPlayer(e: Effect, playerId: ID): boolean {
-  const refs = getEffectRefs(e);
-  return (refs.playerIds ?? []).includes(playerId);
+function some<T>(values: readonly T[] | undefined, predicate: (value: T) => boolean): boolean {
+  return values?.some(predicate) ?? false;
 }
 
-export function effectReferencesNode(e: Effect, nodeId: ID): boolean {
-  const refs = getEffectRefs(e);
-  return (refs.nodeIds ?? []).includes(nodeId);
+export function effectReferencesNpc(effect: Effect, npcId: ID): boolean {
+  return includes(getEffectRefs(effect).npcIds, npcId);
 }
 
-export function effectReferencesDialogue(e: Effect, dialogueId: ID): boolean {
-  const refs = getEffectRefs(e);
-  return (refs.dialogueIds ?? []).includes(dialogueId);
+export function effectReferencesPlayer(effect: Effect, playerId: ID): boolean {
+  return includes(getEffectRefs(effect).playerIds, playerId);
 }
 
-export function effectReferencesHotspot(e: Effect, hotspotId: ID): boolean {
-  const refs = getEffectRefs(e);
-  return (refs.hotspotIds ?? []).includes(hotspotId);
+export function effectReferencesNode(effect: Effect, nodeId: ID): boolean {
+  return includes(getEffectRefs(effect).nodeIds, nodeId);
 }
 
-export function effectReferencesPlacedItem(e: Effect, placedItemId: ID): boolean {
-  const refs = getEffectRefs(e);
-  return (refs.placedItemIds ?? []).includes(placedItemId);
+export function effectReferencesDialogue(effect: Effect, dialogueId: ID): boolean {
+  return includes(getEffectRefs(effect).dialogueIds, dialogueId);
 }
 
-export function effectReferencesImageAsset(e: Effect, assetId: ID): boolean {
-  const refs = getEffectRefs(e);
-  return (refs.imageAssetIds ?? []).includes(assetId);
+export function effectReferencesHotspot(effect: Effect, hotspotId: ID): boolean {
+  return includes(getEffectRefs(effect).hotspotIds, hotspotId);
 }
 
-export function effectReferencesSfx(e: Effect, sfxId: ID): boolean {
-  const refs = getEffectRefs(e);
-  return (refs.sfxIds ?? []).includes(sfxId);
+export function effectReferencesPlacedItem(effect: Effect, placedItemId: ID): boolean {
+  return includes(getEffectRefs(effect).placedItemIds, placedItemId);
 }
 
-export function effectReferencesMusicTrack(e: Effect, trackId: ID): boolean {
-  const refs = getEffectRefs(e);
-  return (refs.musicTrackIds ?? []).includes(trackId);
+export function effectReferencesImageAsset(effect: Effect, assetId: ID): boolean {
+  return includes(getEffectRefs(effect).imageAssetIds, assetId);
 }
 
-export function effectReferencesMapRegion(e: Effect, input: { mapId: ID; regionId: ID }): boolean {
-  const refs = getEffectRefs(e);
-  return (refs.mapRegions ?? []).some((r) => r.mapId === input.mapId && r.regionId === input.regionId);
+export function effectReferencesSfx(effect: Effect, sfxId: ID): boolean {
+  return includes(getEffectRefs(effect).sfxIds, sfxId);
 }
 
-export function effectReferencesNpcVar(e: Effect, input: { npcId: ID; varId: ID }): boolean {
-  const refs = getEffectRefs(e);
-  return (refs.npcVars ?? []).some((r) => r.ownerId === input.npcId && r.varId === input.varId);
+export function effectReferencesMusicTrack(effect: Effect, trackId: ID): boolean {
+  return includes(getEffectRefs(effect).musicTrackIds, trackId);
 }
 
-export function effectReferencesPlayerVar(e: Effect, input: { playerId: ID; varId: ID }): boolean {
-  const refs = getEffectRefs(e);
-  return (refs.playerVars ?? []).some((r) => r.ownerId === input.playerId && r.varId === input.varId);
+export function effectReferencesMapRegion(effect: Effect, input: { mapId: ID; regionId: ID }): boolean {
+  return some(getEffectRefs(effect).mapRegions, (ref) => ref.mapId === input.mapId && ref.regionId === input.regionId);
 }
 
-export function effectReferencesHotspotVar(e: Effect, input: { hotspotId: ID; varId: ID }): boolean {
-  const refs = getEffectRefs(e);
-  return (refs.hotspotVars ?? []).some((r) => r.ownerId === input.hotspotId && r.varId === input.varId);
+export function effectReferencesNpcVar(effect: Effect, input: { npcId: ID; varId: ID }): boolean {
+  return some(getEffectRefs(effect).npcVars, (ref) => ref.ownerId === input.npcId && ref.varId === input.varId);
+}
+
+export function effectReferencesPlayerVar(effect: Effect, input: { playerId: ID; varId: ID }): boolean {
+  return some(getEffectRefs(effect).playerVars, (ref) => ref.ownerId === input.playerId && ref.varId === input.varId);
+}
+
+export function effectReferencesHotspotVar(effect: Effect, input: { hotspotId: ID; varId: ID }): boolean {
+  return some(getEffectRefs(effect).hotspotVars, (ref) => ref.ownerId === input.hotspotId && ref.varId === input.varId);
 }

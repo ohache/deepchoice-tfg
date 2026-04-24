@@ -25,6 +25,7 @@ export function SceneStage(props: {
   isUsingItem?: boolean;
   onHotspotUseItem?: (hotspot: Hotspot) => void;
   onPlacedItemUseItem?: (placedItem: PlacedItem) => void;
+  onPlacedNpcUseItem?: (placedNpc: PlacedNpc) => void;
   onSceneBackgroundClick?: () => void;
 
   onCursorMove?: (e: React.MouseEvent, kind?: InteractionKind) => void;
@@ -48,6 +49,7 @@ export function SceneStage(props: {
     isUsingItem,
     onHotspotUseItem,
     onPlacedItemUseItem,
+    onPlacedNpcUseItem,
     onSceneBackgroundClick,
     onCursorMove,
     onCursorEnter,
@@ -168,19 +170,19 @@ export function SceneStage(props: {
 
     return reachable
       ? {
-          boxShadow:
-            "0 0 0 2px rgba(250,204,21,0.9), 0 0 24px rgba(250,204,21,0.45), inset 0 0 0 2px rgba(250,204,21,0.35)",
-          background: "rgba(250,204,21,0.14)",
-          borderRadius: 12,
-          backdropFilter: "blur(1px)",
-        }
+        boxShadow:
+          "0 0 0 2px rgba(250,204,21,0.9), 0 0 24px rgba(250,204,21,0.45), inset 0 0 0 2px rgba(250,204,21,0.35)",
+        background: "rgba(250,204,21,0.14)",
+        borderRadius: 12,
+        backdropFilter: "blur(1px)",
+      }
       : {
-          boxShadow:
-            "0 0 0 2px rgba(148,163,184,0.55), 0 0 18px rgba(148,163,184,0.24), inset 0 0 0 2px rgba(148,163,184,0.18)",
-          background: "rgba(148,163,184,0.08)",
-          borderRadius: 12,
-          backdropFilter: "blur(1px)",
-        };
+        boxShadow:
+          "0 0 0 2px rgba(148,163,184,0.55), 0 0 18px rgba(148,163,184,0.24), inset 0 0 0 2px rgba(148,163,184,0.18)",
+        background: "rgba(148,163,184,0.08)",
+        borderRadius: 12,
+        backdropFilter: "blur(1px)",
+      };
   }
 
   return (
@@ -255,21 +257,21 @@ export function SceneStage(props: {
                       const revealRing = revealHotspots
                         ? reachable
                           ? {
-                              animation: "hotspotPulse 0.8s ease-in-out infinite",
-                              boxShadow:
-                                "0 0 0 2px rgba(251,191,36,0.65), 0 0 28px rgba(251,191,36,0.45), inset 0 0 0 2px rgba(251,191,36,0.28)",
-                              background: "rgba(251,191,36,0.12)",
-                              borderRadius: 12,
-                              backdropFilter: "blur(1px)",
-                            }
+                            animation: "hotspotPulse 0.8s ease-in-out infinite",
+                            boxShadow:
+                              "0 0 0 2px rgba(251,191,36,0.65), 0 0 28px rgba(251,191,36,0.45), inset 0 0 0 2px rgba(251,191,36,0.28)",
+                            background: "rgba(251,191,36,0.12)",
+                            borderRadius: 12,
+                            backdropFilter: "blur(1px)",
+                          }
                           : {
-                              animation: "hotspotPulse 0.8s ease-in-out infinite",
-                              boxShadow:
-                                "0 0 0 2px rgba(148,163,184,0.45), 0 0 22px rgba(148,163,184,0.28), inset 0 0 0 2px rgba(148,163,184,0.16)",
-                              background: "rgba(148,163,184,0.08)",
-                              borderRadius: 12,
-                              backdropFilter: "blur(1px)",
-                            }
+                            animation: "hotspotPulse 0.8s ease-in-out infinite",
+                            boxShadow:
+                              "0 0 0 2px rgba(148,163,184,0.45), 0 0 22px rgba(148,163,184,0.28), inset 0 0 0 2px rgba(148,163,184,0.16)",
+                            background: "rgba(148,163,184,0.08)",
+                            borderRadius: 12,
+                            backdropFilter: "blur(1px)",
+                          }
                         : undefined;
 
                       const useItemHoverStyle = buildUseItemHoverStyle(hoveredHotspotId === hotspot.id, reachable);
@@ -332,21 +334,21 @@ export function SceneStage(props: {
                       const revealRing = revealHotspots
                         ? reachable
                           ? {
-                              animation: "hotspotPulse 0.8s ease-in-out infinite",
-                              boxShadow:
-                                "0 0 0 2px rgba(251,191,36,0.65), 0 0 28px rgba(251,191,36,0.45), inset 0 0 0 2px rgba(251,191,36,0.28)",
-                              background: "rgba(251,191,36,0.12)",
-                              borderRadius: 12,
-                              backdropFilter: "blur(1px)",
-                            }
+                            animation: "hotspotPulse 0.8s ease-in-out infinite",
+                            boxShadow:
+                              "0 0 0 2px rgba(251,191,36,0.65), 0 0 28px rgba(251,191,36,0.45), inset 0 0 0 2px rgba(251,191,36,0.28)",
+                            background: "rgba(251,191,36,0.12)",
+                            borderRadius: 12,
+                            backdropFilter: "blur(1px)",
+                          }
                           : {
-                              animation: "hotspotPulse 0.8s ease-in-out infinite",
-                              boxShadow:
-                                "0 0 0 2px rgba(148,163,184,0.45), 0 0 22px rgba(148,163,184,0.28), inset 0 0 0 2px rgba(148,163,184,0.16)",
-                              background: "rgba(148,163,184,0.08)",
-                              borderRadius: 12,
-                              backdropFilter: "blur(1px)",
-                            }
+                            animation: "hotspotPulse 0.8s ease-in-out infinite",
+                            boxShadow:
+                              "0 0 0 2px rgba(148,163,184,0.45), 0 0 22px rgba(148,163,184,0.28), inset 0 0 0 2px rgba(148,163,184,0.16)",
+                            background: "rgba(148,163,184,0.08)",
+                            borderRadius: 12,
+                            backdropFilter: "blur(1px)",
+                          }
                         : undefined;
 
                       const useItemHoverStyle = buildUseItemHoverStyle(hoveredPlacedItemId === placedItem.id, reachable);
@@ -452,21 +454,21 @@ export function SceneStage(props: {
                       const revealRing = revealHotspots
                         ? reachable
                           ? {
-                              animation: "hotspotPulse 0.8s ease-in-out infinite",
-                              boxShadow:
-                                "0 0 0 2px rgba(251,191,36,0.65), 0 0 28px rgba(251,191,36,0.45), inset 0 0 0 2px rgba(251,191,36,0.28)",
-                              background: "rgba(251,191,36,0.12)",
-                              borderRadius: 12,
-                              backdropFilter: "blur(1px)",
-                            }
+                            animation: "hotspotPulse 0.8s ease-in-out infinite",
+                            boxShadow:
+                              "0 0 0 2px rgba(251,191,36,0.65), 0 0 28px rgba(251,191,36,0.45), inset 0 0 0 2px rgba(251,191,36,0.28)",
+                            background: "rgba(251,191,36,0.12)",
+                            borderRadius: 12,
+                            backdropFilter: "blur(1px)",
+                          }
                           : {
-                              animation: "hotspotPulse 0.8s ease-in-out infinite",
-                              boxShadow:
-                                "0 0 0 2px rgba(148,163,184,0.45), 0 0 22px rgba(148,163,184,0.28), inset 0 0 0 2px rgba(148,163,184,0.16)",
-                              background: "rgba(148,163,184,0.08)",
-                              borderRadius: 12,
-                              backdropFilter: "blur(1px)",
-                            }
+                            animation: "hotspotPulse 0.8s ease-in-out infinite",
+                            boxShadow:
+                              "0 0 0 2px rgba(148,163,184,0.45), 0 0 22px rgba(148,163,184,0.28), inset 0 0 0 2px rgba(148,163,184,0.16)",
+                            background: "rgba(148,163,184,0.08)",
+                            borderRadius: 12,
+                            backdropFilter: "blur(1px)",
+                          }
                         : undefined;
 
                       const useItemHoverStyle = buildUseItemHoverStyle(hoveredPlacedNpcId === placedNpc.npcId, reachable);
@@ -490,6 +492,7 @@ export function SceneStage(props: {
                           <button
                             key={placedNpc.npcId}
                             type="button"
+                            aria-label={placedNpc.npcId}
                             onMouseEnter={(e) => {
                               e.stopPropagation();
                               setHoveredPlacedNpcId(placedNpc.npcId);
@@ -505,7 +508,7 @@ export function SceneStage(props: {
                             }}
                             onMouseLeave={(e) => {
                               e.stopPropagation();
-                              setHoveredPlacedItemId(null);
+                              setHoveredPlacedNpcId(null);
                               onCursorMove?.(e, "idle");
                             }}
                             onClick={() => {
@@ -514,6 +517,11 @@ export function SceneStage(props: {
                                   placedNpc,
                                   notReachableText || "No puedes interactuar con eso ahora."
                                 );
+                                return;
+                              }
+
+                              if (isUsingItem) {
+                                onPlacedNpcUseItem?.(placedNpc);
                                 return;
                               }
 

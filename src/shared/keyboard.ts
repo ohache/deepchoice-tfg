@@ -2,8 +2,7 @@ import type * as React from "react";
 
 /* Teclas (string) normalizadas a mayúsculas cuando son letras */
 function normalizeKey(key: string): string {
-  if (key.length === 1) return key.toUpperCase();
-  return key;
+  return key.length === 1 ? key.toUpperCase() : key;
 }
 
 type ShortcutMatch = {
@@ -14,61 +13,72 @@ type ShortcutMatch = {
   meta?: boolean;
 };
 
-function matchesShortcut(e: React.KeyboardEvent, match: ShortcutMatch): boolean {
-  const pressedKey = normalizeKey(e.key);
+type ShortcutEntry = {
+  when: ShortcutMatch;
+  action: () => void;
+  preventDefault?: boolean;
+  stopPropagation?: boolean;
+}
+
+/* Comprueba si un evento de teclado coincide con una definición de shortcut */
+function matchesShortcut(event: React.KeyboardEvent, match: ShortcutMatch): boolean {
+  const pressedKey = normalizeKey(event.key);
   const wantedKey = normalizeKey(match.key);
+
   if (pressedKey !== wantedKey) return false;
 
-  const primaryMod = e.ctrlKey || e.metaKey;
+  const primaryModifierPressed = event.ctrlKey || event.metaKey;
 
   if (match.ctrl !== undefined) {
-    if (match.ctrl === true && !primaryMod) return false;
-    if (match.ctrl === false && primaryMod) return false;
+    if (match.ctrl && !primaryModifierPressed) return false;
+    if (!match.ctrl && primaryModifierPressed) return false;
   }
 
-  if (match.shift !== undefined && e.shiftKey !== match.shift) return false;
-  if (match.alt !== undefined && e.altKey !== match.alt) return false;
-
-  if (match.meta !== undefined && e.metaKey !== match.meta) return false;
+  if (match.shift !== undefined && event.shiftKey !== match.shift) return false;
+  if (match.alt !== undefined && event.altKey !== match.alt) return false;
+  if (match.meta !== undefined && event.metaKey !== match.meta) return false;
 
   return true;
 }
 
-/* Ejecuta la primera acción cuyo shortcut coincida */
-export function runShortcutMap( e: React.KeyboardEvent, entries: Array<{ when: ShortcutMatch; action: () => void;
-    preventDefault?: boolean; stopPropagation?: boolean;}>): boolean {
+/* Recorre el mapa de shortcuts y ejecuta la primera acción cuyo shortcut coincida */
+export function runShortcutMap( event: React.KeyboardEvent, entries: ShortcutEntry[]): boolean {
   for (const entry of entries) {
-    if (!matchesShortcut(e, entry.when)) continue;
+    if (!matchesShortcut(event, entry.when)) continue;
 
-    if (entry.preventDefault) e.preventDefault();
-    if (entry.stopPropagation) e.stopPropagation();
+    if (entry.preventDefault) event.preventDefault();
+    if (entry.stopPropagation) event.stopPropagation();
+
     entry.action();
     return true;
   }
   return false;
 }
 
+/* Crea un handler para el editor */
 export function createCommitCancelKeyHandler<T extends HTMLElement>(onCommit: () => void, onCancel: () => void,
-  opts?: { commitWithModifier?: boolean; stopPropagation?: boolean;}) {
+  opts?: { commitWithModifier?: boolean; stopPropagation?: boolean}) {
   const { commitWithModifier = false, stopPropagation = false } = opts ?? {};
 
-  return (e: React.KeyboardEvent<T>) => {
-    const isEnter = e.key === "Enter";
-    const isEsc = e.key === "Escape";
-    const hasModifier = e.ctrlKey || e.metaKey;
+  return (event: React.KeyboardEvent<T>) => {
+    const isEnter = event.key === "Enter";
+    const isEscape = event.key === "Escape";
+    const hasModifier = event.ctrlKey || event.metaKey;
 
     if (isEnter) {
       if (commitWithModifier && !hasModifier) return;
 
-      e.preventDefault();
-      if (stopPropagation) e.stopPropagation();
+      event.preventDefault();
+      if (stopPropagation) event.stopPropagation();
+
       onCommit();
       return;
     }
 
-    if (isEsc) {
-      e.preventDefault();
-      if (stopPropagation) e.stopPropagation();
+    if (isEscape) {
+      event.preventDefault();
+      if (stopPropagation) event.stopPropagation();
+      
       onCancel();
     }
   };

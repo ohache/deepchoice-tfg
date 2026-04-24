@@ -1,5 +1,4 @@
-import type { CSSProperties } from "react";
-import { useMemo } from "react";
+import { useMemo, type CSSProperties } from "react";
 import type { ID, PlacedNpc, Project } from "@/domain/types";
 import { useResolvedAssetUrl } from "@/features/editor/hooks/useResolvedAssetUrl";
 import { rectStyleFromShape } from "@/features/editor/hooks/regionShape";
@@ -12,45 +11,56 @@ type PlacedNpcPreviewProps = {
   draftNpc?: PlacedNpc | null;
 };
 
-function PlacedNpcPreviewCard({ npc, assetId, contentRectInContainer }: {
+type PlacedNpcPreviewCardProps = {
   npc: PlacedNpc;
   assetId: ID | null;
   contentRectInContainer: Rect | null;
-}) {
+};
+
+function pxToNumber(value: CSSProperties["width"] | CSSProperties["height"]): number {
+  if (typeof value === "number") return value;
+  if (typeof value === "string") return Number(value.replace("px", "")) || 0;
+  return 0;
+}
+
+function canRenderFallbackLabel(width: number, height: number): boolean {
+  return width >= 50 && height >= 20;
+}
+
+function PlacedNpcPreviewCard({ npc, assetId, contentRectInContainer }: PlacedNpcPreviewCardProps) {
   const imageUrl = useResolvedAssetUrl(assetId);
-  const st = rectStyleFromShape(npc.shape ?? null, contentRectInContainer);
+  const style = rectStyleFromShape(npc.shape ?? null, contentRectInContainer);
 
   const sizeInfo = useMemo(() => {
-    if (!st) return { w: 0, h: 0 };
-    const width = Number(String((st as CSSProperties).width ?? "0").replace("px", "")) || 0;
-    const height = Number(String((st as CSSProperties).height ?? "0").replace("px", "")) || 0;
-    return { w: width, h: height };
-  }, [st]);
+    if (!style) return { width: 0, height: 0 };
 
-  if (!st) return null;
+    return { width: pxToNumber(style.width), height: pxToNumber(style.height) };
+  }, [style]);
 
-  const canShowFallbackLabel = sizeInfo.w >= 50 && sizeInfo.h >= 20;
+  if (!style) return null;
+
+  const showFallbackLabel = !imageUrl && canRenderFallbackLabel(sizeInfo.width, sizeInfo.height);
 
   return (
     <div
-      style={st}
-      className="absolute rounded-sm overflow-hidden border-2 border-violet-400/60 bg-violet-500/10"
+      style={style}
+      className="absolute overflow-hidden rounded-sm border-2 border-lime-400/60 bg-lime-700/10"
       title="NPC"
     >
       {imageUrl ? (
         <img
           src={imageUrl}
           alt="NPC"
-          className="absolute inset-0 w-full h-full object-fill select-none pointer-events-none"
+          className="absolute inset-0 h-full w-full select-none object-fill pointer-events-none"
           draggable={false}
         />
       ) : null}
 
-      <div className="absolute inset-0 bg-violet-500/10 pointer-events-none" />
+      <div className="absolute inset-0 bg-lime-500/10 pointer-events-none" />
 
-      {!imageUrl && canShowFallbackLabel ? (
+      {showFallbackLabel ? (
         <div className="absolute inset-x-1 bottom-1 flex justify-center pointer-events-none">
-          <div className="px-2 py-0.5 rounded-md border border-violet-600 bg-slate-950/60 text-slate-100 text-[11px] leading-none truncate max-w-[90%] text-center">
+          <div className="max-w-[90%] truncate rounded-md border border-lime-600 bg-slate-950/60 px-2 py-0.5 text-center text-[11px] leading-none text-slate-100">
             NPC
           </div>
         </div>
@@ -70,13 +80,13 @@ export function PlacedNpcPreview({ placedNpcs, project, contentRectInContainer, 
     }
 
     return map;
-  }, [project]);
+  }, [project?.assets]);
 
-  const baseNpcs = draftNpc
-    ? placedNpcs.filter((npc) => npc.npcId !== draftNpc.npcId)
-    : placedNpcs;
+  const npcsToRender = useMemo(() => {
+    const baseNpcs = draftNpc ? placedNpcs.filter((npc) => npc.npcId !== draftNpc.npcId) : placedNpcs;
 
-  const npcsToRender = draftNpc ? [...baseNpcs, draftNpc] : baseNpcs;
+    return draftNpc ? [...baseNpcs, draftNpc] : baseNpcs;
+  }, [placedNpcs, draftNpc]);
 
   if (!npcsToRender.length) return null;
 

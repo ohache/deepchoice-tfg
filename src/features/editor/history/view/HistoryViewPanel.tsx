@@ -52,7 +52,7 @@ export function HistoryViewPanel() {
   const gridHeight = Math.max(0, svgHeight - VIEW_CONFIG.gridInsetPx * 2);
 
   return (
-    <div className="inline-block min-w-full rounded-lg border-2 border-slate-700 bg-slate-900">
+    <div className="inline-block min-w-full rounded-lg border-2 border-slate-700 bg-slate-900/70">
       <svg
         ref={svgRef}
         width={svgWidth}
@@ -78,7 +78,7 @@ export function HistoryViewPanel() {
               stroke="currentColor"
               className="text-white"
               strokeWidth="2"
-              opacity="0.12"
+              opacity="0.22"
               strokeDasharray={`${6 * scale} ${6 * scale}`}
               strokeLinecap="round"
             />
@@ -91,7 +91,7 @@ export function HistoryViewPanel() {
               stroke="currentColor"
               className="text-white"
               strokeWidth="1"
-              opacity="0.08"
+              opacity="0.18"
               strokeDasharray={`${6 * scale} ${6 * scale}`}
               strokeLinecap="round"
             />

@@ -1,5 +1,5 @@
 import type { ID, Project, ItemDef } from "@/domain/types";
-import { conditionReferencesPlacedItem } from "@/domain/conditionRefs";
+import { conditionReferences } from "@/domain/conditionRefs";
 import { effectReferencesPlacedItem } from "@/domain/effectRefs";
 import { hasDuplicateName } from "@/validation/genericValidator";
 import { generateId } from "@/utils/id";
@@ -177,7 +177,7 @@ export function createEditorItemsSlice(set: (partial: Partial<EditorStoreLike> |
       return isEntityReferenced(project, {
         someSceneRef: (currentProject) => somePlacedItem(currentProject, (placedItem) => placedItem.itemId === itemId),
 
-        someWhenRef: (when) => someReferenceForIds(placedItemIds, when, conditionReferencesPlacedItem),
+        someWhenRef: (when) => someReferenceForIds(placedItemIds, when, conditionReferences.placedItem),
 
         someEffectRef: (effect) => someReferenceForIds(placedItemIds, effect, effectReferencesPlacedItem),
       });

@@ -2,12 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import type { ID, SceneImageLayer, Hotspot, PlacedItem, PlacedNpc, PlacedPlayer, PlayerDef } from "@/domain/types";
 import { useEditorStore } from "@/store/editorStore";
 import { ToggleFieldBlock } from "@/features/editor/scene/SceneFieldBlocks";
-import { toast } from "@/shared/toast/toastStore";
-import { ConfirmDangerModal } from "@/features/editor/modals/ConfirmDangerModal";
-import { PlacedPlayerListPanel, type PlacedPlayerListEntry } from "@/features/editor/scene/placedPlayers/PlacedPlayerListPanel";
+import { InteractiveListPanel, type InteractiveListEntry } from "@/features/editor/scene/interactiveComponents/InteractiveListPanel";
 import { PlacedPlayerEditorPanel } from "@/features/editor/scene/placedPlayers/PlacedPlayerEditorPanel";
 import { useEntityCollisionGuard } from "@/features/editor/scene/useEntityCollisionGuard";
 import { buildClickableRegions, useActiveSceneLayer } from "@/features/editor/scene/interactiveComponents/fieldHelpers";
+import { ConfirmDangerModal } from "@/features/editor/modals/ConfirmDangerModal";
+import { toast } from "@/shared/toast/toastStore";
 
 type PlacedPlayerEditorError =
   | { kind: "panel"; message: string }
@@ -20,12 +20,7 @@ type ScenePlacedPlayerFieldProps = {
   layerId: ID;
 };
 
-export function ScenePlacedPlayerField({
-  label = "Players",
-  active,
-  onToggle,
-  layerId,
-}: ScenePlacedPlayerFieldProps) {
+export function ScenePlacedPlayerField({ label = "Players", active, onToggle, layerId }: ScenePlacedPlayerFieldProps) {
   const project = useEditorStore((s) => s.project ?? null);
   const nodeDraft = useEditorStore((s) => s.nodeDraft);
 
@@ -73,13 +68,7 @@ export function ScenePlacedPlayerField({
 
   const layers = useMemo<SceneImageLayer[]>(() => nodeDraft?.layers ?? [], [nodeDraft?.layers]);
 
-  const { layer } = useActiveSceneLayer({
-    active,
-    layerId,
-    activeLayerId,
-    setActiveLayerId,
-    layers,
-  });
+  const { layer } = useActiveSceneLayer({ active, layerId, activeLayerId, setActiveLayerId, layers });
 
   const hotspots = useMemo<Hotspot[]>(() => layer?.hotspots ?? [], [layer?.hotspots]);
   const placedItems = useMemo<PlacedItem[]>(() => layer?.placedItems ?? [], [layer?.placedItems]);
@@ -99,25 +88,12 @@ export function ScenePlacedPlayerField({
     return placedPlayers.some((p) => p.playerId === draft.playerId);
   }, [draft?.playerId, placedPlayers]);
 
-  const clickableRegions = useMemo(
-    () =>
-      buildClickableRegions({
-        project,
-        hotspots,
-        placedItems,
-        placedNpcs,
-        placedPlayers,
-      }),
+  const clickableRegions = useMemo(() => 
+    buildClickableRegions({ project, hotspots, placedItems, placedNpcs, placedPlayers  }),
     [project, hotspots, placedItems, placedNpcs, placedPlayers],
   );
 
-  const {
-    hasShape,
-    hasCollisions,
-    collisionSummary,
-    collisionLock,
-    resetCollisionGuard,
-  } = useEntityCollisionGuard({
+  const { hasShape, hasCollisions, collisionSummary, collisionLock, resetCollisionGuard } = useEntityCollisionGuard({
     shape: draft?.shape,
     clickableRegions,
     ignore: draft?.playerId ? { kind: "player", id: draft.playerId } : undefined,
@@ -130,26 +106,18 @@ export function ScenePlacedPlayerField({
       startRedrawPlacedPlayerShape();
     },
     onCollision: (summary) => {
-      setEditorError({
-        kind: "panel",
-        message: `Colisión con: ${summary}. Dibuja otra región o pulsa “Cancelar”.`,
-      });
+      setEditorError({ kind: "panel", message: `Colisión con: ${summary}. Dibuja otra región o pulsa “Cancelar”.` });
     },
   });
 
   const [confirmNukeOpen, setConfirmNukeOpen] = useState(false);
   const [editorError, setEditorError] = useState<PlacedPlayerEditorError>(null);
 
-  const placedPlayerListEntries = useMemo<PlacedPlayerListEntry[]>(
-    () =>
+  const placedPlayerListEntries = useMemo<InteractiveListEntry[]>(() =>
       placedPlayers.map((p) => {
         const playerDef = projectPlayers.find((def) => def.id === p.playerId) ?? null;
-        return {
-          id: p.playerId,
-          label: playerDef?.name?.trim() || p.playerId,
-        };
-      }),
-    [placedPlayers, projectPlayers],
+        return { id: p.playerId, label: playerDef?.name?.trim() || p.playerId };
+      }), [placedPlayers, projectPlayers],
   );
 
   const beginPlacedPlayerPlacement = (playerId: string) => {
@@ -170,10 +138,7 @@ export function ScenePlacedPlayerField({
     resetCollisionGuard();
     clearInteractionSelection();
 
-    startPlacingPlacedPlayer({
-      playerId,
-      initialImageId,
-    });
+    startPlacingPlacedPlayer({ playerId, initialImageId });
 
     toast.info("Dibuja una región", "Arrastra sobre la imagen de la derecha para definir el player.");
   };
@@ -202,10 +167,7 @@ export function ScenePlacedPlayerField({
     setEditorError(null);
 
     if (hasCollisions) {
-      setEditorError({
-        kind: "panel",
-        message: `Colisión con: ${collisionSummary}. Ajusta la región para que no se solape.`,
-      });
+      setEditorError({ kind: "panel", message: `Colisión con: ${collisionSummary}. Ajusta la región para que no se solape.` });
       return;
     }
 
@@ -303,9 +265,7 @@ export function ScenePlacedPlayerField({
     const selectedPlayer = projectPlayers.find((player) => player.id === playerId) ?? null;
     const nextInitialImageId = selectedPlayer?.defaultImageId ?? selectedPlayer?.images[0]?.id ?? "";
 
-    if (nextInitialImageId) {
-      setPlacedPlayerDraftInitialImageId(nextInitialImageId);
-    }
+    if (nextInitialImageId) setPlacedPlayerDraftInitialImageId(nextInitialImageId);
   };
 
   const initialVisible = draft?.initialState.visible ?? true;
@@ -337,26 +297,19 @@ export function ScenePlacedPlayerField({
       <ToggleFieldBlock label={label} active={active} onToggle={onToggle}>
         <div className="space-y-3">
           {!isDraftActive && !isCreatingPlacedPlayer ? (
-            <>
-              <div className="flex justify-center">
-                <button
-                  type="button"
-                  className="btn btn-create-condition mt-2"
-                  onClick={handleStartAddingPlacedPlayer}
-                  title="Añadir player"
-                >
-                  + Añadir player
-                </button>
-              </div>
-
-              <PlacedPlayerListPanel
-                placedPlayers={placedPlayerListEntries}
+              <InteractiveListPanel
+                items={placedPlayerListEntries}
                 selectedId={selectedId}
+                itemTitle="Editar Player"
+                editTitle="Editar"
+                editAriaLabel="Editar Player"
+                deleteAriaLabel="Eliminar Player"
+                createLabel="+ Añadir Player"
+                onCreate={handleStartAddingPlacedPlayer}
                 onEdit={handleEditPlacedPlayer}
                 onDelete={handleDelete}
                 onDeleteAll={handleAskNukeAll}
               />
-            </>
           ) : (
             <PlacedPlayerEditorPanel
               draft={draft ?? null}

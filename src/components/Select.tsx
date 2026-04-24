@@ -1,11 +1,14 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-export type Option<K extends string> = { id: K; label: string };
+export type Option<K extends string> = {
+  id: K;
+  label: string;
+};
 
 type Props<K extends string> = {
   value: K | "";
-  onChange: (v: K | "") => void;
+  onChange: (value: K | "") => void;
   options: Option<K>[];
   placeholder?: string;
   disabled?: boolean;
@@ -21,7 +24,7 @@ type MenuPosition = {
   width: number;
 };
 
-export function Select<K extends string>({ value, onChange, options, placeholder, disabled, className, buttonClassName, menuClassName, optionClassName }: Props<K>) {
+export function Select<K extends string>({ value, onChange, options, placeholder, disabled = false, className, buttonClassName, menuClassName, optionClassName }: Props<K>) {
   const [open, setOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null);
 
@@ -29,43 +32,46 @@ export function Select<K extends string>({ value, onChange, options, placeholder
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
-  const selected = useMemo(
-    () => options.find((o) => o.id === value) ?? null,
-    [options, value]
-  );
+  /* Opción seleccionada */
+  const selected = useMemo(() => options.find((option) => option.id === value) ?? null, [options, value]);
 
-  function updateMenuPosition() {
-    if (!triggerRef.current) return;
+  const placeholderText = placeholder ?? "Selecciona…";
 
-    const rect = triggerRef.current.getBoundingClientRect();
+  /* Recalcula la posición del menú usando el botón disparador */
+  const updateMenuPosition = () => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
 
-    setMenuPosition({
-      top: rect.bottom + 4,
-      left: rect.left,
-      width: rect.width,
-    });
-  }
+    const rect = trigger.getBoundingClientRect();
 
+    setMenuPosition({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+  };
+
+  /* Cuando se abre el menú, calculamos su posición antes de pintar */
   useLayoutEffect(() => {
     if (!open) return;
     updateMenuPosition();
   }, [open]);
 
+  /* Si el componente se deshabilita mientras está abierto, lo cerramos */
   useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
+    if (disabled && open) setOpen(false);
+  }, [disabled, open]);
+
+  /* Cierre por click fuera o por Escape */
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Node;
 
-      const clickedInsideRoot = !!rootRef.current?.contains(target);
-      const clickedInsideMenu = !!menuRef.current?.contains(target);
+      const clickedInsideRoot = rootRef.current?.contains(target) ?? false;
+      const clickedInsideMenu = menuRef.current?.contains(target) ?? false;
 
       if (!clickedInsideRoot && !clickedInsideMenu) setOpen(false);
-    }
+    };
 
-    function handleEscape(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setOpen(false);
-      }
-    }
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
 
     document.addEventListener("mousedown", handleClickOutside);
     document.addEventListener("keydown", handleEscape);
@@ -76,12 +82,11 @@ export function Select<K extends string>({ value, onChange, options, placeholder
     };
   }, []);
 
+  /* Mientras el menú está abierto, se recoloca en scroll/resize */
   useEffect(() => {
     if (!open) return;
 
-    function handleWindowChange() {
-      updateMenuPosition();
-    }
+    const handleWindowChange = () => { updateMenuPosition() };
 
     window.addEventListener("resize", handleWindowChange);
     window.addEventListener("scroll", handleWindowChange, true);
@@ -92,63 +97,55 @@ export function Select<K extends string>({ value, onChange, options, placeholder
     };
   }, [open]);
 
-  const menu =
-    open && !disabled && menuPosition
+  const handleClear = () => {
+    onChange("");
+    setOpen(false);
+  };
+
+  const handleSelect = (nextValue: K) => {
+    onChange(nextValue);
+    setOpen(false);
+  };
+
+  /* Menú flotante renderizado en portal */
+  const menu = open && !disabled && menuPosition
       ? createPortal(
-        <div
-          ref={menuRef}
-          style={{
-            position: "fixed",
-            top: menuPosition.top,
-            left: menuPosition.left,
-            width: menuPosition.width,
-            zIndex: 9999,
-          }}
-          className={
-            "max-h-60 overflow-auto rounded-md border border-slate-700 bg-slate-900 p-1 shadow-lg " +
-            (menuClassName ?? "")
-          }
-        >
-          <button
-            type="button"
-            onClick={() => {
-              onChange("");
-              setOpen(false);
-            }}
-            className={
-              "block w-full rounded px-2 py-1 text-left text-xs text-slate-300 hover:bg-fuchsia-600 hover:text-white " +
-              (optionClassName ?? "")
-            }
+          <div
+            ref={menuRef}
+            style={{ position: "fixed", top: menuPosition.top, left: menuPosition.left, width: menuPosition.width, zIndex: 9999 }}
+            className={"max-h-60 overflow-auto rounded-md border border-slate-700 bg-slate-900 p-1 shadow-lg " +
+              (menuClassName ?? "")}
           >
-            {placeholder ?? "Selecciona…"}
-          </button>
+            <button
+              type="button"
+              onClick={handleClear}
+              className={"block w-full rounded px-2 py-1 text-left text-xs text-slate-300 hover:bg-fuchsia-600 hover:text-white " +
+                (optionClassName ?? "")}
+            >
+              {placeholderText}
+            </button>
 
-          {options.map((o) => {
-            const isSelected = o.id === value;
+            {options.map((option) => {
+              const isSelected = option.id === value;
 
-            return (
-              <button
-                key={o.id}
-                type="button"
-                onClick={() => {
-                  onChange(o.id);
-                  setOpen(false);
-                }}
-                className={
-                  "block w-full rounded px-2 py-1 text-left text-xs transition-colors " +
-                  (isSelected
-                    ? "bg-fuchsia-700 text-white "
-                    : "text-slate-200 hover:bg-fuchsia-600 hover:text-white ") +
-                  (optionClassName ?? "")
-                }
-              >
-                {o.label}
-              </button>
-            );
-          })}
-        </div>,
-        document.body
-      )
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => handleSelect(option.id)}
+                  className={"mb-1 block w-full rounded px-2 py-1 text-left text-xs transition-colors " +
+                    (isSelected
+                      ? "bg-fuchsia-800 text-white "
+                      : "text-slate-200 hover:bg-fuchsia-900 hover:text-white ") +
+                    (optionClassName ?? "")}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>,
+          document.body,
+        )
       : null;
 
   return (
@@ -159,14 +156,12 @@ export function Select<K extends string>({ value, onChange, options, placeholder
           type="button"
           disabled={disabled}
           onClick={() => setOpen((prev) => !prev)}
-          className={
-            "flex w-full items-center justify-between rounded-md border bg-slate-900 px-2 py-1 text-xs text-white " +
+          className={"flex w-full items-center justify-between rounded-md border bg-slate-900 px-2 py-1 text-xs text-white " +
             "focus:outline-none focus:ring-2 focus:ring-fuchsia-500 disabled:opacity-50 " +
-            (buttonClassName ?? "border-slate-700")
-          }
+            (buttonClassName ?? "border-slate-700")}
         >
           <span className={selected ? "text-white" : "text-slate-400"}>
-            {selected?.label ?? placeholder ?? "Selecciona…"}
+            {selected?.label ?? placeholderText}
           </span>
 
           <svg

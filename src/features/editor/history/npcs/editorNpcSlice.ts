@@ -1,5 +1,5 @@
 import type { ID, NpcDef, Project, VarDef } from "@/domain/types";
-import { conditionReferencesNpc, conditionReferencesNpcVar } from "@/domain/conditionRefs";
+import { conditionReferences } from "@/domain/conditionRefs";
 import { effectReferencesNpc, effectReferencesNpcVar } from "@/domain/effectRefs";
 import { hasDuplicateName } from "@/validation/genericValidator";
 import { buildAssetPath } from "@/store/assets/assetPath";
@@ -282,8 +282,8 @@ export function createEditorNpcSlice(set: (partial: | Partial<EditorStoreLike> |
           somePlacedNpc(currentProject, (placedNpc) => placedNpc.npcId === npcId) ||
           someDialogue(currentProject, (dialogue) => dialogue.npcId === npcId),
 
-        someWhenRef: (when) => conditionReferencesNpc(when, npcId) ||
-          npcVars.some((variable) => conditionReferencesNpcVar(when, { npcId, varId: variable.id })),
+        someWhenRef: (when) => conditionReferences.npc(when, npcId) ||
+          npcVars.some((variable) => conditionReferences.npcVar(when, { npcId, varId: variable.id })),
 
         someEffectRef: (effect) => effectReferencesNpc(effect, npcId) || effectIsStartDialogueForAnyOf(effect, dialogueIds)
       });

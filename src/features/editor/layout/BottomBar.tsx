@@ -6,6 +6,7 @@ type SecondaryTab = {
   id: EditorSecondaryMode;
   label: string;
   title?: string;
+  disabled?: boolean;
 };
 
 type BottomBarCounts = {
@@ -18,7 +19,7 @@ type BottomBarCounts = {
   mapCount: number;
 };
 
-function buildSecondaryTabs(primaryMode: EditorPrimaryMode, nodeMode: "creating" | "editing", counts: BottomBarCounts): SecondaryTab[] {
+function buildSecondaryTabs(primaryMode: EditorPrimaryMode, nodeMode: "creating" | "editing", counts: BottomBarCounts, canOpenSceneTest: boolean): SecondaryTab[] {
   switch (primaryMode) {
     case "historia":
       return [
@@ -36,12 +37,7 @@ function buildSecondaryTabs(primaryMode: EditorPrimaryMode, nodeMode: "creating"
       return [
         { id: "crear", label: nodeMode === "editing" ? "Editar" : "Crear" },
         { id: "buscar", label: "Buscar" },
-      ];
-
-    case "test":
-      return [
-        { id: "historia", label: "Historia" },
-        { id: "escena", label: "Escena" },
+        { id: "test", label: "Test", disabled: !canOpenSceneTest, title: canOpenSceneTest ? "Probar la escena" : "Guarda la escena para poder abrir Test" },
       ];
 
     default: {
@@ -58,6 +54,7 @@ export function BottomBar() {
   const secondaryMode = useEditorStore((s) => s.secondaryMode);
   const setSecondaryMode = useEditorStore((s) => s.setSecondaryMode);
   const nodeMode = useEditorStore((s) => s.nodeMode);
+  const canOpenSceneTest = useEditorStore((s) => s.canOpenSceneTest());
 
   if (!project) return null;
 
@@ -70,15 +67,15 @@ export function BottomBar() {
       musicCount: project.musicTracks.length,
       sfxCount: project.soundEffects.length,
       mapCount: project.maps.length,
-    }),
-    [primaryMode, nodeMode, project],
+    }, canOpenSceneTest),
+    [primaryMode, nodeMode, project, canOpenSceneTest],
   );
 
   if (tabs.length === 0) return null;
 
   return (
-    <nav className="h-12 bg-slate-900 flex items-center px-4">
-      <div className="flex items-center gap-2 text-sm">
+    <nav className="h-12 border-b-2 border-slate-700 bg-slate-900/30 flex items-center px-4">
+      <div className="flex items-center gap-2 text-[14px]">
         {tabs.map((tab) => {
           const isActive = tab.id === secondaryMode;
 
@@ -86,12 +83,18 @@ export function BottomBar() {
             <button
               key={tab.id}
               type="button"
-              onClick={() => { if (tab.id !== secondaryMode) setSecondaryMode(tab.id) }}
+              disabled={tab.disabled}
+              onClick={() => {
+                if (tab.disabled) return;
+                if (tab.id !== secondaryMode) setSecondaryMode(tab.id);
+              }}
               title={tab.title}
               className={"px-3 py-1 rounded-md transition-colors " +
-                (isActive
-                  ? "bg-slate-700 text-white"
-                  : "text-slate-100 hover:text-white hover:bg-slate-800")}
+                (tab.disabled
+                  ? "text-slate-500 bg-slate-900/40 cursor-not-allowed"
+                  : isActive
+                    ? "bg-slate-800 text-white"
+                    : "text-slate-100 hover:text-white hover:bg-slate-800/60")}
             >
               {tab.label}
             </button>

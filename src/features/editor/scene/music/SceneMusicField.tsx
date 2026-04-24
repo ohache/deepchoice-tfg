@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import type { ID, MusicTrackDef } from "@/domain/types";
 import { useEditorStore } from "@/store/editorStore";
 import { ToggleFieldBlock } from "@/features/editor/scene/SceneFieldBlocks";
+import { Select, type Option } from "@/components/Select";
 
 type SceneMusicFieldProps = {
   label?: string;
@@ -11,18 +12,19 @@ type SceneMusicFieldProps = {
 };
 
 export function SceneMusicField({ label = "Música", active, onToggle, layerId }: SceneMusicFieldProps) {
-  const project = useEditorStore((s) => s.project ?? null);
+  const project = useEditorStore((s) => s.project);
   const nodeDraft = useEditorStore((s) => s.nodeDraft);
   const setLayerMusicTrackId = useEditorStore((s) => s.setLayerMusicTrackId);
   const setNodeMusicTrackId = useEditorStore((s) => s.setNodeMusicTrackId);
 
-  const musicTracks = useMemo<MusicTrackDef[]>(
-    () => project?.musicTracks ?? [],
-    [project?.musicTracks]
+  const musicTracks = useMemo<MusicTrackDef[]>(() => project?.musicTracks ?? [], [project?.musicTracks]);
+
+  const trackOptions = useMemo<Option<ID>[]>(() =>
+    musicTracks.map((track) => ({ id: track.id, label: track.name?.trim() || track.id })), [musicTracks]
   );
 
-  const editingLayer = useMemo(
-    () => (layerId ? (nodeDraft?.layers ?? []).find((layer) => layer.id === layerId) ?? null : null),
+  const editingLayer = useMemo(() =>
+    layerId ? (nodeDraft?.layers ?? []).find((layer) => layer.id === layerId) ?? null : null,
     [nodeDraft?.layers, layerId]
   );
 
@@ -45,22 +47,17 @@ export function SceneMusicField({ label = "Música", active, onToggle, layerId }
     <ToggleFieldBlock label={label} active={active} onToggle={onToggle}>
       <div className="space-y-3">
         <div className="bg-slate-950/30 px-2 py-2">
-          <div className="text-xs text-slate-300 text-center mb-2">
+          <div className="text-[13px] text-white text-center mb-2">
             Pista asociada
           </div>
 
-          <select
+          <Select<ID>
             value={selectedTrackId}
-            onChange={(e) => handleChange(e.target.value)}
-            className="w-full rounded-md bg-slate-900 border-2 border-slate-700 px-2 py-2 text-xs text-slate-100 focus:outline-none focus:border-transparent focus:ring-2 focus:ring-fuchsia-500"
-          >
-            <option value="">— Sin música —</option>
-            {musicTracks.map((track) => (
-              <option key={track.id} value={track.id}>
-                {track.name}
-              </option>
-            ))}
-          </select>
+            onChange={(value) => handleChange(String(value ?? ""))}
+            options={trackOptions}
+            placeholder="— Sin música —"
+            className="w-full"
+          />
 
           {!musicTracks.length ? (
             <div className="mt-2 text-[11px] text-slate-400 text-center">

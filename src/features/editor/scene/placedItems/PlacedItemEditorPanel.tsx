@@ -1,13 +1,14 @@
+import type { RefObject } from "react";
 import type { ID, ClickRule, UseItemRule, ItemDef, BaseInteractionRule, Project } from "@/domain/types";
 import type { Condition } from "@/domain/conditions";
 import type { Effect } from "@/domain/effects";
 import type { PlacedItemDraft, PlacedItemRuleChannel } from "@/features/editor/scene/placedItems/placedItemEditorTypes";
 import type { EffectOwner } from "@/features/editor/scene/rules/effects/effectFactory";
-import { Select, type Option } from "@/components/Select";
-import { Pencil } from "lucide-react";
 import { RegionStatusNotice } from "@/features/editor/scene/interactiveComponents/RegionStatusNotice";
 import { PlaceableStateSection } from "@/features/editor/scene/interactiveComponents/PlaceableStateSection";
 import { InteractionRulesSection } from "@/features/editor/scene/interactiveComponents/InteractionRulesSection";
+import { Select, type Option } from "@/components/Select";
+import { Pencil } from "lucide-react";
 
 type PlacedItemEditorPanelProps = {
   draft: PlacedItemDraft | null;
@@ -31,8 +32,8 @@ type PlacedItemEditorPanelProps = {
   initialReachable: boolean;
   initialNotReachableText: string;
 
-  labelInputRef: React.RefObject<HTMLInputElement | null>;
-  notReachableInputRef: React.RefObject<HTMLInputElement | null>;
+  labelInputRef: RefObject<HTMLInputElement | null>;
+  notReachableInputRef: RefObject<HTMLInputElement | null>;
 
   onItemChange: (itemId: ID) => void;
   onLabelChange: (value: string) => void;
@@ -66,79 +67,33 @@ type PlacedItemEditorPanelProps = {
   panelError: string | null;
   showPickupRuleRequiredError: boolean;
 
-  useItemSourceOptions: Array<{ id: ID; label: string }>;
+  useItemSourceOptions: Option<ID>[];
 
   onDelete: () => void;
   onCancel: () => void;
   onCommit: () => void;
 };
 
-export function PlacedItemEditorPanel({
-  draft,
-  selectedCatalogItemId,
-  projectItems,
-  onSelectedCatalogItemIdChange,
-  isDrawing,
-  hasShape,
-  isExistingPlacedItem,
-  dupLabel,
-  hasCollisions,
-  collisionSummary,
-  collisionLock,
-  disableAllEditorFields,
-  disableReachable,
-  disableRulesEditor,
-  disableNotReachableText,
-  initialVisible,
-  initialReachable,
-  initialNotReachableText,
-  onItemChange,
-  labelInputRef,
-  notReachableInputRef,
-  onLabelChange,
-  onStartRedrawShape,
-  onVisibleChange,
-  onReachableChange,
-  onNotReachableTextChange,
-  owner,
-  activeChannel,
-  setActiveChannel,
-  clickRules,
-  useItemRulesForSelected,
-  ruleModalOpen,
-  currentRuleValue,
-  nodeId,
-  project,
-  onOpenAddClickRule,
-  onOpenEditClickRule,
-  onRemoveClickRule,
-  onOpenAddUseItemRule,
-  onOpenEditUseItemRule,
-  onRemoveUseItemRule,
-  onCloseRuleModal,
-  onSaveRule,
-  panelError,
-  showPickupRuleRequiredError,
-  useItemSourceOptions,
-  onDelete,
-  onCancel,
-  onCommit,
-}: PlacedItemEditorPanelProps) {
-  const itemOptions: Option<string>[] = projectItems.map((it) => ({
-    id: it.id,
-    label: it.name || it.id,
-  }));
-
-  const useItemOptions = useItemSourceOptions.map((it) => ({
-    id: it.id,
-    label: it.label,
-  }));
+export function PlacedItemEditorPanel({ draft, selectedCatalogItemId, projectItems, onSelectedCatalogItemIdChange, isDrawing, hasShape,
+  isExistingPlacedItem, dupLabel, hasCollisions, collisionSummary, collisionLock, disableAllEditorFields, disableReachable, disableRulesEditor,
+  disableNotReachableText, initialVisible, initialReachable, initialNotReachableText, onItemChange, labelInputRef, notReachableInputRef,
+  onLabelChange, onStartRedrawShape, onVisibleChange, onReachableChange, onNotReachableTextChange, owner, activeChannel, setActiveChannel,
+  clickRules, useItemRulesForSelected, ruleModalOpen, currentRuleValue, nodeId, project, onOpenAddClickRule, onOpenEditClickRule,
+  onRemoveClickRule, onOpenAddUseItemRule, onOpenEditUseItemRule, onRemoveUseItemRule, onCloseRuleModal, onSaveRule, panelError,
+  showPickupRuleRequiredError, useItemSourceOptions, onDelete, onCancel, onCommit }: PlacedItemEditorPanelProps) {
+  const itemOptions: Option<string>[] = projectItems.map((item) => ({ id: item.id, label: item.name || item.id }));
 
   const pickupRuleErrorText = showPickupRuleRequiredError
-    ? "Debes crear una regla que incluya un efecto addItem del propio item antes de guardarlo."
-    : null;
+    ? "Debes crear una regla que incluya un efecto addItem del propio item antes de guardarlo." : null;
 
-    if (!draft) {
+  const saveButtonTitle = isDrawing ? "Termina o cancela el dibujo actual antes de guardar" : !hasShape
+        ? "Dibuja una región válida antes de guardar" : !draft?.label.trim()
+          ? "La etiqueta es obligatoria" : dupLabel
+            ? "Etiqueta duplicada" : hasCollisions
+              ? "Colisión con otro clicable" : undefined;
+
+  /* Estado inicial del flujo: todavía no existe draft */
+  if (!draft) {
     return (
       <div className="bg-slate-950/40 p-1 space-y-3">
         <div className="rounded-md border border-slate-700 bg-slate-950/20 px-3 py-3 space-y-3">
@@ -164,7 +119,8 @@ export function PlacedItemEditorPanel({
 
   return (
     <div className="bg-slate-950/40 p-1 space-y-2">
-            {panelError ? (
+      {/* Aviso principal del panel: error propio o estado de la región */}
+      {panelError ? (
         <div className="rounded-md border border-red-500/40 bg-red-950/20 px-2 py-1 text-[11px] text-red-100">
           {panelError}
         </div>
@@ -180,8 +136,9 @@ export function PlacedItemEditorPanel({
         />
       )}
 
+      {/* Selector del item del catálogo */}
       <div className="space-y-1">
-        <div className="text-xs text-slate-100 mb-1.5">Item</div>
+        <div className="mb-1.5 text-xs text-slate-100">Item</div>
 
         <Select<string>
           value={draft.itemId}
@@ -192,19 +149,20 @@ export function PlacedItemEditorPanel({
           options={itemOptions}
           placeholder="Seleccionar item"
           disabled={!projectItems.length || disableAllEditorFields || isExistingPlacedItem}
-          className="w-full rounded-md bg-slate-900/30 border-2 border-slate-700 px-2 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-transparent focus:ring-2 focus:ring-fuchsia-500 disabled:opacity-50"
+          className="w-full rounded-md border-2 border-slate-700 bg-slate-900/30 px-2 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-transparent focus:ring-2 focus:ring-fuchsia-500 disabled:opacity-50"
         />
       </div>
 
+      {/* Nombre visible de la instancia colocada */}
       <div className="space-y-1">
-        <div className="text-[13px] text-slate-100 mb-1.5">Nombre</div>
+        <div className="mb-1.5 text-[13px] text-slate-100">Nombre</div>
 
         <div className="flex items-center gap-2">
           <input
             ref={labelInputRef}
             value={draft.label}
-            onChange={(e) => onLabelChange(e.target.value)}
-            className="flex flex-1 min-w-0 rounded-md bg-slate-900/30 border-2 border-slate-700 px-2 py-1.5 text-xs text-slate-100
+            onChange={(event) => onLabelChange(event.target.value)}
+            className="flex min-w-0 flex-1 rounded-md border-2 border-slate-700 bg-slate-900/30 px-2 py-1.5 text-xs text-slate-100
               focus:outline-none focus:border-transparent focus:ring-2 focus:ring-fuchsia-500"
             placeholder="Ej: Llave del cajón"
             disabled={disableAllEditorFields}
@@ -212,7 +170,7 @@ export function PlacedItemEditorPanel({
 
           <button
             type="button"
-            className="btn border-2 border-slate-700 bg-slate-900 hover:bg-slate-800 text-xs text-white"
+            className="btn border-2 border-slate-700 bg-slate-900 text-xs text-white hover:bg-slate-800"
             onClick={onStartRedrawShape}
             title={isDrawing ? "Termina o cancela el dibujo actual antes de editar la región" : "Editar región del item"}
             disabled={isDrawing}
@@ -228,8 +186,9 @@ export function PlacedItemEditorPanel({
         ) : null}
       </div>
 
-      <div className="h-[3px] bg-slate-800 my-2" />
+      <div className="my-2 h-[3px] bg-slate-800" />
 
+      {/* Estado inicial del item */}
       <PlaceableStateSection
         initialVisible={initialVisible}
         initialReachable={initialReachable}
@@ -243,8 +202,9 @@ export function PlacedItemEditorPanel({
         onNotReachableTextChange={onNotReachableTextChange}
       />
 
-      <div className="h-[3px] bg-slate-800 my-2" />
+      <div className="my-2 h-[3px] bg-slate-800" />
 
+      {/* Reglas de interacción */}
       <InteractionRulesSection
         owner={owner}
         project={project}
@@ -254,7 +214,7 @@ export function PlacedItemEditorPanel({
         setActiveChannel={setActiveChannel}
         clickRules={clickRules}
         useItemRulesForSelected={useItemRulesForSelected}
-        useItemOptions={useItemOptions}
+        useItemOptions={useItemSourceOptions}
         ruleModalOpen={ruleModalOpen}
         currentRuleValue={currentRuleValue}
         onOpenAddClickRule={onOpenAddClickRule}
@@ -268,7 +228,8 @@ export function PlacedItemEditorPanel({
         requiredErrorText={pickupRuleErrorText}
       />
 
-      <div className="flex items-center justify-between gap-2 mt-4">
+      {/* Acciones finales */}
+      <div className="mt-4 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           {isExistingPlacedItem ? (
             <button
@@ -292,19 +253,7 @@ export function PlacedItemEditorPanel({
             type="button"
             className="btn btn-create text-[11px]"
             onClick={onCommit}
-            title={
-              isDrawing
-                ? "Termina o cancela el dibujo actual antes de guardar"
-                : !hasShape
-                  ? "Dibuja una región válida antes de guardar"
-                  : !draft.label.trim()
-                    ? "La etiqueta es obligatoria"
-                    : dupLabel
-                      ? "Etiqueta duplicada"
-                      : hasCollisions
-                        ? "Colisión con otro clicable"
-                        : undefined
-            }
+            title={saveButtonTitle}
           >
             Guardar
           </button>

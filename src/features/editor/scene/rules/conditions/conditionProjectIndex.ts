@@ -3,6 +3,7 @@ import type { Option } from "@/components/Select";
 
 export type VarOwnerKind = "player" | "npc" | "hotspot";
 
+/* API del index */
 export type ProjectIndex = {
   project: Project | null;
 
@@ -42,10 +43,18 @@ export type ProjectIndex = {
   getNpcOptions: () => Option<ID>[];
 };
 
-function toOption(id: ID, label?: string): Option<ID> {
-  return { id, label: label || id };
+/* Helpers */
+const toOption = (id: ID, label?: string): Option<ID> => ({ id, label: label || id });
+
+function uniqueByKey<T>(items: T[], keyFn: (item: T) => ID): T[] {
+  const map = new Map<ID, T>();
+  for (const item of items) {
+    map.set(keyFn(item), item);
+  }
+  return Array.from(map.values());
 }
 
+/* Factory */
 export function createProjectIndex(project: Project | null): ProjectIndex {
   const nodes = project?.nodes ?? [];
   const items = project?.items ?? [];
@@ -53,155 +62,126 @@ export function createProjectIndex(project: Project | null): ProjectIndex {
   const npcs = project?.npcs ?? [];
   const maps = project?.maps ?? [];
 
-  const placedItems: PlacedItem[] = [];
-  const hotspots: Hotspot[] = [];
-  const placedNpcs: PlacedNpc[] = [];
-  const placedPlayers: PlacedPlayer[] = [];
+  const placedItemsRaw: PlacedItem[] = [];
+  const hotspotsRaw: Hotspot[] = [];
+  const placedNpcsRaw: PlacedNpc[] = [];
+  const placedPlayersRaw: PlacedPlayer[] = [];
 
   for (const node of nodes) {
     for (const layer of node.layers ?? []) {
-      placedItems.push(...(layer.placedItems ?? []));
-      hotspots.push(...(layer.hotspots ?? []));
-      placedNpcs.push(...(layer.placedNpcs ?? []));
-      placedPlayers.push(...(layer.placedPlayers ?? []));
+      if (layer.placedItems) placedItemsRaw.push(...layer.placedItems);
+      if (layer.hotspots) hotspotsRaw.push(...layer.hotspots);
+      if (layer.placedNpcs) placedNpcsRaw.push(...layer.placedNpcs);
+      if (layer.placedPlayers) placedPlayersRaw.push(...layer.placedPlayers);
     }
   }
 
-  const nodeById = new Map(nodes.map((n) => [n.id, n] as const));
-  const itemDefById = new Map(items.map((i) => [i.id, i] as const));
-  const playerById = new Map(players.map((p) => [p.id, p] as const));
-  const npcById = new Map(npcs.map((n) => [n.id, n] as const));
-  const mapById = new Map(maps.map((m) => [m.id, m] as const));
+  const placedItems = uniqueByKey(placedItemsRaw, (x) => x.id);
+  const hotspots = uniqueByKey(hotspotsRaw, (x) => x.id);
+  const placedNpcs = uniqueByKey(placedNpcsRaw, (x) => x.npcId);
+  const placedPlayers = uniqueByKey(placedPlayersRaw, (x) => x.playerId);
 
-  const placedItemById = new Map(placedItems.map((p) => [p.id, p] as const));
-  const hotspotById = new Map(hotspots.map((h) => [h.id, h] as const));
-  const placedNpcByNpcId = new Map(placedNpcs.map((p) => [p.npcId, p] as const));
-  const placedPlayerByPlayerId = new Map(placedPlayers.map((p) => [p.playerId, p] as const));
+  const nodeById = new Map(nodes.map((n) => [n.id, n]));
+  const itemDefById = new Map(items.map((i) => [i.id, i]));
+  const playerById = new Map(players.map((p) => [p.id, p]));
+  const npcById = new Map(npcs.map((n) => [n.id, n]));
+  const mapById = new Map(maps.map((m) => [m.id, m]));
 
-  const nodeOptionsAll = nodes.map((n) => toOption(n.id, n.title || n.id));
-  const placedItemOptionsAll = placedItems.map((p) => {
-    const itemDefName = itemDefById.get(p.itemId)?.name;
-    return toOption(p.id, p.label?.trim() || itemDefName || p.id);
-  });
-  const hotspotOptionsAll = hotspots.map((h) => toOption(h.id, h.label?.trim() || h.id));
-  const placedNpcOptionsAll = placedNpcs.map((p) => {
-    const npcName = npcById.get(p.npcId)?.name;
-    return toOption(p.npcId, npcName || p.npcId);
-  });
-  const placedPlayerOptionsAll = placedPlayers.map((p) => {
-    const playerName = playerById.get(p.playerId)?.name;
-    return toOption(p.playerId, playerName || p.playerId);
+  const placedItemById = new Map(placedItems.map((p) => [p.id, p]));
+  const hotspotById = new Map(hotspots.map((h) => [h.id, h]));
+
+  const nodeOptions = nodes.map((n) => toOption(n.id, n.title || n.id));
+  const mapOptions = maps.map((m) => toOption(m.id, m.name || m.id));
+  const playerOptions = players.map((p) => toOption(p.id, p.name || p.id));
+  const npcOptions = npcs.map((n) => toOption(n.id, n.name || n.id));
+
+  const placedItemOptions = placedItems.map((p) => {
+    const def = itemDefById.get(p.itemId);
+    return toOption(p.id, p.label?.trim() || def?.name || p.id);
   });
 
-  const getNode = (id: ID) => nodeById.get(id) ?? null;
-
-  const getPlacedItems = (): PlacedItem[] => placedItems;
-  const getHotspots = (): Hotspot[] => hotspots;
-  const getPlacedNpcs = (): PlacedNpc[] => placedNpcs;
-  const getPlacedPlayers = (): PlacedPlayer[] => placedPlayers;
-
-  const getVarOptions = (kind: VarOwnerKind, ownerId: ID) => {
-    if (!project || !ownerId) return [];
-
-    if (kind === "hotspot") {
-      const hotspot = hotspotById.get(ownerId);
-      return (hotspot?.vars ?? []).map((v) => ({ id: v.id, label: v.name || v.id }));
-    }
-
-    const owner = kind === "player" ? playerById.get(ownerId) : npcById.get(ownerId);
-    return (owner?.vars ?? []).map((v) => ({ id: v.id, label: v.name || v.id }));
-  };
-
-  const getVarDef = (kind: VarOwnerKind, ownerId: ID, varId: ID) => {
-    if (!project || !ownerId || !varId) return null;
-
-    if (kind === "hotspot") {
-      const hotspot = hotspotById.get(ownerId);
-      return (hotspot?.vars ?? []).find((v) => v.id === varId) ?? null;
-    }
-
-    const owner = kind === "player" ? playerById.get(ownerId) : npcById.get(ownerId);
-    return (owner?.vars ?? []).find((v) => v.id === varId) ?? null;
-  };
-
-  const getVarLabel = (kind: VarOwnerKind, ownerId: ID, varId: ID) => {
-    if (!varId) return "—";
-    const v = getVarDef(kind, ownerId, varId);
-    return v?.name || v?.id || varId || "—";
-  };
-
-  const getMapRegionOptions = (mapId: ID): Option<ID>[] => {
-    if (!mapId) return [];
-    const map = mapById.get(mapId);
-    return (map?.regions ?? []).map((r) => toOption(r.id, r.label || r.id));
-  };
-
-  const getMapRegionLabel = (mapId: ID, regionId: ID): string => {
-    if (!mapId || !regionId) return "—";
-    const map = mapById.get(mapId);
-    const region = map?.regions?.find((r) => r.id === regionId);
-    return region?.label || region?.id || regionId || "—";
-  };
-
-  const mapOptionsAll = maps.map((m) => toOption(m.id, m.name || m.id));
-  const playerOptionsAll = players.map((p) => toOption(p.id, p.name || p.id));
-  const npcOptionsAll = npcs.map((n) => toOption(n.id, n.name || n.id));
+  const hotspotOptions = hotspots.map((h) => toOption(h.id, h.label?.trim() || h.id));
+  const placedNpcOptions = placedNpcs.map((p) => toOption(p.npcId, npcById.get(p.npcId)?.name || p.npcId));
+  const placedPlayerOptions = placedPlayers.map((p) => toOption(p.playerId, playerById.get(p.playerId)?.name || p.playerId));
 
   return {
     project,
 
-    getNode,
+    getNode: (id) => nodeById.get(id) ?? null,
+
     getNodeLabel: (id) => nodeById.get(id)?.title || id || "—",
-    getNodeOptions: (opts) =>
-      opts?.excludeNodeId
-        ? nodeOptionsAll.filter((n) => n.id !== opts.excludeNodeId)
-        : nodeOptionsAll,
 
-    getPlacedItems,
-    getPlacedItemOptions: () => placedItemOptionsAll,
-    getPlacedItemLabel: (placedItemId) => {
-      const placed = placedItemById.get(placedItemId);
-      if (!placed) return placedItemId || "—";
-      const itemDefName = itemDefById.get(placed.itemId)?.name;
-      return placed.label?.trim() || itemDefName || placed.id || placedItemId || "—";
+    getNodeOptions: (opts) => opts?.excludeNodeId
+      ? nodeOptions.filter((n) => n.id !== opts.excludeNodeId)
+      : nodeOptions,
+
+    getPlacedItems: () => placedItems,
+    getPlacedItemOptions: () => placedItemOptions,
+
+    getPlacedItemLabel: (id) => {
+      const p = placedItemById.get(id);
+      if (!p) return id || "—";
+      return p.label?.trim() || itemDefById.get(p.itemId)?.name || p.id;
     },
 
-    getHotspots,
-    getHotspotOptions: () => hotspotOptionsAll,
-    getHotspotLabel: (hotspotId) => {
-      const hotspot = hotspotById.get(hotspotId);
-      return hotspot?.label?.trim() || hotspot?.id || hotspotId || "—";
-    },
+    getHotspots: () => hotspots,
+    getHotspotOptions: () => hotspotOptions,
+    getHotspotLabel: (id) => hotspotById.get(id)?.label?.trim() || id || "—",
 
-    getPlacedNpcs,
-    getPlacedNpcOptions: () => placedNpcOptionsAll,
-    getPlacedNpcLabel: (npcId) => {
-      const placed = placedNpcByNpcId.get(npcId);
-      const resolvedId = placed?.npcId ?? npcId;
-      return npcById.get(resolvedId)?.name || resolvedId || "—";
-    },
+    getPlacedNpcs: () => placedNpcs,
+    getPlacedNpcOptions: () => placedNpcOptions,
+    getPlacedNpcLabel: (id) => npcById.get(id)?.name || id || "—",
 
-    getPlacedPlayers,
-    getPlacedPlayerOptions: () => placedPlayerOptionsAll,
-    getPlacedPlayerLabel: (playerId) => {
-      const placed = placedPlayerByPlayerId.get(playerId);
-      const resolvedId = placed?.playerId ?? playerId;
-      return playerById.get(resolvedId)?.name || resolvedId || "—";
-    },
+    getPlacedPlayers: () => placedPlayers,
+    getPlacedPlayerOptions: () => placedPlayerOptions,
+    getPlacedPlayerLabel: (id) => playerById.get(id)?.name || id || "—",
 
     getPlayerLabel: (id) => playerById.get(id)?.name || id || "—",
     getNpcLabel: (id) => npcById.get(id)?.name || id || "—",
     getMapLabel: (id) => mapById.get(id)?.name || id || "—",
 
-    getMapRegionOptions,
-    getMapRegionLabel,
+    getMapRegionOptions: (mapId) => mapById.get(mapId)?.regions?.map((r) => toOption(r.id, r.label || r.id)) ?? [],
 
-    getVarOptions,
-    getVarDef,
-    getVarLabel,
+    getMapRegionLabel: (mapId, regionId) => mapById.get(mapId)?.regions?.find((r) => r.id === regionId)?.label || regionId || "—",
 
-    getMapOptions: () => mapOptionsAll,
-    getPlayerOptions: () => playerOptionsAll,
-    getNpcOptions: () => npcOptionsAll,
+    getVarOptions: (kind, ownerId) => {
+      if (!ownerId) return [];
+
+      if (kind === "hotspot") return hotspotById.get(ownerId)?.vars?.map(v => ({ id: v.id, label: v.name })) ?? [];
+
+      const owner = kind === "player"
+        ? playerById.get(ownerId)
+        : npcById.get(ownerId);
+
+      return owner?.vars?.map(v => ({ id: v.id, label: v.name })) ?? [];
+    },
+
+    getVarDef: (kind, ownerId, varId) => {
+      if (!ownerId || !varId) return null;
+
+      if (kind === "hotspot") return hotspotById.get(ownerId)?.vars?.find(v => v.id === varId) ?? null;
+
+      const owner = kind === "player"
+        ? playerById.get(ownerId)
+        : npcById.get(ownerId);
+
+      return owner?.vars?.find(v => v.id === varId) ?? null;
+    },
+
+    getVarLabel: (kind, ownerId, varId) => {
+      if (!varId) return "—";
+      return (
+        (kind === "hotspot"
+          ? hotspotById.get(ownerId)?.vars
+          : kind === "player"
+            ? playerById.get(ownerId)?.vars
+            : npcById.get(ownerId)?.vars
+        )?.find(v => v.id === varId)?.name || varId
+      );
+    },
+
+    getMapOptions: () => mapOptions,
+    getPlayerOptions: () => playerOptions,
+    getNpcOptions: () => npcOptions,
   };
 }

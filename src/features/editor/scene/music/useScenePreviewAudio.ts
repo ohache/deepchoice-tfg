@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ID, Project, ResolvedMusic } from "@/domain/types";
 
 type UseScenePreviewAudioArgs = {
@@ -10,73 +10,76 @@ type UseScenePreviewAudioArgs = {
   musicSrc?: string;
 };
 
-function resolveScenePreviewMusic(args: {
+type ResolveScenePreviewMusicArgs = {
   project: Project | null;
   nodeMusicTrackId?: ID;
   layerMusicTrackId?: ID;
   mapId?: ID;
   regionId?: ID;
-}): ResolvedMusic | undefined {
-  const { project, nodeMusicTrackId, layerMusicTrackId, mapId, regionId } = args;
+};
 
+function resolveScenePreviewMusic({ project, nodeMusicTrackId, layerMusicTrackId, mapId, regionId }: ResolveScenePreviewMusicArgs): ResolvedMusic | undefined {
   if (layerMusicTrackId) {
-    return {
-      trackId: layerMusicTrackId,
-      sourceType: "layer",
-      sourceId: layerMusicTrackId,
-    };
+    return { trackId: layerMusicTrackId, sourceType: "layer", sourceId: layerMusicTrackId };
   }
 
   if (nodeMusicTrackId) {
-    return {
-      trackId: nodeMusicTrackId,
-      sourceType: "scene",
-      sourceId: nodeMusicTrackId,
-    };
+    return { trackId: nodeMusicTrackId, sourceType: "scene", sourceId: nodeMusicTrackId };
   }
 
-  if (project && mapId && regionId) {
-    const map = (project.maps ?? []).find((m) => m.id === mapId) ?? null;
-    const region = map?.regions.find((r) => r.id === regionId) ?? null;
+  if (!project || !mapId || !regionId) return undefined;
 
-    if (region?.musicTrackId) {
-      return {
-        trackId: region.musicTrackId,
-        sourceType: "region",
-        sourceId: region.id,
-      };
-    }
-  }
+  const map = (project.maps ?? []).find((entry) => entry.id === mapId) ?? null;
+  const region = map?.regions.find((entry) => entry.id === regionId) ?? null;
 
-  return undefined;
+  if (!region?.musicTrackId) return undefined;
+
+  return { trackId: region.musicTrackId, sourceType: "region", sourceId: region.id };
 }
 
+/* Genera una clave estable del audio actualmente resuelto */
+function getResolvedAudioKey(resolvedMusic: ResolvedMusic | undefined, musicSrc?: string): string | null {
+  if (!resolvedMusic || !musicSrc) return null;
+
+  return [resolvedMusic.sourceType, resolvedMusic.sourceId, resolvedMusic.trackId, musicSrc].join(":");
+}
+
+function resetAudioElement(audio: HTMLAudioElement) {
+  audio.pause();
+  audio.currentTime = 0;
+  audio.removeAttribute("src");
+  audio.load();
+}
+
+function loadAudioSource(audio: HTMLAudioElement, musicSrc: string) {
+  audio.pause();
+  audio.currentTime = 0;
+  audio.src = musicSrc;
+  audio.loop = true;
+  audio.load();
+}
+
+/* Hook encargado de preparar y controlar el audio de la preview de escena */
 export function useScenePreviewAudio({ project, nodeMusicTrackId, layerMusicTrackId, mapId, regionId, musicSrc }: UseScenePreviewAudioArgs) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
+    const [isPlaying, setIsPlaying] = useState(false);
+  const lastResolvedKeyRef = useRef<string | null>(null);
+
 
   const resolvedMusic = useMemo(() =>
-    resolveScenePreviewMusic({
-      project,
-      nodeMusicTrackId,
-      layerMusicTrackId,
-      mapId,
-      regionId,
-    }),
-    [project, nodeMusicTrackId, layerMusicTrackId, mapId, regionId]
+      resolveScenePreviewMusic({ project, nodeMusicTrackId, layerMusicTrackId, mapId, regionId }),
+    [project, nodeMusicTrackId, layerMusicTrackId, mapId, regionId],
   );
 
   const resolvedTrackId = resolvedMusic?.trackId ?? null;
-  const lastResolvedKeyRef = useRef<string | null>(null);
+  const canPlay = Boolean(resolvedTrackId && musicSrc);
 
+  /* Cuando cambia la música efectiva, reinicia y recarga el audio */
   useEffect(() => {
-    const nextKey = resolvedMusic && musicSrc
-      ? `${resolvedMusic.sourceType}:${resolvedMusic.sourceId}:${resolvedMusic.trackId}:${musicSrc}`
-      : null;
+    const nextResolvedKey = getResolvedAudioKey(resolvedMusic, musicSrc);
 
-    if (lastResolvedKeyRef.current === nextKey) return;
-
-    lastResolvedKeyRef.current = nextKey;
+    if (lastResolvedKeyRef.current === nextResolvedKey) return;
+    lastResolvedKeyRef.current = nextResolvedKey;
 
     const audio = audioRef.current;
     if (!audio) {
@@ -84,22 +87,17 @@ export function useScenePreviewAudio({ project, nodeMusicTrackId, layerMusicTrac
       return;
     }
 
-    audio.pause();
-    audio.currentTime = 0;
-
     if (!musicSrc || !resolvedTrackId) {
-      audio.removeAttribute("src");
-      audio.load();
+      resetAudioElement(audio);
       setIsPlaying(false);
       return;
     }
 
-    audio.src = musicSrc;
-    audio.loop = true;
-    audio.load();
+    loadAudioSource(audio, musicSrc);
     setIsPlaying(false);
   }, [resolvedMusic, resolvedTrackId, musicSrc]);
 
+  /* Sincroniza el estado React con los eventos nativos del elemento audio */
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -119,20 +117,16 @@ export function useScenePreviewAudio({ project, nodeMusicTrackId, layerMusicTrac
     };
   }, []);
 
+  /* Limpieza final al desmontar el hook */
   useEffect(() => {
     return () => {
       const audio = audioRef.current;
       if (!audio) return;
-      audio.pause();
-      audio.currentTime = 0;
-      audio.removeAttribute("src");
-      audio.load();
+      resetAudioElement(audio);
     };
   }, []);
 
-  const canPlay = Boolean(resolvedTrackId && musicSrc);
-
-  const play = async () => {
+  const play = useCallback(async () => {
     const audio = audioRef.current;
     if (!audio || !canPlay) return false;
 
@@ -146,25 +140,25 @@ export function useScenePreviewAudio({ project, nodeMusicTrackId, layerMusicTrac
       setIsPlaying(false);
       return false;
     }
-  };
+  }, [canPlay]);
 
-  const stop = () => {
+  const stop = useCallback(() => {
     const audio = audioRef.current;
     if (!audio) return;
 
     audio.pause();
     audio.currentTime = 0;
     setIsPlaying(false);
-  };
+  }, []);
 
-  const toggle = async () => {
+  const toggle = useCallback(async () => {
     if (isPlaying) {
       stop();
       return false;
     }
 
     return play();
-  };
+  }, [isPlaying, play, stop]);
 
   return { audioRef, isPlaying, canPlay, toggle, stop, resolvedMusic, resolvedTrackId };
 }

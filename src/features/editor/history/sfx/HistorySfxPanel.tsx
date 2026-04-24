@@ -170,9 +170,9 @@ export function HistorySfxPanel() {
   if (!project) return null;
 
   return (
-    <div className="max-w-[900px] mx-auto rounded-xl border-2 border-slate-700 bg-slate-900 p-4 space-y-3">
+    <div className="max-w-[900px] mx-auto rounded-xl border-3 border-slate-700 bg-slate-900 p-4 space-y-3">
       <div className="flex gap-4 h-full">
-        <aside className="w-1/3 rounded-lg bg-slate-950 flex flex-col overflow-hidden">
+        <aside className="w-1/3 rounded-lg border border-indigo-700 bg-slate-950 flex flex-col overflow-hidden">
           <button
             type="button"
             onClick={panel.startNew}
@@ -187,19 +187,26 @@ export function HistorySfxPanel() {
                 No hay efectos de sonido en el proyecto
               </p>
             ) : (
-              <ul className="divide-y-2 divide-slate-700">
-                {sfxList.map((sfx) => {
+              <ul>
+                {sfxList.map((sfx, index) => {
                   const isSelected = sfx.id === selectedSfxId;
+                  const isFirst = index === 0;
+                  const isLast = index === sfxList.length - 1;
 
                   return (
                     <li key={sfx.id}>
                       <button
                         type="button"
                         onClick={() => panel.handleListClick(sfx)}
-                        className={ "w-full text-left px-6 py-3 text-[15px] border-t border-t-black " +
+                        className={
+                          "w-full text-left px-6 py-3 text-[15px] border-x border-indigo-700 " +
+                          (isFirst ? "border-t " : "") +
+                          (!isLast ? "border-b " : "") +
+                          (isLast && !isSelected ? "rounded-b-lg " : "") +
                           (isSelected
                             ? "bg-indigo-900/60 text-slate-50"
-                            : "hover:bg-indigo-900/60 text-slate-200")}
+                            : "hover:bg-indigo-900/60 text-slate-200")
+                        }
                       >
                         <span className="block w-full overflow-hidden text-ellipsis whitespace-nowrap">
                           {sfx.name}
@@ -213,7 +220,7 @@ export function HistorySfxPanel() {
           </div>
         </aside>
 
-        <section className="relative flex-1 rounded-lg bg-slate-950 text-sm text-slate-100 flex flex-col overflow-hidden">
+        <section className="relative flex-1 rounded-lg border border-indigo-700 bg-slate-950 text-sm text-slate-100 flex flex-col overflow-hidden">
           {mode !== "none" && (
             <img
               src="/ui/sfx-watermark.png"
@@ -236,9 +243,7 @@ export function HistorySfxPanel() {
             ) : (
               <>
                 <div className="mb-2">
-                  <label className="block text-[13px] text-slate-200 mb-1 text-center">
-                    Nombre
-                  </label>
+                  <label className="block text-[14px] text-slate-100 mb-1 text-center">Nombre</label>
                   <input
                     ref={nameInputRef}
                     type="text"
@@ -252,9 +257,7 @@ export function HistorySfxPanel() {
                 </div>
 
                 <div className="mb-2 mt-2">
-                  <label className="block text-[13px] text-slate-200 mb-1 text-center">
-                    Archivo de sonido
-                  </label>
+                  <label className="block text-[14px] text-slate-100 mb-1 text-center">Archivo de sonido</label>
 
                   <div
                     className={ "group relative mt-1.5 px-3 py-3.5 rounded-md flex flex-col items-center justify-center text-[12px] " +
@@ -275,14 +278,14 @@ export function HistorySfxPanel() {
                       </span>
                       {mode === "edit" && (
                         <span className="block text-xs text-slate-400 mt-2">
-                          En edición, sustituirá el archivo actual.
+                          En edición, sustituirá el archivo actual
                         </span>
                       )}
                     </p>
 
                     <button
                       type="button"
-                      className="btn btn-select"
+                      className="btn btn-select border-indigo-800 hover:bg-indigo-950"
                       onMouseEnter={() => audio.setIsHoveringSelectButton(true)}
                       onMouseLeave={() => audio.setIsHoveringSelectButton(false)}
                       onClick={(e) => {
@@ -302,25 +305,10 @@ export function HistorySfxPanel() {
                     onChange={audio.handleFileChange}
                   />
 
-                  <p className="mt-2 text-[11px] text-slate-400 break-all text-center">
-                    {audio.draftFile
-                      ? `Archivo seleccionado: ${audio.draftFile.name}`
-                      : mode === "edit" && selectedSfxId
-                        ? `Archivo actual: ${audio.draftFileName}`
-                        : "No hay archivo seleccionado"}
-                  </p>
 
                   {fieldErrors.file && <p className="form-field-error mt-1">{fieldErrors.file}</p>}
                 </div>
 
-                {audio.isReady && (
-                  <div className="mt-1 text-[11px] text-slate-400 flex justify-center mb-1">
-                    <span className="inline-flex items-center gap-1 text-emerald-400">
-                      <span className="inline-block h-3 w-3 rounded-full bg-emerald-400" />
-                      <span>Archivo listo</span>
-                    </span>
-                  </div>
-                )}
 
                 <audio ref={audio.audioRef} src={audio.previewUrl ?? undefined} className="hidden" />
 
@@ -387,7 +375,6 @@ export function HistorySfxPanel() {
 
       <DeleteProjectEntityModal
         open={panel.isDeleteModalOpen}
-        title="Eliminar efecto de sonido"
         entityName={selectedSfx?.name ?? ""}
         description="El archivo dejará de estar disponible para las escenas que lo usen."
         onConfirm={handleConfirmDelete}

@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ID, SceneImageLayer, Hotspot, PlacedItem, PlacedNpc, PlacedPlayer, ItemDef } from "@/domain/types";
+import type { Hotspot, ID, ItemDef, PlacedItem, PlacedNpc, PlacedPlayer, SceneImageLayer } from "@/domain/types";
+import type { Condition } from "@/domain/conditions";
+import type { Effect } from "@/domain/effects";
+import type { EffectOwner } from "@/features/editor/scene/rules/effects/effectFactory";
 import { useEditorStore } from "@/store/editorStore";
 import { ToggleFieldBlock } from "@/features/editor/scene/SceneFieldBlocks";
-import type { Effect } from "@/domain/effects";
 import { toast } from "@/shared/toast/toastStore";
 import { ConfirmDangerModal } from "@/features/editor/modals/ConfirmDangerModal";
-import type { EffectOwner } from "@/features/editor/scene/rules/effects/effectFactory";
-import { PlacedItemListPanel, type PlacedItemListEntry } from "@/features/editor/scene/placedItems/PlacedItemListPanel";
+import { InteractiveListPanel, type InteractiveListEntry } from "@/features/editor/scene/interactiveComponents/InteractiveListPanel";
 import { PlacedItemEditorPanel } from "@/features/editor/scene/placedItems/PlacedItemEditorPanel";
 import { useEntityRulesEditor } from "@/features/editor/scene/rules/entityRulesEditor";
-import type { Condition } from "@/domain/conditions";
 import { useEntityCollisionGuard } from "@/features/editor/scene/useEntityCollisionGuard";
 import { buildClickableRegions, normKey, useActiveSceneLayer, useFocusWhenEnabled } from "@/features/editor/scene/interactiveComponents/fieldHelpers";
 
@@ -25,38 +25,57 @@ type ScenePlacedItemFieldProps = {
   layerId: ID;
 };
 
+function buildProjectWithNodeDraft( project: NonNullable<ReturnType<typeof useEditorStore.getState>["project"]> | null,
+  nodeDraft: NonNullable<ReturnType<typeof useEditorStore.getState>["nodeDraft"]> | null,
+) {
+  if (!project) return null;
+  if (!nodeDraft) return project;
+
+  const nextNodes = [...(project.nodes ?? [])];
+  const nodeIndex = nextNodes.findIndex((node) => node.id === nodeDraft.id);
+
+  if (nodeIndex >= 0) nextNodes[nodeIndex] = nodeDraft;
+  else nextNodes.push(nodeDraft);
+
+  return {
+    ...project,
+    nodes: nextNodes,
+  };
+}
+
 export function ScenePlacedItemField({ label = "Items", active, onToggle, layerId }: ScenePlacedItemFieldProps) {
-  const project = useEditorStore((s) => s.project ?? null);
-  const nodeDraft = useEditorStore((s) => s.nodeDraft);
+  const project = useEditorStore((state) => state.project ?? null);
+  const nodeDraft = useEditorStore((state) => state.nodeDraft);
 
-  const activeLayerId = useEditorStore((s) => s.activeLayerId);
-  const setActiveLayerId = useEditorStore((s) => s.setActiveLayerId);
+  const activeLayerId = useEditorStore((state) => state.activeLayerId);
+  const setActiveLayerId = useEditorStore((state) => state.setActiveLayerId);
 
-  const placedItemEditor = useEditorStore((s) => s.placedItemEditor);
+  const placedItemEditor = useEditorStore((state) => state.placedItemEditor);
 
-  const startRedrawPlacedItemShape = useEditorStore((s) => s.startRedrawPlacedItemShape);
-  const startPlacingPlacedItem = useEditorStore((s) => s.startPlacingPlacedItem);
-  const editPlacedItem = useEditorStore((s) => s.editPlacedItem);
-  const cancelPlacedItemDraft = useEditorStore((s) => s.cancelPlacedItemDraft);
+  const startRedrawPlacedItemShape = useEditorStore((state) => state.startRedrawPlacedItemShape);
+  const startPlacingPlacedItem = useEditorStore((state) => state.startPlacingPlacedItem);
+  const editPlacedItem = useEditorStore((state) => state.editPlacedItem);
+  const cancelPlacedItemDraft = useEditorStore((state) => state.cancelPlacedItemDraft);
 
-  const setPlacedItemDraftLabel = useEditorStore((s) => s.setPlacedItemDraftLabel);
-  const setPlacedItemDraftInitialState = useEditorStore((s) => s.setPlacedItemDraftInitialState);
-  const setPlacedItemDraftRules = useEditorStore((s) => s.setPlacedItemDraftRules);
-  const setPlacedItemDraftShape = useEditorStore((s) => s.setPlacedItemDraftShape);
-  const commitPlacedItemDraft = useEditorStore((s) => s.commitPlacedItemDraft);
-  
-  const removePlacedItem = useEditorStore((s) => s.removePlacedItem);
-  const setActivePlacedItems = useEditorStore((s) => s.setActivePlacedItems);
+  const setPlacedItemDraftLabel = useEditorStore((state) => state.setPlacedItemDraftLabel);
+  const setPlacedItemDraftItemId = useEditorStore((state) => state.setPlacedItemDraftItemId);
+  const setPlacedItemDraftInitialState = useEditorStore((state) => state.setPlacedItemDraftInitialState);
+  const setPlacedItemDraftRules = useEditorStore((state) => state.setPlacedItemDraftRules);
+  const setPlacedItemDraftShape = useEditorStore((state) => state.setPlacedItemDraftShape);
+  const commitPlacedItemDraft = useEditorStore((state) => state.commitPlacedItemDraft);
 
-  const selectedInteractionKind = useEditorStore((s) => s.selectedInteractionKind);
-  const selectedInteractionId = useEditorStore((s) => s.selectedInteractionId);
-  const setSelectedInteractionKind = useEditorStore((s) => s.setSelectedInteractionKind);
-  const setSelectedInteractionId = useEditorStore((s) => s.setSelectedInteractionId);
-  const clearInteractionSelection = useEditorStore((s) => s.clearInteractionSelection);
+  const removePlacedItem = useEditorStore((state) => state.removePlacedItem);
+  const setActivePlacedItems = useEditorStore((state) => state.setActivePlacedItems);
 
-  const setPlacedItemDraftItemId = useEditorStore((s) => s.setPlacedItemDraftItemId);
+  const selectedInteractionKind = useEditorStore((state) => state.selectedInteractionKind);
+  const selectedInteractionId = useEditorStore((state) => state.selectedInteractionId);
+  const setSelectedInteractionKind = useEditorStore((state) => state.setSelectedInteractionKind);
+  const setSelectedInteractionId = useEditorStore((state) => state.setSelectedInteractionId);
+  const clearInteractionSelection = useEditorStore((state) => state.clearInteractionSelection);
 
-  const projectItems = useMemo<ItemDef[]>(() => project?.items ?? [], [project?.items]);
+  const effectiveProject = useMemo(() => buildProjectWithNodeDraft(project, nodeDraft), [project, nodeDraft]);
+
+  const projectItems = useMemo<ItemDef[]>(() => effectiveProject?.items ?? [], [effectiveProject?.items]);
 
   const [selectedCatalogItemId, setSelectedCatalogItemId] = useState<string>("");
   const [isCreatingPlacedItem, setIsCreatingPlacedItem] = useState(false);
@@ -67,23 +86,17 @@ export function ScenePlacedItemField({ label = "Items", active, onToggle, layerI
       return;
     }
 
-    if (selectedCatalogItemId === "") return;
+    if (!selectedCatalogItemId) return;
 
-    const exists = projectItems.some((it) => it.id === selectedCatalogItemId);
+    const exists = projectItems.some((item) => item.id === selectedCatalogItemId);
     if (!exists) setSelectedCatalogItemId("");
   }, [projectItems, selectedCatalogItemId]);
 
   const layers = useMemo<SceneImageLayer[]>(() => nodeDraft?.layers ?? [], [nodeDraft?.layers]);
 
-  const { layer } = useActiveSceneLayer({
-    active,
-    layerId,
-    activeLayerId,
-    setActiveLayerId,
-    layers,
-  });
+  const { layer } = useActiveSceneLayer({ active, layerId, activeLayerId, setActiveLayerId, layers });
 
-  const nodeId = nodeDraft?.id ?? ("" as ID);
+  const nodeId = nodeDraft?.id ?? "";
 
   const hotspots = useMemo<Hotspot[]>(() => layer?.hotspots ?? [], [layer?.hotspots]);
   const placedItems = useMemo<PlacedItem[]>(() => layer?.placedItems ?? [], [layer?.placedItems]);
@@ -93,38 +106,25 @@ export function ScenePlacedItemField({ label = "Items", active, onToggle, layerI
   const selectedId = selectedInteractionKind === "placedItem" ? selectedInteractionId : null;
 
   const draft = placedItemEditor.draft;
-const isDrawing = placedItemEditor.mode.type === "drawing";
-const isDraftActive = placedItemEditor.mode.type !== "idle";
+  const isDrawing = placedItemEditor.mode.type === "drawing";
+  const isDraftActive = placedItemEditor.mode.type !== "idle";
 
   const collisionResetKey = `${layerId}:${draft?.id ?? "none"}:${placedItemEditor.mode.type}`;
 
-  const useItemSourceOptions = useMemo(
-    () =>
-      placedItems
-        .filter((p) => !draft || p.id !== draft.id)
-        .map((p) => ({
-          id: p.id,
-          label: p.label?.trim() || p.id,
-        })),
-    [placedItems, draft],
-  );
+  const useItemSourceOptions = useMemo(() => {
+    const allPlacedItems = effectiveProject?.nodes?.flatMap((node) =>
+        (node.layers ?? []).flatMap((sceneLayer) => sceneLayer.placedItems ?? [])) ?? [];
+
+    return allPlacedItems.filter((placedItem) => !draft || placedItem.id !== draft.id)
+      .map((placedItem) => ({ id: placedItem.id, label: placedItem.label?.trim() || placedItem.id }));
+  }, [effectiveProject, draft]);
 
   const owner = useMemo<EffectOwner | null>(() => {
     if (!draft || !draft.shape) return null;
 
-    return {
-      kind: "placedItem",
-      layerId,
-      placedItemId: draft.id,
-      item: {
-        id: draft.id,
-        itemId: draft.itemId,
-        label: draft.label,
-        shape: draft.shape,
-        initialState: draft.initialState,
-        rules: draft.rules,
-      },
-    };
+    return { kind: "placedItem", layerId, placedItemId: draft.id,
+      item: { id: draft.id, itemId: draft.itemId, label: draft.label,
+        shape: draft.shape, initialState: draft.initialState, rules: draft.rules }};
   }, [draft, layerId]);
 
   const labelKey = normKey(draft?.label);
@@ -132,40 +132,30 @@ const isDraftActive = placedItemEditor.mode.type !== "idle";
   const dupLabel = useMemo(() => {
     if (!draft || !labelKey) return false;
 
-    return project?.nodes.some((node) =>
-      node.layers.some((layer) =>
-        (layer.placedItems ?? []).some((item) => {
-          if (item.id === draft.id) return false;
-          return normKey(item.label) === labelKey;
-        })
-      )
-    ) ?? false;
-  }, [draft, labelKey, project?.nodes]);
+    return (
+      effectiveProject?.nodes.some((node) =>
+        node.layers.some((sceneLayer) =>
+          (sceneLayer.placedItems ?? []).some((item) => {
+            if (item.id === draft.id) return false;
+            return normKey(item.label) === labelKey;
+          }),
+        ),
+      ) ?? false
+    );
+  }, [draft, labelKey, effectiveProject?.nodes]);
 
   const isExistingPlacedItem = useMemo(() => {
     if (!draft?.id) return false;
-    return placedItems.some((p) => p.id === draft.id);
+    return placedItems.some((placedItem) => placedItem.id === draft.id);
   }, [draft?.id, placedItems]);
 
-  const clickableRegions = useMemo(
-    () =>
-      buildClickableRegions({
-        project,
-        hotspots,
-        placedItems,
-        placedNpcs,
-        placedPlayers,
-      }),
-    [project, hotspots, placedItems, placedNpcs, placedPlayers],
+
+  const clickableRegions = useMemo(() =>
+      buildClickableRegions({ project: effectiveProject, hotspots, placedItems, placedNpcs, placedPlayers }),
+    [effectiveProject, hotspots, placedItems, placedNpcs, placedPlayers],
   );
 
-  const {
-    hasShape,
-    hasCollisions,
-    collisionSummary,
-    collisionLock,
-    resetCollisionGuard,
-  } = useEntityCollisionGuard({
+  const { hasShape, hasCollisions, collisionSummary, collisionLock, resetCollisionGuard } = useEntityCollisionGuard({
     shape: draft?.shape,
     clickableRegions,
     ignore: draft?.id ? { kind: "item", id: draft.id } : undefined,
@@ -178,10 +168,7 @@ const isDraftActive = placedItemEditor.mode.type !== "idle";
       startRedrawPlacedItemShape();
     },
     onCollision: (summary) => {
-      setEditorError({
-        kind: "panel",
-        message: `Colisión con: ${summary}. Dibuja otra región o pulsa “Cancelar”.`,
-      });
+      setEditorError({ kind: "panel", message: `Colisión con: ${summary}. Dibuja otra región o pulsa “Cancelar”.` });
     },
   });
 
@@ -193,32 +180,12 @@ const isDraftActive = placedItemEditor.mode.type !== "idle";
 
   const hasLabel = Boolean((draft?.label ?? "").trim());
 
-  const {
-    activeChannel,
-    setActiveChannel,
-    clickRules,
-    useItemRulesForSelected,
-    ruleModalOpen,
-    currentRuleValue,
-    openAddClickRule,
-    openEditClickRule,
-    openAddUseItemRule,
-    openEditUseItemRule,
-    removeClickRule,
-    removeUseItemRule,
-    closeRuleModal,
-    saveRule,
-  } = useEntityRulesEditor({
-    rules: draft?.rules,
-    onChangeRules: setPlacedItemDraftRules,
-  });
+  const { activeChannel, setActiveChannel, clickRules, useItemRulesForSelected, ruleModalOpen, currentRuleValue, openAddClickRule,
+    openEditClickRule, openAddUseItemRule, openEditUseItemRule, removeClickRule, removeUseItemRule, closeRuleModal, saveRule,
+  } = useEntityRulesEditor({ rules: draft?.rules, onChangeRules: setPlacedItemDraftRules });
 
-  const placedItemListEntries = useMemo<PlacedItemListEntry[]>(
-    () =>
-      placedItems.map((p) => ({
-        id: p.id,
-        label: p.label,
-      })),
+  const placedItemListEntries = useMemo<InteractiveListEntry[]>(() =>
+      placedItems.map((placedItem) => ({ id: placedItem.id, label: placedItem.label })),
     [placedItems],
   );
 
@@ -228,17 +195,14 @@ const isDraftActive = placedItemEditor.mode.type !== "idle";
       return;
     }
 
-    const selectedItem = projectItems.find((it) => it.id === itemId) ?? null;
+    const selectedItem = projectItems.find((item) => item.id === itemId) ?? null;
     const initialLabel = selectedItem?.name?.trim() || "Item";
 
     setEditorError(null);
     resetCollisionGuard();
     clearInteractionSelection();
 
-    startPlacingPlacedItem({
-      itemId,
-      label: initialLabel,
-    });
+    startPlacingPlacedItem({ itemId, label: initialLabel });
 
     toast.info("Dibuja una región", "Arrastra sobre la imagen de la derecha para definir el item.");
   };
@@ -262,58 +226,52 @@ const isDraftActive = placedItemEditor.mode.type !== "idle";
   };
 
   const handleCommit = () => {
-  if (!draft) return;
+    if (!draft) return;
 
-  setEditorError(null);
+    setEditorError(null);
 
-  if (!hasLabel) {
-    setEditorError({
-      kind: "panel",
-      message: "El item debe tener una etiqueta antes de guardarse.",
-    });
-    return;
-  }
-
-  if (dupLabel) {
-    toast.warning("Etiqueta duplicada", "Ya existe un item con esa etiqueta en la aventura.");
-    return;
-  }
-
-  if (hasCollisions) {
-    setEditorError({
-      kind: "panel",
-      message: `Colisión con: ${collisionSummary}. Ajusta la región para que no se solape.`,
-    });
-    return;
-  }
-
-  const result = commitPlacedItemDraft();
-
-  if (!result.ok) {
-    if ((result.error ?? "").toLowerCase().includes("additem")) {
-      setEditorError({ kind: "pickupRule" });
+    if (!hasLabel) {
+      setEditorError({ kind: "panel", message: "El item debe tener una etiqueta antes de guardarse." });
+      return;
     }
-    toast.error("No se ha podido guardar", result.error ?? "Revisa el item.");
-    return;
-  }
 
-  if (result.placedItemId) {
-    setSelectedInteractionKind("placedItem");
-    setSelectedInteractionId(result.placedItemId);
-  }
+    if (dupLabel) {
+      toast.warning("Etiqueta duplicada", "Ya existe un item con esa etiqueta en la aventura.");
+      return;
+    }
 
-  setEditorError(null);
-  setIsCreatingPlacedItem(false);
-  setSelectedCatalogItemId("");
+    if (hasCollisions) {
+      setEditorError({ kind: "panel", message: `Colisión con: ${collisionSummary}. Ajusta la región para que no se solape.` });
+      return;
+    }
 
-  toast.success("Item guardado", "El item ya forma parte de la escena.");
-};
+    const result = commitPlacedItemDraft();
+
+    if (!result.ok) {
+      if ((result.error ?? "").toLowerCase().includes("additem")) setEditorError({ kind: "pickupRule" });
+
+      toast.error("No se ha podido guardar", result.error ?? "Revisa el item.");
+      return;
+    }
+
+    if (result.placedItemId) {
+      setSelectedInteractionKind("placedItem");
+      setSelectedInteractionId(result.placedItemId);
+    }
+
+    setEditorError(null);
+    setIsCreatingPlacedItem(false);
+    setSelectedCatalogItemId("");
+
+    toast.success("Item guardado", "El item ya forma parte de la escena.");
+  };
 
   const handleDelete = (id: ID) => {
     removePlacedItem(id);
 
     const isSelectedPlacedItem =
       selectedInteractionKind === "placedItem" && selectedInteractionId === id;
+
     if (isSelectedPlacedItem) clearInteractionSelection();
 
     const isEditingThisDraft = draft?.id === id;
@@ -381,25 +339,16 @@ const isDraftActive = placedItemEditor.mode.type !== "idle";
 
   const handleVisibleChange = (checked: boolean) => {
     if (!checked) {
-      setPlacedItemDraftInitialState({
-        visible: false,
-        reachable: false,
-        notReachableText: "",
-      });
+      setPlacedItemDraftInitialState({ visible: false, reachable: false, notReachableText: "" });
       return;
     }
+
     setPlacedItemDraftInitialState({ visible: true });
   };
 
   const handleReachableChange = (checked: boolean) => {
-    if (checked) {
-      setPlacedItemDraftInitialState({
-        reachable: true,
-        notReachableText: "",
-      });
-    } else {
-      setPlacedItemDraftInitialState({ reachable: false });
-    }
+    if (checked) setPlacedItemDraftInitialState({ reachable: true, notReachableText: "" });
+    else setPlacedItemDraftInitialState({ reachable: false });
   };
 
   const initialVisible = draft?.initialState.visible ?? true;
@@ -407,6 +356,7 @@ const isDraftActive = placedItemEditor.mode.type !== "idle";
   const initialNotReachableText = draft?.initialState.notReachableText ?? "";
 
   const notReachableInputRef = useRef<HTMLInputElement | null>(null);
+
   const disableAllEditorFields = Boolean(draft) && !hasShape;
   const disableRulesEditor = disableAllEditorFields || dupLabel;
   const disableReachable = disableAllEditorFields || !initialVisible;
@@ -418,7 +368,7 @@ const isDraftActive = placedItemEditor.mode.type !== "idle";
   if (!layer) {
     return (
       <ToggleFieldBlock label={label} active={active} onToggle={onToggle}>
-        <div className="mx-auto max-w-[420px] bg-slate-950/40 text-center mt-4 mb-2 text-xs text-white">
+        <div className="mx-auto mt-4 mb-2 max-w-[420px] bg-slate-950/40 text-center text-xs text-white">
           No hay capa seleccionada.
         </div>
       </ToggleFieldBlock>
@@ -461,9 +411,7 @@ const isDraftActive = placedItemEditor.mode.type !== "idle";
               initialNotReachableText={initialNotReachableText}
               labelInputRef={labelInputRef}
               notReachableInputRef={notReachableInputRef}
-              onItemChange={(itemId) => {
-                setPlacedItemDraftItemId(itemId);
-              }}
+              onItemChange={(itemId) => {setPlacedItemDraftItemId(itemId)}}
               onLabelChange={setPlacedItemDraftLabel}
               onStartRedrawShape={handleStartRedrawShape}
               onVisibleChange={handleVisibleChange}
@@ -477,7 +425,7 @@ const isDraftActive = placedItemEditor.mode.type !== "idle";
               ruleModalOpen={ruleModalOpen}
               currentRuleValue={currentRuleValue}
               nodeId={nodeId}
-              project={project}
+              project={effectiveProject}
               onOpenAddClickRule={openAddClickRule}
               onOpenEditClickRule={openEditClickRule}
               onRemoveClickRule={(index) => {
@@ -500,26 +448,19 @@ const isDraftActive = placedItemEditor.mode.type !== "idle";
               onCommit={handleCommit}
             />
           ) : (
-            <>
-              <div className="flex justify-center">
-                <button
-                  type="button"
-                  className="btn btn-create-condition mt-2"
-                  onClick={handleStartAddingPlacedItem}
-                  title="Añadir item"
-                >
-                  + Añadir item
-                </button>
-              </div>
-
-              <PlacedItemListPanel
-                placedItems={placedItemListEntries}
-                selectedId={selectedId}
-                onEdit={handleEditPlacedItem}
-                onDelete={handleDelete}
-                onDeleteAll={handleAskNukeAll}
-              />
-            </>
+            <InteractiveListPanel
+              items={placedItemListEntries}
+              selectedId={selectedId}
+              itemTitle="Editar item"
+              editTitle="Editar"
+              editAriaLabel="Editar item"
+              deleteAriaLabel="Eliminar item"
+              createLabel="+ Añadir item"
+              onCreate={handleStartAddingPlacedItem}
+              onEdit={handleEditPlacedItem}
+              onDelete={handleDelete}
+              onDeleteAll={handleAskNukeAll}
+            />
           )}
         </div>
       </ToggleFieldBlock>

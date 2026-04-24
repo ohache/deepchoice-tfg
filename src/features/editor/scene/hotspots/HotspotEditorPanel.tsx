@@ -1,3 +1,4 @@
+import type { RefObject } from "react";
 import type { ID, ClickRule, UseItemRule, BaseInteractionRule, Project } from "@/domain/types";
 import type { Condition } from "@/domain/conditions";
 import type { Effect } from "@/domain/effects";
@@ -26,8 +27,8 @@ type HotspotEditorPanelProps = {
   initialVisible: boolean;
   initialReachable: boolean;
   initialNotReachableText: string;
-  labelInputRef: React.RefObject<HTMLInputElement | null>;
-  notReachableInputRef: React.RefObject<HTMLInputElement | null>;
+  labelInputRef: RefObject<HTMLInputElement | null>;
+  notReachableInputRef: RefObject<HTMLInputElement | null>;
 
   onLabelChange: (value: string) => void;
   onStartRedrawShape: () => void;
@@ -35,7 +36,6 @@ type HotspotEditorPanelProps = {
   onReachableChange: (checked: boolean) => void;
   onNotReachableTextChange: (value: string) => void;
 
-  hasAnyVars: boolean;
   hasAnyRules: boolean;
   panelError: string | null;
   varPanelError: string | null;
@@ -58,7 +58,6 @@ type HotspotEditorPanelProps = {
 
   clickRules: ClickRule[];
   useItemRulesForSelected: UseItemRule[];
-  selectedUseItemId: ID;
 
   ruleModalOpen: boolean;
   currentRuleValue: BaseInteractionRule | null;
@@ -89,9 +88,16 @@ export function HotspotEditorPanel({ draft, isDrawing, hasShape, isExistingHotsp
 
   const rulesRequiredErrorText = showRulesRequiredError ? "Debes añadir al menos una regla para guardar el hotspot." : null;
 
+  const saveButtonTitle = isDrawing ? "Termina o cancela el dibujo actual antes de guardar" : !hasShape
+    ? "Dibuja una región válida antes de guardar" : !(draft.label ?? "").trim()
+      ? "La etiqueta es obligatoria" : dupLabelInLayer
+        ? "Etiqueta duplicada" : hasCollisions
+          ? "Colisión con otro clicable" : !hasAnyRules
+            ? "Intenta guardar para ver el aviso y añade al menos una regla" : undefined;
+
   return (
     <div className="bg-slate-950/40 p-1 space-y-2">
-            {panelError ? (
+      {panelError ? (
         <div className="rounded-md border border-red-500/40 bg-red-950/20 px-2 py-1 text-[11px] text-red-100">
           {panelError}
         </div>
@@ -171,33 +177,33 @@ export function HotspotEditorPanel({ draft, isDrawing, hasShape, isExistingHotsp
           </button>
         </div>
 
-          <div className="space-y-2 mt-3">
-            {draftVarsUI.map((row, idxRow) => {
-              const isOpen = row.id === openVarId;
+        <div className="space-y-2 mt-3">
+          {draftVarsUI.map((row, idxRow) => {
+            const isOpen = row.id === openVarId;
 
-              return (
-                <div key={row.id}>
-                  <VarRowCard
-                    row={row}
-                    index={idxRow}
-                    isOpen={isOpen}
-                    disabled={disableAllEditorFields}
-                    nameInputRef={(el) => onBindVarNameInputRef(row.id, el)}
-                    onToggleOpen={() => onToggleVarOpen(row.id)}
-                    onChange={(patch, opts) => onChangeVar(row.id, patch, opts)}
-                    onSwitchType={(nextType) => onSwitchVarType(row.id, nextType)}
-                    onSave={() => onSaveVar(row)}
-                    onDelete={() => onDeleteVar(row.id)}
-                    saveTitle="Guardar"
-                    deleteTitle="Eliminar variable"
-                    saveVariant="hotspot"
-                    errors={varErrorsById[row.id]}
-                  />
-                </div>
-              );
-            })}
-          </div>
-
+            return (
+              <div key={row.id}>
+                <VarRowCard
+                  row={row}
+                  index={idxRow}
+                  isOpen={isOpen}
+                  disabled={disableAllEditorFields}
+                  nameInputRef={(el) => onBindVarNameInputRef(row.id, el)}
+                  onToggleOpen={() => onToggleVarOpen(row.id)}
+                  onChange={(patch, opts) => onChangeVar(row.id, patch, opts)}
+                  onSwitchType={(nextType) => onSwitchVarType(row.id, nextType)}
+                  onSave={() => onSaveVar(row)}
+                  onDelete={() => onDeleteVar(row.id)}
+                  saveTitle="Guardar"
+                  deleteTitle="Eliminar variable"
+                  saveVariant="hotspot"
+                  errors={varErrorsById[row.id]}
+                  tone="hotspot"
+                />
+              </div>
+            );
+          })}
+        </div>
 
         {varPanelError ? (
           <div className="mt-3 rounded-md border border-red-500/40 bg-red-950/20 px-2 py-1 text-[11px] text-red-100">
@@ -253,23 +259,9 @@ export function HotspotEditorPanel({ draft, isDrawing, hasShape, isExistingHotsp
 
           <button
             type="button"
-            className="btn btn-create text-[11px]"
+            className="btn btn-guardar text-[11px]"
             onClick={onCommit}
-            title={
-              isDrawing
-                ? "Termina o cancela el dibujo actual antes de guardar"
-                : !hasShape
-                  ? "Dibuja una región válida antes de guardar"
-                  : !(draft.label ?? "").trim()
-                    ? "La etiqueta es obligatoria"
-                    : dupLabelInLayer
-                      ? "Etiqueta duplicada"
-                      : hasCollisions
-                        ? "Colisión con otro clicable"
-                        : !hasAnyRules
-                          ? "Intenta guardar para ver el aviso y añade al menos una regla"
-                          : undefined
-            }
+            title={saveButtonTitle}
           >
             Guardar
           </button>

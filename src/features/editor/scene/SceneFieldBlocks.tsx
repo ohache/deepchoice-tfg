@@ -6,21 +6,22 @@ interface ToggleFieldBlockProps {
   active: boolean;
   onToggle: () => void;
   children: React.ReactNode;
+  contentClassName?: string;
 }
 
-export function ToggleFieldBlock({ label, active, onToggle, children }: ToggleFieldBlockProps) {
+export function ToggleFieldBlock({ label, active, onToggle, children, contentClassName }: ToggleFieldBlockProps) {
 
   const contentId = useId();
 
   return (
-    <div className={`border-2 rounded-md bg-slate-950/80 ${active ? "border-fuchsia-900/70" : "border-slate-800"}`}>
+    <div className={`border-3 rounded-md bg-slate-950 ${active ? "border-cyan-800" : "border-black"}`}>
       <button
         type="button"
         onClick={onToggle}
-        className={"w-full px-3 py-2 text-sm font-semibold text-center transition-colors text-slate-100 border-b " +
+        className={"w-full px-3 py-2 text-sm font-semibold text-center transition-colors text-slate-100 border-b-2 " +
           (active
-            ? "bg-fuchsia-950/50 border-fuchsia-900/70 text-white"
-            : "bg-transparent border-transparent hover:bg-slate-900/40")
+            ? "bg-cyan-950/30 border-cyan-900/70 text-white"
+            : "bg-transparent border-transparent hover:bg-cyan-950")
         }
         aria-expanded={active}
         aria-controls={contentId}
@@ -29,7 +30,10 @@ export function ToggleFieldBlock({ label, active, onToggle, children }: ToggleFi
       </button>
 
       {active && (
-        <div id={contentId} className="px-3 pb-3 pt-1 border-t border-slate-800 bg-slate-950/90">
+        <div
+          id={contentId}
+          className={"px-3 pb-3 pt-1 bg-slate-950 " + (contentClassName ?? "")}
+        >
           {children}
         </div>
       )}

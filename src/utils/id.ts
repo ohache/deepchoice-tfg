@@ -1,5 +1,6 @@
 import type { ID } from "@/domain/types";
 
+/* Prefijos utilizados para generar ids semánticos por tipo de entidad */
 const PREFIX = {
   project: "project",
   node: "node",
@@ -41,11 +42,14 @@ const PREFIX = {
 
 type PrefixKey = keyof typeof PREFIX;
 
+/* Genera la parte única del id */
 function uuid(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+
   throw new Error("crypto.randomUUID() no está disponible en este entorno.");
 }
 
+/* Genera un id completo usando el prefijo semántico correspondiente */
 function generateIdGeneral(key: PrefixKey): ID {
   return `${PREFIX[key]}-${uuid()}`;
 }

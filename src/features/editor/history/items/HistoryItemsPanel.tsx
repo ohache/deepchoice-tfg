@@ -194,9 +194,9 @@ export function HistoryItemsPanel() {
   const fileError = fieldErrors.file ?? image.fileError;
 
   return (
-    <div className="max-w-[900px] mx-auto rounded-xl border-2 border-slate-700 bg-slate-900 p-4 space-y-3">
+    <div className="max-w-[900px] mx-auto rounded-xl border-3 border-slate-700 bg-slate-900 p-4 space-y-3">
       <div className="flex gap-4 h-full">
-        <aside className="w-1/3 rounded-lg bg-slate-950 flex flex-col overflow-hidden">
+        <aside className="w-1/3 rounded-lg border border-red-700 bg-slate-950 flex flex-col overflow-hidden">
           <button
             type="button"
             onClick={panel.startNew}
@@ -211,19 +211,26 @@ export function HistoryItemsPanel() {
                 No hay items en el proyecto
               </p>
             ) : (
-              <ul className="divide-y-2 divide-slate-700">
-                {itemsList.map((item) => {
+              <ul>
+                {itemsList.map((item, index) => {
                   const isSelected = item.id === selectedItemId;
+                  const isFirst = index === 0;
+                  const isLast = index === itemsList.length - 1;
 
                   return (
                     <li key={item.id}>
                       <button
                         type="button"
                         onClick={() => panel.handleListClick(item)}
-                        className={"w-full text-left px-6 py-3 text-[15px] border-t border-t-black " +
+                        className={
+                          "w-full text-left px-6 py-3 text-[15px] border-x border-red-700 " +
+                          (isFirst ? "border-t " : "") +
+                          (!isLast ? "border-b " : "") +
+                          (isLast && !isSelected ? "rounded-b-lg " : "") +
                           (isSelected
                             ? "bg-red-900/60 text-slate-50"
-                            : "hover:bg-red-900/60 text-slate-200")}
+                            : "hover:bg-red-900/60 text-slate-200")
+                        }
                       >
                         <span className="block w-full overflow-hidden text-ellipsis whitespace-nowrap">
                           {item.name}
@@ -237,7 +244,7 @@ export function HistoryItemsPanel() {
           </div>
         </aside>
 
-        <section className="relative flex-1 rounded-lg bg-slate-950 text-sm text-slate-100 flex flex-col overflow-hidden">
+        <section className="relative flex-1 rounded-lg border border-red-700 bg-slate-950 text-sm text-slate-100 flex flex-col overflow-hidden">
           {mode !== "none" && (
             <img
               src="/ui/item-watermark.png"
@@ -260,9 +267,7 @@ export function HistoryItemsPanel() {
             ) : (
               <>
                 <div className="mb-2">
-                  <label className="block text-[13px] text-slate-200 mb-1 text-center">
-                    Nombre
-                  </label>
+                  <label className="block text-[14px] text-slate-100 mb-1 text-center">Nombre</label>
                   <input
                     ref={nameInputRef}
                     type="text"
@@ -276,7 +281,7 @@ export function HistoryItemsPanel() {
                 </div>
 
                 <div className="mb-2">
-                  <label className="block text-[13px] text-slate-200 mb-1 text-center">
+                  <label className="block text-[14px] text-slate-100 mb-1 text-center">
                     Descripción <span className="text-slate-400">(opcional)</span>
                   </label>
 
@@ -295,7 +300,7 @@ export function HistoryItemsPanel() {
                 </div>
 
                 <div className="mb-2 mt-2">
-                  <label className="block text-[13px] text-slate-200 mb-1 text-center">
+                  <label className="block text-[14px] text-slate-100 mb-1 text-center">
                     Imagen
                   </label>
 
@@ -318,14 +323,14 @@ export function HistoryItemsPanel() {
                       </span>
                       {mode === "edit" && (
                         <span className="block text-xs text-slate-400 mt-2">
-                          En edición, sustituirá la imagen actual.
+                          En edición, sustituirá la imagen actual
                         </span>
                       )}
                     </p>
 
                     <button
                       type="button"
-                      className="btn btn-select"
+                      className="btn btn-select border-red-800 hover:bg-red-950"
                       onMouseEnter={() => image.setIsHoveringSelectButton(true)}
                       onMouseLeave={() => image.setIsHoveringSelectButton(false)}
                       onClick={(e) => {
@@ -345,14 +350,6 @@ export function HistoryItemsPanel() {
                     onChange={image.handleFileChange}
                   />
 
-                  <p className="mt-2 text-[11px] text-slate-400 break-all text-center">
-                    {image.draftFile
-                      ? `Archivo seleccionado: ${image.draftFile.name}`
-                      : mode === "edit" && selectedItemId
-                        ? `Archivo actual: ${image.draftFileName || "—"}`
-                        : "No hay archivo seleccionado"}
-                  </p>
-
                   {fileError && <p className="form-field-error mt-1">{fileError}</p>}
                 </div>
 
@@ -361,22 +358,13 @@ export function HistoryItemsPanel() {
                     <img
                       src={image.previewUrl}
                       alt="Preview"
-                      className="max-h-40 rounded-md border border-slate-700"
+                      className="max-h-50 rounded-md border-2 border-red-700"
                       draggable="false"
                     />
                   </div>
                 )}
 
-                {image.isReady && (
-                  <div className="mt-3 text-[11px] text-slate-400 flex justify-center mb-1">
-                    <span className="inline-flex items-center gap-1 text-emerald-400">
-                      <span className="inline-block h-3 w-3 rounded-full bg-emerald-400" />
-                      <span>Archivo listo</span>
-                    </span>
-                  </div>
-                )}
-
-                <div className="mt-auto flex justify-between pt-5">
+                <div className="mt-auto flex justify-between pt-6">
                   <button
                     type="button"
                     onClick={panel.openDelete}
@@ -411,10 +399,9 @@ export function HistoryItemsPanel() {
 
       <DeleteProjectEntityModal
         open={panel.isDeleteModalOpen}
-        title="Eliminar item"
         entityName={selectedItem?.name ?? ""}
         description={referenced
-          ? "Este item está referenciado en el proyecto. Si lo eliminas, se borrará también de las escenas, condiciones y efectos donde aparezca."
+          ? "Este item está referenciado en el proyecto. Si lo eliminas, se borrará de los lugares donde aparezca."
           : "El item dejará de estar disponible para las escenas que lo usen."
         }
         onConfirm={handleConfirmDelete}

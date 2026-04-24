@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef } from "react";
 import type { ID, MapRegion } from "@/domain/types";
 import { useEditorStore } from "@/store/editorStore";
 import { RegionStatusNotice } from "@/features/editor/scene/interactiveComponents/RegionStatusNotice";
+import { Select, type Option } from "@/components/Select";
+import { Checkbox } from "@/components/Checkbox";
 import { Pencil, ImageIcon } from "lucide-react";
 import { toast } from "@/shared/toast/toastStore";
 
@@ -45,18 +47,16 @@ export function HistoryMapRegionsPanel({ mapId, mapVisualType, isRegionMode, pan
   const labelInputRef = useRef<HTMLInputElement | null>(null);
   const regionImageInputRef = useRef<HTMLInputElement | null>(null);
 
-  const selectedMap = useMemo(
-    () => (project?.maps ?? []).find((map) => map.id === mapId) ?? null,
-    [project, mapId],
-  );
+  const selectedMap = useMemo(() => (project?.maps ?? []).find((map) => map.id === mapId) ?? null, [project, mapId]);
 
   const musicTracks = useMemo(() => project?.musicTracks ?? [], [project]);
   const allMaps = useMemo(() => project?.maps ?? [], [project]);
   const regions = useMemo(() => selectedMap?.regions ?? [], [selectedMap]);
-  const subMapOptions = useMemo(
-    () => allMaps.filter((map) => map.id !== mapId),
-    [allMaps, mapId],
-  );
+  const subMapOptions = useMemo(() => allMaps.filter((map) => map.id !== mapId), [allMaps, mapId]);
+
+  const musicTrackOptions: Option<string>[] = musicTracks.map((track) => ({ id: track.id, label: track.name }));
+
+  const subMapSelectOptions: Option<string>[] = subMapOptions.map((map) => ({ id: map.id, label: map.name }));
 
   const selectedRegionId = mapRegionEditor.selection.regionId;
 
@@ -74,9 +74,7 @@ export function HistoryMapRegionsPanel({ mapId, mapVisualType, isRegionMode, pan
   const isComposedMap = mapVisualType === "composed";
 
   useEffect(() => {
-    if (mapRegionEditor.mode.type === "editing" && draft?.shape) {
-      labelInputRef.current?.focus();
-    }
+    if (mapRegionEditor.mode.type === "editing" && draft?.shape) labelInputRef.current?.focus();
   }, [mapRegionEditor.mode.type, draft?.id, draft?.shape]);
 
   const resetRegionEditor = () => {
@@ -138,9 +136,7 @@ export function HistoryMapRegionsPanel({ mapId, mapVisualType, isRegionMode, pan
     editMapRegion(region.id);
   };
 
-  const handleRegionAreaClick = () => {
-    if (!isRegionMode) onEnterRegionMode();
-  };
+  const handleRegionAreaClick = () => { if (!isRegionMode) onEnterRegionMode() };
 
   const handleSave = () => {
     setPanelError(null);
@@ -316,38 +312,34 @@ export function HistoryMapRegionsPanel({ mapId, mapVisualType, isRegionMode, pan
                 </div>
               </div>
 
-              <div className="bg-slate-950/30 px-2 py-2 space-y-3">
-                <div className="text-xs text-slate-300 text-center">Visibilidad inicial</div>
+              {isComposedMap ? (
+                <div className="bg-slate-950/30 px-2 py-2 space-y-3">
+                  <div className="text-xs text-slate-300 text-center">Visibilidad inicial</div>
 
-                <label className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 flex items-center justify-between">
-                  <span className="text-xs text-slate-200">Visible inicialmente</span>
-                  <input
-                    type="checkbox"
-                    checked={!!draft?.visible}
-                    disabled={!hasShape}
-                    onChange={(e) => setMapRegionDraftVisible(e.target.checked)}
-                  />
-                </label>
-              </div>
+                  <label className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 flex items-center justify-between">
+                    <span className="text-xs text-slate-200">Visible inicialmente</span>
+                    <Checkbox
+                      checked={!!draft?.visible}
+                      disabled={!hasShape}
+                      onChange={setMapRegionDraftVisible}
+                    />
+                  </label>
+                </div>
+              ) : null}
 
               <div className="bg-slate-950/30 px-2 py-2">
                 <div className="text-xs text-slate-300 text-center mb-2">
                   Música asociada <span className="text-slate-400">(opcional)</span>
                 </div>
 
-                <select
+                <Select<string>
                   value={draft?.musicTrackId ?? ""}
                   disabled={!hasShape}
-                  onChange={(e) => setMapRegionDraftMusicTrackId(e.target.value || undefined)}
-                  className="w-full rounded-md bg-slate-900 border-2 border-slate-700 px-2 py-2 text-xs text-slate-100 focus:outline-none focus:border-transparent focus:ring-2 focus:ring-amber-500"
-                >
-                  <option value="">— Sin música —</option>
-                  {musicTracks.map((track) => (
-                    <option key={track.id} value={track.id}>
-                      {track.name}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(value) => setMapRegionDraftMusicTrackId(value || undefined)}
+                  options={musicTrackOptions}
+                  placeholder="— Sin música —"
+                  buttonClassName="border-2 border-slate-700 bg-slate-900 px-2 py-2 text-xs text-slate-100 focus:outline-none focus:border-transparent focus:ring-2 focus:ring-amber-500"
+                />
               </div>
 
               <div className="bg-slate-950/30 px-2 py-2">
@@ -355,19 +347,14 @@ export function HistoryMapRegionsPanel({ mapId, mapVisualType, isRegionMode, pan
                   Submapa asociado <span className="text-slate-400">(opcional)</span>
                 </div>
 
-                <select
+                <Select<string>
                   value={draft?.subMapId ?? ""}
                   disabled={!hasShape}
-                  onChange={(e) => setMapRegionDraftSubMapId(e.target.value || undefined)}
-                  className="w-full rounded-md bg-slate-900 border-2 border-slate-700 px-2 py-2 text-xs text-slate-100 focus:outline-none focus:border-transparent focus:ring-2 focus:ring-amber-500"
-                >
-                  <option value="">— Sin submapa —</option>
-                  {subMapOptions.map((map) => (
-                    <option key={map.id} value={map.id}>
-                      {map.name}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(value) => setMapRegionDraftSubMapId(value || undefined)}
+                  options={subMapSelectOptions}
+                  placeholder="— Sin submapa —"
+                  buttonClassName="border-2 border-slate-700 bg-slate-900 px-2 py-2 text-xs text-slate-100 focus:outline-none focus:border-transparent focus:ring-2 focus:ring-amber-500"
+                />
               </div>
 
               <div className="flex items-center justify-between gap-2 pt-1">
@@ -377,7 +364,7 @@ export function HistoryMapRegionsPanel({ mapId, mapVisualType, isRegionMode, pan
                       type="button"
                       onClick={handleDelete}
                       disabled={isDrawing}
-                      className="px-2 py-1 rounded-md border border-rose-700 bg-rose-950/20 text-rose-200 hover:bg-rose-900/30 text-[11px] disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="px-2 py-1 rounded-md border border-rose-700 bg-rose-950/20 text-white hover:bg-rose-900/30 text-[11px] disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       Eliminar
                     </button>
@@ -388,7 +375,7 @@ export function HistoryMapRegionsPanel({ mapId, mapVisualType, isRegionMode, pan
                   <button
                     type="button"
                     onClick={handleCancel}
-                    className="px-2 py-1 rounded-md border border-slate-800 bg-transparent text-slate-300 hover:bg-slate-900 text-[11px]"
+                    className="px-2 py-1 rounded-md border border-slate-600 bg-slate-900 text-white hover:bg-slate-800 text-[11px]"
                   >
                     Cancelar
                   </button>
@@ -396,7 +383,7 @@ export function HistoryMapRegionsPanel({ mapId, mapVisualType, isRegionMode, pan
                   <button
                     type="button"
                     onClick={handleSave}
-                    className="px-2 py-1 rounded-md border border-emerald-700 bg-emerald-800/30 text-emerald-100 hover:bg-emerald-700/40 text-[11px]"
+                    className="px-2 py-1 rounded-md border border-emerald-700 bg-emerald-800/30 text-white hover:bg-emerald-700/40 text-[11px]"
                     title={isDrawing ? "Termina o cancela el dibujo actual antes de guardar" : !hasShape
                       ? "Dibuja una región válida antes de guardar" : !(draft?.label ?? "").trim()
                         ? "La etiqueta es obligatoria" : undefined}

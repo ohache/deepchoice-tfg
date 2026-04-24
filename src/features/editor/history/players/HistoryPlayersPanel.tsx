@@ -3,7 +3,7 @@ import { useEditorStore } from "@/store/editorStore";
 import type { PlayerDef, ID, VarDef } from "@/domain/types";
 import { useResolvedAssetUrl } from "@/features/editor/hooks/useResolvedAssetUrl";
 import { type PlayerFieldErrors, validatePlayerDraft } from "@/features/editor/history/players/playerValidator";
-import { DeleteProjectEntityModal } from "@/features/editor/modals/DeleteProjectEntityModal";
+import { DeleteProjectEntityModal } from "@/features/editor/modals/DeleteProjectEntityModal"; 
 import { ConfirmExitModal } from "@/features/editor/modals/ConfirmExitModal";
 import { toast } from "@/shared/toast/toastStore";
 import { useAssetDraftPanel, type DraftMode } from "@/features/editor/history/shared/useAssetDraftPanel";
@@ -35,6 +35,7 @@ export function HistoryPlayersPanel() {
   const addPlayerDef = useEditorStore((s) => s.addPlayer);
   const updatePlayerDef = useEditorStore((s) => s.updatePlayer);
   const removePlayerDef = useEditorStore((s) => s.removePlayer);
+  const isPlayerReferenceed = useEditorStore((s) => s.isPlayerReferenced);
 
   const addPlayerImage = useEditorStore((s) => s.addPlayerImage);
   const updatePlayerImage = useEditorStore((s) => s.updatePlayerImage);
@@ -102,6 +103,8 @@ export function HistoryPlayersPanel() {
         else updatePlayerVar(selectedPlayerId, variable);
       },
     });
+
+    useEffect(() => () => setSelectedPlayerId(null), [setSelectedPlayerId]);
 
   useEffect(() => {
     syncFromVars(selectedPlayer?.vars ?? []);
@@ -279,14 +282,6 @@ export function HistoryPlayersPanel() {
     return false;
   };
 
-  const handleRequestExit = () => {
-    if (mode === "none") {
-      panel.reset();
-      return;
-    }
-    setIsExitModalOpen(true);
-  };
-
   const handleExitDiscard = () => {
     setIsExitModalOpen(false);
     panel.reset();
@@ -308,12 +303,13 @@ export function HistoryPlayersPanel() {
 
   if (!project) return null;
 
+  const referenced = selectedPlayerId ? isPlayerReferenceed(selectedPlayerId) : false;
   const disableAddVar = mode === "none" || openVarId !== null;
 
   return (
-    <div className="max-w-[900px] mx-auto rounded-xl border-2 border-slate-800 bg-slate-900 p-4 space-y-3">
+    <div className="max-w-[900px] mx-auto rounded-xl border-3 border-slate-800 bg-slate-900 p-4 space-y-3">
       <div className="flex gap-4 h-full">
-        <aside className="w-1/3 bg-slate-950 flex flex-col rounded-lg overflow-hidden">
+        <aside className="w-1/3 rounded-lg border border-emerald-700 bg-slate-950 flex flex-col overflow-hidden">
           <button
             type="button"
             onClick={panel.startNew}
@@ -329,18 +325,25 @@ export function HistoryPlayersPanel() {
               </p>
             ) : (
               <ul className="divide-y-2 divide-slate-700">
-                {playerList.map((player) => {
+                {playerList.map((player, index) => {
                   const isSelected = player.id === selectedPlayerId;
+                                    const isFirst = index === 0;
+                  const isLast = index === playerList.length - 1;
 
                   return (
                     <li key={player.id}>
                       <button
                         type="button"
                         onClick={() => panel.handleListClick(player)}
-                        className={" w-full text-left px-6 py-3 text-[15px] " +
+                        className={
+                          "w-full text-left px-6 py-3 text-[15px] border-x border-emerald-700 " +
+                          (isFirst ? "border-t " : "") +
+                          (!isLast ? "border-b " : "") +
+                          (isLast && !isSelected ? "rounded-b-lg " : "") +
                           (isSelected
-                            ? "bg-emerald-700 text-slate-50"
-                            : "hover:bg-emerald-600 text-slate-200")}
+                            ? "bg-emerald-900/60 text-slate-50"
+                            : "hover:bg-emerald-900/60 text-slate-200")
+                        }
                       >
                         <span className="block w-full overflow-hidden text-ellipsis whitespace-nowrap">
                           {player.name}
@@ -354,7 +357,7 @@ export function HistoryPlayersPanel() {
           </div>
         </aside>
 
-        <section className="relative flex-1 rounded-lg bg-slate-950 text-sm text-slate-100 flex flex-col overflow-hidden">
+        <section className="relative flex-1 rounded-lg border border-emerald-700 bg-slate-950 text-sm text-slate-100 flex flex-col overflow-hidden">
           {mode !== "none" && (
             <img
               src="/ui/player-watermark.png"
@@ -376,7 +379,7 @@ export function HistoryPlayersPanel() {
             ) : (
               <>
                 <div className="mb-3">
-                  <label className="block text-[13px] text-slate-200 mb-1 text-center">Nombre</label>
+                  <label className="block text-[14px] text-slate-100 mb-1 text-center">Nombre</label>
                   <input
                     ref={nameInputRef}
                     type="text"
@@ -391,7 +394,7 @@ export function HistoryPlayersPanel() {
                 </div>
 
                 <div className="mb-3">
-                  <label className="block text-[13px] text-slate-200 mb-1 text-center">
+                  <label className="block text-[14px] text-slate-100 mb-1 text-center">
                     Descripción <span className="text-slate-400">(opcional)</span>
                   </label>
                   <textarea
@@ -407,25 +410,26 @@ export function HistoryPlayersPanel() {
                 </div>
 
                 <div className="mt-4 border-t border-slate-700 pt-4">
-                  <h5 className="text-[13px] font-semibold text-slate-200 m-0 text-center">Imágenes</h5>
+                  <h5 className="text-[14px] text-slate-100 m-0 text-center">Imágenes</h5>
 
                   <div
-                    className={"group relative mt-3 px-3 py-3.5 rounded-md flex flex-col items-center justify-center text-[12px] " +
+                    className={ "group relative mt-1.5 px-3 py-3.5 rounded-md flex flex-col items-center justify-center text-[12px] " +
                       "transition-colors duration-150 border-2 border-dashed cursor-pointer " +
                       (images.isDragging
-                        ? "border-emerald-400 bg-emerald-900/40"
-                        : "border-emerald-800 bg-slate-900/40 hover:bg-emerald-900/20")}
+                        ? "border-emerald-400 bg-emerald-800"
+                        : "border-emerald-800 bg-slate-900/40 " +
+                          (images.isHoveringSelectButton ? "" : "hover:bg-emerald-900/60"))}
                     onDragOver={images.handleDragOver}
                     onDragLeave={images.handleDragLeave}
                     onDrop={images.handleDrop}
-                    onClick={() => { if (canEdit) images.fileInputRef.current?.click() }}
+                    onClick={() => images.fileInputRef.current?.click()}
                   >
                     <p className="mb-2 text-slate-200 text-center">
                       Arrastra aquí una imagen
                       <span className="block text-xs text-slate-400">(o haz clic para seleccionarla)</span>
                       {mode === "edit" && (
                         <span className="block text-xs text-slate-400 mt-2">
-                          Puedes añadir nuevas imágenes o actualizar una existente desde la lista.
+                          Puedes añadir nuevas imágenes o actualizar una existente desde la lista
                         </span>
                       )}
                     </p>
@@ -433,7 +437,7 @@ export function HistoryPlayersPanel() {
                     <button
                       type="button"
                       disabled={!canEdit}
-                      className="btn btn-select disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="btn btn-select border-emerald-800 hover:bg-emerald-950 disabled:opacity-40 disabled:cursor-not-allowed"
                       onMouseEnter={() => images.setIsHoveringSelectButton(true)}
                       onMouseLeave={() => images.setIsHoveringSelectButton(false)}
                       onClick={(e) => {
@@ -489,9 +493,9 @@ export function HistoryPlayersPanel() {
                         return (
                           <div
                             key={image.uiId}
-                            className="flex gap-2 items-center rounded-md border border-slate-800 bg-slate-900/30 p-2"
+                            className="flex gap-2 items-center rounded-md border border-slate-700 bg-slate-900 p-2"
                           >
-                            <div className="h-12 w-12 rounded border border-slate-800 bg-slate-900/40 overflow-hidden flex items-center justify-center">
+                            <div className="h-14 w-14 bg-slate-900 overflow-hidden flex items-center justify-center">
                               {logicalPath ? (
                                 <PlayerImageThumb logicalPath={logicalPath} />
                               ) : (
@@ -505,7 +509,7 @@ export function HistoryPlayersPanel() {
                                 value={image.name}
                                 disabled={!canEdit}
                                 onChange={(e) => images.renameDraftImage(image.uiId, e.target.value)}
-                                className="w-full rounded-md bg-slate-900 border-2 border-slate-700 px-2 py-1.5 text-xs text-slate-100
+                                className="w-full rounded-md bg-slate-950 border-2 border-slate-700 px-2 py-1.5 text-xs text-slate-100
                                   focus:outline-none focus:border-transparent focus:ring-2 focus:ring-emerald-500 disabled:opacity-50"
                                 placeholder="Nombre de la imagen"
                               />
@@ -526,7 +530,7 @@ export function HistoryPlayersPanel() {
                                 disabled={!canEdit}
                                 onChange={() => images.setDraftDefaultImageUiId(image.uiId)}
                               />
-                              Default
+                              Predeterminada
                             </label>
 
                             <button
@@ -536,7 +540,7 @@ export function HistoryPlayersPanel() {
                                 setReplaceTargetUiId(image.uiId);
                                 replaceImageInputRef.current?.click();
                               }}
-                              className="btn btn-select text-[11px] disabled:opacity-40 disabled:cursor-not-allowed"
+                              className="btn border-cyan-600 bg-cyan-800 hover:bg-cyan-700 text-xs text-[11px] disabled:opacity-40 disabled:cursor-not-allowed"
                             >
                               Actualizar
                             </button>
@@ -560,7 +564,7 @@ export function HistoryPlayersPanel() {
                       Imagen por defecto
                     </h6>
                     <div className="mt-2 flex justify-center">
-                      <div className="h-44 w-44 rounded-md border border-slate-800 bg-slate-900/40 flex items-center justify-center overflow-hidden">
+                      <div className="h-50 w-50 rounded-md border-2 border-emerald-700 bg-slate-950 flex items-center justify-center overflow-hidden">
                         {previewDefaultNode}
                       </div>
                     </div>
@@ -568,7 +572,7 @@ export function HistoryPlayersPanel() {
                 </div>
 
                 <div className="mt-4 border-t border-slate-700 pt-4">
-                  <h5 className="text-[13px] font-semibold text-slate-200 m-0 text-center">Variables</h5>
+                  <h5 className="text-[14px] text-slate-100 m-0 text-center">Variables</h5>
 
                   <div className="mt-2 flex justify-center">
                     <button
@@ -586,16 +590,10 @@ export function HistoryPlayersPanel() {
 
                   {fieldErrors.vars && <p className="form-field-error mt-2 text-center">{fieldErrors.vars}</p>}
 
-                  {draftVars.length === 0 ? (
-                    <p className="text-[11px] text-slate-400 text-center mt-3">
-                      Este personaje no tiene variables.
-                    </p>
-                  ) : (
                     <div className="space-y-2 mt-3">
                       {draftVars.map((row, idx) => {
                         const isOpen = row.id === openVarId;
                         const errors = computeRowErrors(row);
-
                         return (
                           <div key={row.id}>
                             <VarRowCard
@@ -625,34 +623,26 @@ export function HistoryPlayersPanel() {
                         );
                       })}
                     </div>
-                  )}
+                  
                 </div>
 
-                <div className="mt-auto flex justify-between pt-4">
+                <div className="mt-auto flex justify-between pt-6">
                   <div className="flex gap-3">
                     <button
-                      type="button"
-                      onClick={panel.openDelete}
-                      disabled={!selectedPlayerId}
-                      className="px-4 py-2 rounded-lg bg-red-700 hover:bg-red-600 text-[12px] font-semibold text-slate-100 disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      Eliminar
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={handleRequestExit}
-                      className="px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-[12px] font-semibold text-slate-100"
-                    >
-                      Salir
-                    </button>
+                    type="button"
+                    onClick={panel.openDelete}
+                    disabled={!selectedPlayerId}
+                    className="btn btn-danger text-[12px] disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    Eliminar Player
+                  </button>
                   </div>
 
                   <div className="flex gap-3 panel--players">
                     <button
                       type="button"
                       onClick={panel.reset}
-                      className="px-4 py-2 rounded-md bg-slate-700 hover:bg-slate-600 text-[12px] text-slate-100"
+                      className="px-4 py-2 rounded-md border border-slate-500 bg-slate-800 hover:bg-slate-700 text-[12px] text-slate-100"
                     >
                       Cancelar
                     </button>
@@ -674,9 +664,10 @@ export function HistoryPlayersPanel() {
 
       <DeleteProjectEntityModal
         open={panel.isDeleteModalOpen}
-        title="Eliminar personaje"
         entityName={selectedPlayer?.name ?? ""}
-        description="Esta acción lo quitará del proyecto y dejará de estar disponible para las escenas que lo usen."
+        description={ referenced
+            ? "Este Player está referenciado en el proyecto. Si lo eliminas, se borrará de los lugares donde aparezca."
+            : "El Player dejará de estar disponible para las escenas que lo usen." }
         onConfirm={handleConfirmDelete}
         onCancel={panel.cancelDelete}
       />

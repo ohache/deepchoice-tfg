@@ -169,7 +169,7 @@ export function MapRegionCanvas({ mapId, mapVisualType, setPanelError }: MapRegi
   if (!selectedMap) return null;
 
   return (
-    <div className="rounded-lg border-2 border-slate-700 bg-slate-900/40 p-3 h-full">
+    <div className="rounded-lg border-2 border-amber-700 bg-slate-900/40 p-3 h-full">
       <div className="text-[12px] text-slate-300 text-center mb-3">
         {mapVisualType === "singleImage" ? "Mapa" : "Mapa compuesto"}
       </div>

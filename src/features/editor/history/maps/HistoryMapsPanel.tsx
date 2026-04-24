@@ -229,9 +229,9 @@ export function HistoryMapsPanel() {
   const fileError = fieldErrors.file ?? image.fileError;
 
   return (
-    <div className="max-w-[900px] mx-auto rounded-xl border-2 border-slate-700 bg-slate-900 p-4 space-y-3">
+    <div className="max-w-[900px] mx-auto rounded-xl border-3 border-slate-700 bg-slate-900 p-4 space-y-3">
       <div className="flex gap-4 h-full">
-        <aside className="w-1/3 rounded-lg bg-slate-950 flex flex-col overflow-hidden">
+        <aside className="w-1/3 rounded-lg border border-amber-700 bg-slate-950 flex flex-col overflow-hidden">
           {mode === "edit" && selectedMap ? (
             <HistoryMapRegionsPanel
               mapId={selectedMap.id}
@@ -256,19 +256,26 @@ export function HistoryMapsPanel() {
                 {mapsList.length === 0 ? (
                   <p className="p-4 text-xs text-slate-320 text-center">No hay mapas en el proyecto</p>
                 ) : (
-                  <ul className="divide-y-2 divide-slate-700">
-                    {mapsList.map((map) => {
+                  <ul>
+                    {mapsList.map((map, index) => {
                       const isSelected = map.id === selectedMapId;
+                      const isFirst = index === 0;
+                      const isLast = index === mapsList.length - 1;
 
                       return (
                         <li key={map.id}>
                           <button
                             type="button"
                             onClick={() => panel.handleListClick(map)}
-                            className={"w-full text-left px-6 py-3 text-[15px] border-t border-t-black " +
-                              (isSelected
-                                ? "bg-amber-900/60 text-slate-50"
-                                : "hover:bg-amber-900/60 text-slate-200")}
+                            className={
+                          "w-full text-left px-6 py-3 text-[15px] border-x border-amber-700 " +
+                          (isFirst ? "border-t " : "") +
+                          (!isLast ? "border-b " : "") +
+                          (isLast && !isSelected ? "rounded-b-lg " : "") +
+                          (isSelected
+                            ? "bg-amber-900/60 text-slate-50"
+                            : "hover:bg-amber-900/60 text-slate-200")
+                        }
                           >
                             <span className="block w-full overflow-hidden text-ellipsis whitespace-nowrap">
                               {map.name}
@@ -284,7 +291,7 @@ export function HistoryMapsPanel() {
           )}
         </aside>
 
-        <section className="relative flex-1 rounded-lg bg-slate-950 text-sm text-slate-100 flex flex-col overflow-hidden">
+        <section className="relative flex-1 rounded-lg border border-amber-700 bg-slate-950 text-sm text-slate-100 flex flex-col overflow-hidden">
           {mode !== "none" && (
             <img
               src="/ui/map-watermark.png"
@@ -307,7 +314,7 @@ export function HistoryMapsPanel() {
             ) : (
               <>
                 <div className="mb-2">
-                  <label className="block text-[13px] text-slate-200 mb-1 text-center">Nombre</label>
+                  <label className="block text-[14px] text-slate-100 mb-1 text-center">Nombre</label>
                   <input
                     ref={nameInputRef}
                     type="text"
@@ -329,7 +336,7 @@ export function HistoryMapsPanel() {
                 {showMapConfig ? (
                   <>
                     <div className="mb-3">
-                      <label className="block text-[13px] text-slate-200 mb-2 text-center">
+                      <label className="block text-[14px] text-slate-100 mb-2 text-center">
                         Tipo de mapa
                       </label>
 
@@ -343,7 +350,7 @@ export function HistoryMapsPanel() {
                                 ? "bg-amber-800 border-amber-500 text-white"
                                 : "bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800")}
                           >
-                            Single image
+                            Imagen única
                           </button>
 
                           <button
@@ -354,7 +361,7 @@ export function HistoryMapsPanel() {
                                 ? "bg-amber-800 border-amber-500 text-white"
                                 : "bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800")}
                           >
-                            Composed
+                            Composición
                           </button>
                         </div>
                       ) : (
@@ -366,7 +373,7 @@ export function HistoryMapsPanel() {
                       <p className="mt-2 text-[11px] text-slate-400 text-center">
                         {draftVisualType === "singleImage"
                           ? "El mapa se construye a partir de una única imagen global."
-                          : "El mapa usa una imagen de fondo y las regiones podrán tener imagen propia."}
+                          : "El mapa usa una imagen de fondo. Las diferentes regiones tienen su propia imagen."}
                       </p>
                     </div>
 
@@ -399,7 +406,7 @@ export function HistoryMapsPanel() {
 
                         <button
                           type="button"
-                          className="btn btn-select"
+                          className="btn btn-select border-amber-800 hover:bg-amber-950"
                           onMouseEnter={() => image.setIsHoveringSelectButton(true)}
                           onMouseLeave={() => image.setIsHoveringSelectButton(false)}
                           onClick={(e) => {
@@ -418,14 +425,6 @@ export function HistoryMapsPanel() {
                         className="hidden"
                         onChange={image.handleFileChange}
                       />
-
-                      <p className="mt-2 text-[11px] text-slate-400 break-all text-center">
-                        {image.draftFile
-                          ? `Archivo seleccionado: ${image.draftFile.name}`
-                          : mode === "edit" && selectedMapId
-                            ? `Archivo actual: ${image.draftFileName || "—"}`
-                            : "No hay archivo seleccionado"}
-                      </p>
 
                       {fileError && <p className="form-field-error mt-1">{fileError}</p>}
                     </div>
@@ -497,9 +496,8 @@ export function HistoryMapsPanel() {
 
       <DeleteProjectEntityModal
         open={panel.isDeleteModalOpen}
-        title="Eliminar mapa"
         entityName={selectedMap?.name ?? ""}
-        description="El mapa dejará de estar disponible en el proyecto y las escenas que lo referencien perderán esa asociación."
+        description="Este mapa dejará de estar disponible para las escenas asociadas a él."
         onConfirm={handleConfirmDelete}
         onCancel={panel.cancelDelete}
       />

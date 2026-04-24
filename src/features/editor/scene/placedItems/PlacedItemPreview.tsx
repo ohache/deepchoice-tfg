@@ -1,5 +1,4 @@
-import { useMemo } from "react";
-import type { CSSProperties } from "react";
+import { useMemo, type CSSProperties } from "react";
 import type { ID, PlacedItem, Project } from "@/domain/types";
 import { useResolvedAssetUrl } from "@/features/editor/hooks/useResolvedAssetUrl";
 import { rectStyleFromShape } from "@/features/editor/hooks/regionShape";
@@ -12,42 +11,57 @@ type PlacedItemPreviewProps = {
   draftItem?: PlacedItem | null;
 };
 
-function PlacedItemPreviewCard({ item, assetId, contentRectInContainer }: { item: PlacedItem; assetId: ID | null; contentRectInContainer: Rect | null }) {
+type PlacedItemPreviewCardProps = {
+  item: PlacedItem;
+  assetId: ID | null;
+  contentRectInContainer: Rect | null;
+};
+
+function pxToNumber(value: CSSProperties["width"] | CSSProperties["height"]): number {
+  if (typeof value === "number") return value;
+  if (typeof value === "string") return Number(value.replace("px", "")) || 0;
+  return 0;
+}
+
+function canRenderLabel(label: string, width: number, height: number): boolean {
+  return Boolean(label) && width >= 50 && height >= 20;
+}
+
+function PlacedItemPreviewCard({ item, assetId, contentRectInContainer }: PlacedItemPreviewCardProps) {
   const imageUrl = useResolvedAssetUrl(assetId);
-  const st = rectStyleFromShape(item.shape ?? null, contentRectInContainer);
+  const style = rectStyleFromShape(item.shape ?? null, contentRectInContainer);
 
   const sizeInfo = useMemo(() => {
-    if (!st) return { w: 0, h: 0 };
-    const width = Number(String((st as CSSProperties).width ?? "0").replace("px", "")) || 0;
-    const height = Number(String((st as CSSProperties).height ?? "0").replace("px", "")) || 0;
-    return { w: width, h: height };
-  }, [st]);
+    if (!style) return { width: 0, height: 0 };
 
-  if (!st) return null;
+    return { width: pxToNumber(style.width), height: pxToNumber(style.height) };
+  }, [style]);
+
+  if (!style) return null;
 
   const label = (item.label ?? "").trim();
-  const canShowLabel = !!label && sizeInfo.w >= 50 && sizeInfo.h >= 20;
+  const showLabel = canRenderLabel(label, sizeInfo.width, sizeInfo.height);
 
   return (
     <div
-      style={st}
-      className="absolute rounded-sm overflow-hidden border-2 border-amber-400/60 bg-amber-500/10"
+      style={style}
+      className="absolute overflow-hidden rounded-sm border-2 border-red-400/60 bg-red-500/10"
       title={label}
     >
       {imageUrl ? (
         <img
           src={imageUrl}
           alt={label || "Item"}
-          className="absolute inset-0 w-full h-full object-fill select-none pointer-events-none"
+          className="absolute inset-0 h-full w-full select-none object-fill pointer-events-none"
           draggable={false}
         />
       ) : null}
 
-      <div className="absolute inset-0 bg-amber-500/10 pointer-events-none" />
+      <div className="absolute inset-0 bg-red-500/10 pointer-events-none" />
 
-      {canShowLabel ? (
+      {showLabel ? (
         <div className="absolute inset-x-1 bottom-1 flex justify-center pointer-events-none">
-          <div className="px-2 py-0.5 rounded-md border border-amber-600 bg-slate-950/60 text-slate-100 text-[11px] leading-none truncate max-w-[90%] text-center">
+          <div className="max-w-[90%] truncate rounded-md border border-red-600 bg-slate-950/60 px-2 py-0.5 text-center text-[11px] leading-none text-slate-100">
             {label}
           </div>
         </div>
@@ -67,10 +81,13 @@ export function PlacedItemPreview({ placedItems, project, contentRectInContainer
     }
 
     return map;
-  }, [project]);
+  }, [project?.assets]);
 
-  const baseItems = draftItem ? placedItems.filter((item) => item.id !== draftItem.id) : placedItems;
-  const itemsToRender = draftItem ? [...baseItems, draftItem] : baseItems;
+  const itemsToRender = useMemo(() => {
+    const baseItems = draftItem ? placedItems.filter((item) => item.id !== draftItem.id) : placedItems;
+
+    return draftItem ? [...baseItems, draftItem] : baseItems;
+  }, [placedItems, draftItem]);
 
   if (!itemsToRender.length) return null;
 

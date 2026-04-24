@@ -1,55 +1,58 @@
 import type { ID } from "@/domain/types";
 
-/* Operadores */
+/* Operadores numéricos válidos */
 export const NUMBER_OPS = ["==", "!=", ">", ">=", "<", "<="] as const;
 export type NumberOp = typeof NUMBER_OPS[number];
 
+/* Operadores booleanos válidos */
 export const BOOL_OPS = ["==", "!="] as const;
 export type BoolOp = typeof BOOL_OPS[number];
 
-/** Predicados tipados para variables */
+/* Predicados tipados para variables */
 export type VarNumberPredicate = { op: NumberOp; value: number };
 export type VarBoolPredicate = { op: BoolOp; value: boolean };
 export type VarPredicate = VarNumberPredicate | VarBoolPredicate;
 
+/* Árbol de condiciones */
 export type Condition =
-  // Lógica
   | { type: "and"; all: Condition[] }
   | { type: "or"; any: Condition[] }
   | { type: "not"; cond: Condition }
 
-  // Progreso
   | { type: "nodeVisited"; nodeId: ID; op: BoolOp; value: boolean }
-
-  // Inventario
   | { type: "hasItem"; placedItemId: ID; op: BoolOp; value: boolean }
 
-  // Variables
   | ({ type: "playerVar"; playerId: ID; varId: ID } & VarPredicate)
   | ({ type: "npcVar"; npcId: ID; varId: ID } & VarPredicate)
   | ({ type: "hotspotVar"; hotspotId: ID; varId: ID } & VarPredicate)
 
-  // Hotspots
   | { type: "hotspotVisible"; hotspotId: ID; op: BoolOp; value: boolean }
   | { type: "hotspotReachable"; hotspotId: ID; op: BoolOp; value: boolean }
 
-  // Items
   | { type: "placedItemVisible"; placedItemId: ID; op: BoolOp; value: boolean }
   | { type: "placedItemReachable"; placedItemId: ID; op: BoolOp; value: boolean }
 
-  // Npc
   | { type: "placedNpcVisible"; npcId: ID; op: BoolOp; value: boolean }
   | { type: "placedNpcReachable"; npcId: ID; op: BoolOp; value: boolean }
 
-  // Player
   | { type: "placedPlayerVisible"; playerId: ID; op: BoolOp; value: boolean }
 
-  // Mapa
-  | { type: "mapRegionVisited"; mapId: ID; regionId: ID; op: BoolOp; value: boolean }
+  | { type: "mapRegionVisited"; mapId: ID; regionId: ID; op: BoolOp; value: boolean };
 
-/* Helpers para crear condiciones */
+/* Builder para evitar árboles degenerados */
 export const ConditionBuilder = {
-  and: (...all: Condition[]): Condition => all.length === 1 ? all[0] : { type: "and", all },
-  or: (...any: Condition[]): Condition => any.length === 1 ? any[0] : { type: "or", any },
-  not: (cond: Condition): Condition => ({ type: "not", cond }),
+  and: (...conds: Condition[]): Condition => {
+    const flat = conds.flatMap(c => c.type === "and" ? c.all : [c]);
+    return flat.length === 1 ? flat[0] : { type: "and", all: flat };
+  },
+
+  or: (...conds: Condition[]): Condition => {
+    const flat = conds.flatMap(c => c.type === "or" ? c.any : [c]);
+    return flat.length === 1 ? flat[0] : { type: "or", any: flat };
+  },
+
+  not: (cond: Condition): Condition => {
+    if (cond.type === "not") return cond.cond;
+    return { type: "not", cond };
+  },
 };

@@ -3,6 +3,7 @@ import type { Condition } from "@/domain/conditions";
 import { generateId } from "@/utils/id";
 import { isEnabledLeaf, type EnabledLeafCondition } from "@/features/editor/scene/rules/conditions/conditionLeafRegistry";
 
+/* Átomo editable en UI */
 export type UiAtom = {
   id: ID;
   not: boolean;
@@ -20,6 +21,7 @@ export type UiDraft = {
   lastGroupId?: ID;
 };
 
+/* API pública */
 export function createDefaultRootCondition(): Condition {
   return { type: "and", all: [] };
 }
@@ -32,11 +34,10 @@ export function createEmptyUiDraft(): UiDraft {
 }
 
 export function ensureAtLeastOneGroup(draft: UiDraft): UiDraft {
-  const gs = draft.groups ?? [];
-  if (gs.length) return draft;
+  if ((draft.groups ?? []).length > 0) return draft;
 
-  const g: UiGroup = { id: generateId.conditionGroup(), atoms: [] };
-  return { ...draft, groups: [g], lastGroupId: g.id };
+  const group = { id: generateId.conditionGroup(), atoms: [] };
+  return { ...draft, groups: [group], lastGroupId: group.id };
 }
 
 export function makeAtom(cond: EnabledLeafCondition, not: boolean): UiAtom {
@@ -82,6 +83,7 @@ export function pruneEmptyGroups(draft: UiDraft): UiDraft {
   return { ...draft, groups: kept };
 }
 
+/* Convierte una condiciónd de dominio al modelo editable por UI */
 export function conditionToUiDraft(value: Condition | null | undefined): UiDraft {
   if (!value) return createEmptyUiDraft();
 
@@ -126,6 +128,7 @@ export function conditionToUiDraft(value: Condition | null | undefined): UiDraft
   return { groups: [g], lastGroupId: g.id };
 }
 
+/* Convierte el modelo UI a condición de dominio */
 export function uiDraftToCondition(draft: UiDraft): Condition {
   const groups = draft.groups ?? [];
   if (!groups.length) return createDefaultRootCondition();

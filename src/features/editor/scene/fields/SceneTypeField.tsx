@@ -20,10 +20,10 @@ function SceneTypeButton({ active, label, icon: Icon, variant, onClick }: SceneT
       className={"inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs " +
         (active
           ? activeClasses
-          : "border-slate-700 bg-slate-900 text-slate-200 hover:bg-slate-700")}
+          : "border-black bg-slate-900 text-slate-200 hover:bg-slate-700")}
       aria-pressed={active}
     >
-      <Icon className="w-4 h-4" />
+      <Icon className="w-3.5 h-3.5" />
       <span>{label}</span>
     </button>
   );

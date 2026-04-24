@@ -2,30 +2,35 @@ import type { ID, Project, VarDef } from "@/domain/types";
 import type { TextTokenKind } from "@/features/editor/scene/textTokens/tokenFormat";
 
 type TokenCatalogVar = { id: ID; name: string };
-
-type TokenCatalogEntity = { id: ID; name: string; vars?: TokenCatalogVar[] };
+type TokenCatalogRegion = { id: ID; name: string };
+type TokenCatalogEntity = { id: ID; name: string; vars?: TokenCatalogVar[]; regions?: TokenCatalogRegion[] };
 
 export type TokenCatalog = Record<TextTokenKind, TokenCatalogEntity[]>;
 
+const EMPTY_TOKEN_CATALOG: TokenCatalog = { players: [], npcs: [], items: [], maps: [], music: [] };
+
+/*Convierte variables del dominio a una versión mínima para el catálogo */
 function mapVars(vars?: VarDef[]): TokenCatalogVar[] {
   if (!vars?.length) return [];
-  return vars.map((v) => ({ id: v.id, name: v.name }));
+
+  return vars.map((variable) => ({ id: variable.id, name: variable.name }));
 }
 
+/* Construye el catálogo de tokens a partir del proyecto actual */
 export function buildTokenCatalog(project: Project | null): TokenCatalog {
-  const empty: TokenCatalog = { players: [], npcs: [], items: [], maps: [], music: [] };
-
-  if (!project) return empty;
+  if (!project) return EMPTY_TOKEN_CATALOG;
 
   return {
-    players: (project.players ?? []).map((p) => ({ id: p.id, name: p.name, vars: mapVars(p.vars) })),
+    players: (project.players ?? []).map((player) => ({ id: player.id, name: player.name, vars: mapVars(player.vars) })),
 
-    npcs: (project.npcs ?? []).map((n) => ({ id: n.id, name: n.name, vars: mapVars(n.vars) })),
+    npcs: (project.npcs ?? []).map((npc) => ({ id: npc.id, name: npc.name, vars: mapVars(npc.vars) })),
 
-    items: (project.items ?? []).map((it) => ({ id: it.id, name: it.name })),
+    items: (project.items ?? []).map((item) => ({ id: item.id, name: item.name })),
 
-    maps: (project.maps ?? []).map((m) => ({ id: m.id, name: m.name })),
+    maps: (project.maps ?? []).map((map) => ({ id: map.id, name: map.name,
+      regions: (map.regions ?? []).map((region) => ({ id: region.id, name: region.label })),
+    })),
 
-    music: (project.musicTracks ?? []).map((m) => ({ id: m.id, name: m.name })),
+    music: (project.musicTracks ?? []).map((track) => ({ id: track.id, name: track.name })),
   };
 }

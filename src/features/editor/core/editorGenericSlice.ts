@@ -1,27 +1,31 @@
 import type { Condition } from "@/domain/conditions";
 import type { AssetDef, ID, NodeMeta, VarDef } from "@/domain/types";
 
+/* Normaliza cualquier valor a string limpio */
 export function safeTrim(value: string | undefined | null): string {
   return String(value ?? "").trim();
 }
 
-/* Inserta o actualiza un asset por (id + kind) */
+/* Inserta o actualiza un asset identificado por (id + kind) */
 export function upsertAsset(assets: AssetDef[], input: { id: ID; kind: AssetDef["kind"]; name: string; file: string }): { assets: AssetDef[]; touched: boolean } {
-  const idx = assets.findIndex((asset) => asset.id === input.id && asset.kind === input.kind);
+  const index = assets.findIndex((asset) => asset.id === input.id && asset.kind === input.kind);
 
-  if (idx >= 0) {
-    const prev = assets[idx]!;
+  if (index >= 0) {
+    const previous = assets[index]!;
+
     const next: AssetDef = {
-      ...prev,
+      ...previous,
       name: input.name,
       file: input.file,
     };
 
-    const changed = prev.name !== next.name || prev.file !== next.file;
+    const changed = previous.name !== next.name || previous.file !== next.file;
+
     if (!changed) return { assets, touched: false };
 
     const nextAssets = assets.slice();
-    nextAssets[idx] = next;
+    nextAssets[index] = next;
+
     return { assets: nextAssets, touched: true };
   }
 
@@ -39,14 +43,13 @@ export function upsertAsset(assets: AssetDef[], input: { id: ID; kind: AssetDef[
   };
 }
 
-/* Elimina un asset por (id + kind) */
+/* Elimina un asset identificado por (id + kind) */
 export function removeAsset(assets: AssetDef[], input: { id: ID; kind: AssetDef["kind"] }): { assets: AssetDef[]; touched: boolean } {
-  const nextAssets = assets.filter((asset) => !(asset.id === input.id && asset.kind === input.kind));
+  const exists = assets.some((asset) => asset.id === input.id && asset.kind === input.kind,);
 
-  return {
-    assets: nextAssets,
-    touched: nextAssets.length !== assets.length,
-  };
+  if (!exists) return { assets, touched: false };
+
+  return { assets: assets.filter((asset) => !(asset.id === input.id && asset.kind === input.kind)), touched: true };
 }
 
 /* Asocia un File a un assetId */
@@ -61,9 +64,7 @@ export function upsertAssetFile(assetFiles: Record<ID, File>, assetId: ID, file:
 
 /* Elimina el File asociado a un assetId */
 export function removeAssetFile(assetFiles: Record<ID, File>, assetId: ID): { assetFiles: Record<ID, File>; touched: boolean } {
-  if (!(assetId in assetFiles)) {
-    return { assetFiles, touched: false };
-  }
+  if (!(assetId in assetFiles)) return { assetFiles, touched: false };
 
   const nextFiles = { ...assetFiles };
   delete nextFiles[assetId];
@@ -71,51 +72,47 @@ export function removeAssetFile(assetFiles: Record<ID, File>, assetId: ID): { as
   return { assetFiles: nextFiles, touched: true };
 }
 
-/* Compara dos VarDef por contenido útil */
+/* Compara dos VarDef por su contenido relevante */
 export function sameVarDef(a: VarDef, b: VarDef): boolean {
   if (a.id !== b.id) return false;
   if (a.type !== b.type) return false;
-
   if (safeTrim(a.name) !== safeTrim(b.name)) return false;
 
-  if (a.type === "number" && b.type === "number") return a.min === b.min && a.max === b.max && a.initial === b.initial;
+  if (a.type === "number" && b.type === "number") return (a.min === b.min && a.max === b.max && a.initial === b.initial);
 
   if (a.type === "boolean" && b.type === "boolean") return a.initial === b.initial;
 
   return false;
 }
 
-/* Paths / nombres de archivo */
+/* Extrae la extensión de un nombre de archivo; fallback a png */
 export function fileExtFromName(name: string): string {
   const match = String(name).toLowerCase().match(/\.([a-z0-9]+)$/);
   return match?.[1] ?? "png";
 }
 
-export function fileExtFromAssetPath(assetFilePath: string): string {
-  return fileExtFromName(assetFilePath);
-}
-
-/* Deep clone seguro para POJOs */
+/* Clonado profundo seguro para POJOs */
 export function deepClonePojo<T>(value: T): T {
   if (typeof structuredClone === "function") return structuredClone(value);
 
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
+/* Meta por defecto para nodo */
 export function createDefaultNodeMeta(): NodeMeta {
   return {};
 }
 
-/* Devuelve true si la condición está vacía o no contiene ninguna condición útil */
+/* Devuelve true si la condición está vacía o no aporta lógica útil */
 export function isEmptyCondition(condition: Condition | undefined): boolean {
   if (!condition) return true;
 
   switch (condition.type) {
     case "and":
-      return condition.all.length === 0 || condition.all.every(isEmptyCondition);
+      return (condition.all.length === 0 || condition.all.every(isEmptyCondition));
 
     case "or":
-      return condition.any.length === 0 || condition.any.every(isEmptyCondition);
+      return (condition.any.length === 0 || condition.any.every(isEmptyCondition));
 
     case "not":
       return isEmptyCondition(condition.cond);

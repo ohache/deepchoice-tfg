@@ -39,7 +39,7 @@ export function applyPlacedNpcInteraction(state: GameState, placedNpc: PlacedNpc
   return s;
 }
 
-export function applyPlacedNpcUseItem(state: GameState, placedNpc: PlacedNpc, inventoryInstanceId: ID, ctx: ApplyEffectCtx = {}): GameState {
+export function applyPlacedNpcUseItem(state: GameState, placedNpc: PlacedNpc, placedItemId: ID, ctx: ApplyEffectCtx = {}): GameState {
   if (state.activeDialogue) return state;
 
   const nodeId = state.currentNodeId;
@@ -60,13 +60,13 @@ export function applyPlacedNpcUseItem(state: GameState, placedNpc: PlacedNpc, in
     return applyEffect(s, { type: "showMessage", text: msg }, ctx);
   }
 
-  const result = pickUseItemRule(s, placedNpc.rules ?? {}, inventoryInstanceId);
+  const result = pickUseItemRule(s, placedNpc.rules ?? {}, placedItemId);
+
   if (result.kind === "none") return s;
+
   if (result.kind === "blocked") {
     return applyEffect(s, { type: "showMessage", text: result.phrase }, ctx);
   }
 
-  s = applyEffects(s, result.rule.effects ?? [], ctx);
-
-  return s;
+  return applyEffects(s, result.rule.effects ?? [], ctx);
 }

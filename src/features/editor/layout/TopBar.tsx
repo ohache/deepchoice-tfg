@@ -147,7 +147,7 @@ export function TopBar() {
   if (!project) return null;
 
   return (
-    <header className="h-14 bg-slate-900 border-b-2 border-slate-700 flex items-center justify-between px-4 gap-10">
+    <header className="h-14 bg-slate-900/30 border-b-2 border-slate-700 flex items-center justify-between px-4 gap-10">
       {/* Navegación principal + jugar */}
       <div className="flex items-center gap-3">
         <nav className="flex items-center gap-2">
@@ -159,10 +159,10 @@ export function TopBar() {
                 key={tab.id}
                 type="button"
                 onClick={() => handleModeClick(tab.id)}
-                className={ "px-3 py-1.5 rounded-lg text-base transition-colors " +
+                className={ "px-3 py-1.5 rounded-lg text-[16px] transition-colors " +
                   (isActive
-                    ? "bg-slate-700 text-white"
-                    : "text-slate-100 hover:text-white hover:bg-slate-800/60")}
+                    ? "bg-slate-800 text-white"
+                    : "text-slate-100 hover:text-white hover:bg-slate-800/90")}
               >
                 {tab.label}
               </button>
@@ -173,7 +173,7 @@ export function TopBar() {
         <button
           type="button"
           onClick={handlePlayRequested}
-          className="ml-2 px-3 py-1.5 rounded-lg text-base btn-create"
+          className="ml-2 px-3 py-1.5 rounded-lg text-base btn-create bg-fuchsia-950 border hover:bg-fuchsia-900"
           title="Jugar con el proyecto actual"
         >
           Jugar
@@ -187,7 +187,7 @@ export function TopBar() {
           <button
             type="button"
             onClick={handleSaveClick}
-            className="p-1.5 rounded-md bg-slate-700 hover:bg-slate-600"
+            className="p-1.5 rounded-md bg-slate-800 hover:bg-slate-700"
             title="Guardar (descargar JSON)"
           >
             <DocumentArrowDownIcon className="w-4 h-4" />
@@ -196,7 +196,7 @@ export function TopBar() {
           <button
             type="button"
             onClick={handleExportClick}
-            className="p-1.5 rounded-md bg-slate-700 hover:bg-slate-600"
+            className="p-1.5 rounded-md bg-slate-800 hover:bg-slate-600"
             title="Exportar (ZIP con JSON + assets)"
           >
             <ArchiveBoxArrowDownIcon className="w-4 h-4" />
@@ -209,7 +209,7 @@ export function TopBar() {
             type="button"
             onClick={zoomOut}
             disabled={!canZoom}
-            className="px-2 py-1 rounded-md bg-slate-700 hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed"
             title={canZoom ? "Zoom out" : "El zoom solo está disponible en Historia → Vista"}
           >
             -
@@ -219,7 +219,7 @@ export function TopBar() {
             type="button"
             onClick={zoomReset}
             disabled={!canZoom}
-            className="px-2 py-1 rounded-md bg-slate-700 hover:bg-slate-600 min-w-12 text-center disabled:opacity-40 disabled:cursor-not-allowed"
+            className="px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-600 min-w-12 text-center disabled:opacity-40 disabled:cursor-not-allowed"
             title={canZoom ? "Reset zoom" : "El zoom solo está disponible en Historia → Vista"}
           >
             {zoom}%
@@ -229,7 +229,7 @@ export function TopBar() {
             type="button"
             onClick={zoomIn}
             disabled={!canZoom}
-            className="px-2 py-1 rounded-md bg-slate-700 hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="px-2 py-1 rounded-md bg-slate-800 hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed"
             title={canZoom ? "Zoom in" : "El zoom solo está disponible en Historia → Vista"}
           >
             +

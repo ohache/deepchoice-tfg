@@ -1,19 +1,16 @@
-import type { ID, ClickRule, UseItemRule, BaseInteractionRule, Project } from "@/domain/types";
+import type { BaseInteractionRule, ClickRule, ID, Project, UseItemRule } from "@/domain/types";
 import type { Condition } from "@/domain/conditions";
 import type { Effect } from "@/domain/effects";
 import type { EffectOwner } from "@/features/editor/scene/rules/effects/effectFactory";
 import { RuleBuilderModal } from "@/features/editor/scene/rules/RuleBuilderModal";
+import { Select, type Option } from "@/components/Select";
 import { Pencil, Trash2 } from "lucide-react";
 
 type RuleChannel =
   | { type: "onClick" }
   | { type: "onUseItem"; placedItemId: ID };
 
-type UseItemOption = {
-  id: ID;
-  label: string;
-};
-
+type UseItemOption = Option<ID>;
 
 type InteractionRulesSectionProps = {
   owner: EffectOwner | null;
@@ -45,14 +42,114 @@ type InteractionRulesSectionProps = {
   requiredErrorText?: string | null;
 };
 
-export function InteractionRulesSection({ owner, project, nodeId, disableAllEditorFields, activeChannel, setActiveChannel, clickRules, useItemRulesForSelected,
-  useItemOptions, ruleModalOpen, currentRuleValue, onOpenAddClickRule, onOpenEditClickRule, onRemoveClickRule, onOpenAddUseItemRule, onOpenEditUseItemRule,
-  onRemoveUseItemRule, onCloseRuleModal, onSaveRule, requiredErrorText }: InteractionRulesSectionProps) {
-  const firstUseItemId = useItemOptions[0]?.id ?? ("" as ID);
+type RuleListCardProps = {
+  index: number;
+  ruleId: ID;
+  disabledEdit: boolean;
+  disabledDelete: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+};
+
+/* Card reutilizable para cada regla guardada */
+function RuleListCard({ index, ruleId, disabledEdit, disabledDelete, onEdit, onDelete }: RuleListCardProps) {
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onEdit}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onEdit();
+        }
+      }}
+      className="cursor-pointer select-none rounded-md border-2 border-fuchsia-800 bg-slate-950/30 px-3 py-2 hover:bg-fuchsia-900/20"
+      title="Editar regla"
+      data-rule-id={ruleId}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate text-sm text-slate-100">
+            <span>Regla {index + 1}</span>
+          </div>
+        </div>
+
+        <div
+          className="flex shrink-0 items-center gap-2"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            className="btn border-2 border-slate-700 bg-slate-900 p-1 text-white hover:bg-slate-800"
+            disabled={disabledEdit}
+            onClick={onEdit}
+            title="Editar"
+          >
+            <Pencil className="h-4 w-4" />
+          </button>
+
+          <button
+            type="button"
+            className="btn border-2 border-rose-700/60 bg-rose-950/30 p-1 text-whote hover:bg-rose-950/50"
+            disabled={disabledDelete}
+            onClick={onDelete}
+            title="Eliminar"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* Botones para alternar el canal de interacción activo */
+function ChannelTabs({ activeChannel, disableAllEditorFields, onSelectOnClick, onSelectOnUseItem }:
+  { activeChannel: RuleChannel;  disableAllEditorFields: boolean; onSelectOnClick: () => void; onSelectOnUseItem: () => void }) {
+  const getTabClassName = (selected: boolean) => `btn justify-center border-2 text-xs ${
+      selected
+        ? "border-fuchsia-500/50 bg-fuchsia-950/30 text-fuchsia-100"
+        : "border-slate-700 bg-slate-900 text-white hover:bg-fuchsia-950 hover:border-fuchsia-700"
+    } disabled:cursor-not-allowed disabled:opacity-40`;
+
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      <button
+        type="button"
+        disabled={disableAllEditorFields}
+        onClick={onSelectOnClick}
+        className={getTabClassName(activeChannel.type === "onClick")}
+      >
+        OnClick
+      </button>
+
+      <button
+        type="button"
+        disabled={disableAllEditorFields}
+        onClick={onSelectOnUseItem}
+        className={getTabClassName(activeChannel.type === "onUseItem")}
+      >
+        OnUseItem
+      </button>
+    </div>
+  );
+}
+
+export function InteractionRulesSection({ owner, project, nodeId, disableAllEditorFields, activeChannel, setActiveChannel, clickRules,
+  useItemRulesForSelected, useItemOptions, ruleModalOpen, currentRuleValue, onOpenAddClickRule, onOpenEditClickRule, onRemoveClickRule, onOpenAddUseItemRule, onOpenEditUseItemRule, onRemoveUseItemRule, onCloseRuleModal,
+  onSaveRule, requiredErrorText }: InteractionRulesSectionProps) {
+  const firstUseItemId = useItemOptions[0]?.id ?? "";
+
+  const selectedUseItemId = activeChannel.type === "onUseItem" ? activeChannel.placedItemId : firstUseItemId;
+
+  const canOpenRuleModal = ruleModalOpen && owner && currentRuleValue;
+
+  const hasUseItemOptions = useItemOptions.length > 0;
 
   return (
     <>
-      {ruleModalOpen && owner && currentRuleValue ? (
+      {canOpenRuleModal ? (
         <RuleBuilderModal
           open={ruleModalOpen}
           project={project}
@@ -66,48 +163,22 @@ export function InteractionRulesSection({ owner, project, nodeId, disableAllEdit
       ) : null}
 
       <div className="space-y-3">
-        <div className="text-[13px] text-slate-200">Reglas</div>
+        <div className="text-[13px] text-white">Reglas</div>
 
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            disabled={disableAllEditorFields}
-            onClick={() => setActiveChannel({ type: "onClick" })}
-            className={`btn text-xs border-2 justify-center ${activeChannel.type === "onClick"
-                ? "border-fuchsia-500/50 bg-fuchsia-950/30 text-fuchsia-100"
-                : "border-slate-700 bg-slate-900 text-white hover:bg-slate-800"
-              } disabled:opacity-40 disabled:cursor-not-allowed`}
-          >
-            OnClick
-          </button>
+        <ChannelTabs
+          activeChannel={activeChannel}
+          disableAllEditorFields={disableAllEditorFields}
+          onSelectOnClick={() => setActiveChannel({ type: "onClick" })}
+          onSelectOnUseItem={() => { setActiveChannel({ type: "onUseItem", placedItemId: activeChannel.type === "onUseItem" ? activeChannel.placedItemId : firstUseItemId})}}
+        />
 
-          <button
-            type="button"
-            disabled={disableAllEditorFields}
-            onClick={() => {
-              setActiveChannel({
-                type: "onUseItem",
-                placedItemId:
-                  activeChannel.type === "onUseItem"
-                    ? activeChannel.placedItemId
-                    : firstUseItemId,
-              });
-            }}
-            className={`btn text-xs border-2 justify-center ${activeChannel.type === "onUseItem"
-                ? "border-fuchsia-500/50 bg-fuchsia-950/30 text-fuchsia-100"
-                : "border-slate-700 bg-slate-900 text-white hover:bg-slate-800"
-              } disabled:opacity-40 disabled:cursor-not-allowed`}
-          >
-            OnUseItem
-          </button>
-        </div>
-
+        {/* Reglas del canal onClick */}
         {activeChannel.type === "onClick" ? (
-          <div className=" bg-slate-950/20 px-2 py-2 space-y-2">
+          <div className="space-y-2 bg-slate-950/20 px-2 py-2">
             <div className="flex justify-center">
               <button
                 type="button"
-                className="btn btn-add-variant text-[12px] disabled:opacity-40 disabled:cursor-not-allowed"
+                className="btn btn-add-rule text-[12px] disabled:cursor-not-allowed disabled:opacity-40 mb-1"
                 disabled={disableAllEditorFields || !owner}
                 onClick={onOpenAddClickRule}
               >
@@ -117,94 +188,41 @@ export function InteractionRulesSection({ owner, project, nodeId, disableAllEdit
 
             <div className="space-y-2">
               {clickRules.map((rule, index) => (
-                <div
+                <RuleListCard
                   key={rule.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => onOpenEditClickRule(index)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      onOpenEditClickRule(index);
-                    }
-                  }}
-                  className="rounded-md border px-3 py-2 cursor-pointer select-none border-slate-700 bg-slate-950/30 hover:bg-fuchsia-900/20"
-                  title="Editar regla"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="text-sm text-slate-100 truncate">
-                        <span className="font-semibold">Regla {index + 1}</span>
-                      </div>
-                    </div>
-
-                    <div
-                      className="flex items-center gap-2 shrink-0"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <button
-                        type="button"
-                        className="btn border-2 border-slate-700 bg-slate-800 hover:bg-slate-700 text-white p-1"
-                        disabled={disableAllEditorFields || !owner}
-                        onClick={() => onOpenEditClickRule(index)}
-                        title="Editar"
-                        aria-label="Editar regla"
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </button>
-
-                      <button
-                        type="button"
-                        className="btn border-2 border-rose-700/60 bg-rose-950/30 hover:bg-rose-950/50 text-rose-100 p-1"
-                        disabled={disableAllEditorFields}
-                        onClick={() => onRemoveClickRule(index)}
-                        title="Eliminar"
-                        aria-label="Eliminar regla"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
+                  ruleId={rule.id}
+                  index={index}
+                  disabledEdit={disableAllEditorFields || !owner}
+                  disabledDelete={disableAllEditorFields}
+                  onEdit={() => onOpenEditClickRule(index)}
+                  onDelete={() => onRemoveClickRule(index)}
+                />
               ))}
             </div>
           </div>
         ) : null}
 
+        {/* Reglas del canal onUseItem */}
         {activeChannel.type === "onUseItem" ? (
-          <div className=" bg-slate-950/20 px-2 py-2 space-y-2">
+          <div className="space-y-2 bg-slate-950/20 px-2 py-2">
             <div className="flex items-center justify-center gap-2">
-              <div className="text-[13px] text-slate-200">Item:</div>
-              <select
-                className="rounded-md bg-slate-900 border border-slate-700 px-2 py-1 text-xs text-white"
-                value={activeChannel.placedItemId}
-                onChange={(e) =>
-                  setActiveChannel({
-                    type: "onUseItem",
-                    placedItemId: e.currentTarget.value,
-                  })
-                }
-                disabled={disableAllEditorFields || useItemOptions.length === 0}
-              >
-                {useItemOptions.map((it) => (
-                  <option key={it.id} value={it.id}>
-                    {it.label}
-                  </option>
-                ))}
-              </select>
+              <div className="text-[13px] text-slate-100">Item:</div>
+
+              <Select<ID>
+                value={selectedUseItemId}
+                onChange={(value) => setActiveChannel({ type: "onUseItem", placedItemId: value })}
+                options={useItemOptions}
+                placeholder="Selecciona…"
+                disabled={disableAllEditorFields || !hasUseItemOptions}
+              />
             </div>
 
             <div className="flex justify-center">
               <button
                 type="button"
-                className="btn btn-add-variant text-[12px] disabled:opacity-40 disabled:cursor-not-allowed"
-                disabled={
-                  disableAllEditorFields ||
-                  !owner ||
-                  !activeChannel.placedItemId ||
-                  useItemOptions.length === 0
-                }
-                onClick={() => onOpenAddUseItemRule(activeChannel.placedItemId)}
+                className="btn btn-add-rule text-[12px] disabled:cursor-not-allowed disabled:opacity-40 mt-1 mb-1"
+                disabled={disableAllEditorFields || !owner || !selectedUseItemId || !hasUseItemOptions}
+                onClick={() => onOpenAddUseItemRule(selectedUseItemId)}
               >
                 + Añadir regla
               </button>
@@ -212,55 +230,15 @@ export function InteractionRulesSection({ owner, project, nodeId, disableAllEdit
 
             <div className="space-y-2">
               {useItemRulesForSelected.map((rule, index) => (
-                <div
+                <RuleListCard
                   key={rule.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => onOpenEditUseItemRule(activeChannel.placedItemId, index)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      onOpenEditUseItemRule(activeChannel.placedItemId, index);
-                    }
-                  }}
-                  className="rounded-md border px-3 py-2 cursor-pointer select-none border-slate-700 bg-slate-950/30 hover:bg-fuchsia-900/20"
-                  title="Editar regla"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="text-sm text-slate-100 truncate">
-                        <span className="font-semibold">Regla {index + 1}</span>
-                      </div>
-                    </div>
-
-                    <div
-                      className="flex items-center gap-2 shrink-0"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <button
-                        type="button"
-                        className="btn border-2 border-slate-700 bg-slate-800 hover:bg-slate-700 text-white p-1"
-                        disabled={disableAllEditorFields || !owner}
-                        onClick={() => onOpenEditUseItemRule(activeChannel.placedItemId, index)}
-                        title="Editar"
-                        aria-label="Editar regla"
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </button>
-
-                      <button
-                        type="button"
-                        className="btn border-2 border-rose-700/60 bg-rose-950/30 hover:bg-rose-950/50 text-rose-100 p-1"
-                        disabled={disableAllEditorFields}
-                        onClick={() => onRemoveUseItemRule(activeChannel.placedItemId, index)}
-                        title="Eliminar"
-                        aria-label="Eliminar regla"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
+                  ruleId={rule.id}
+                  index={index}
+                  disabledEdit={disableAllEditorFields || !owner}
+                  disabledDelete={disableAllEditorFields}
+                  onEdit={() => onOpenEditUseItemRule(selectedUseItemId, index)}
+                  onDelete={() => onRemoveUseItemRule(selectedUseItemId, index)}
+                />
               ))}
             </div>
           </div>

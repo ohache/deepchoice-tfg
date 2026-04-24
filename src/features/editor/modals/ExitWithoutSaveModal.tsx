@@ -12,8 +12,8 @@ export function ExitWithoutSaveModal({ open, onCancel, onExit, onExitAndDownload
     return (
         <div className="modal-overlay">
             <div className="modal-card text-center">
-                <p className="text-sm text-slate-100 mb-4">
-                   Antes de salir, ¿desea realizar alguna de las siguientes acciones?
+                <p className="text-[15px] text-slate-100 mb-4">
+                   Va salir del editor. ¿Quiere exportar el proyecto antes?
                 </p>
 
                 <div className="mt-4 flex flex-col items-center gap-3">
@@ -21,16 +21,16 @@ export function ExitWithoutSaveModal({ open, onCancel, onExit, onExitAndDownload
                     <button
                         type="button"
                         onClick={onExitAndDownloadJSON}
-                        className="btn btn-json text-sm min-w-[200px]"
+                        className="btn btn-json text-sm min-w-[230px]"
                     >
-                        Descargar JSON
+                        Descargar el archivo JSON
                     </button>
                     <button
                         type="button"
                         onClick={onExitAndDownloadProject}
-                        className="btn btn-add-condition min-w-[200px]"
+                        className="btn btn-add-condition text-sm min-w-[230px]"
                     >
-                        Descargar proyecto
+                        Descargar el proyecto completo
                     </button>
 
                     <button
@@ -38,14 +38,14 @@ export function ExitWithoutSaveModal({ open, onCancel, onExit, onExitAndDownload
                         onClick={onCancel}
                         className="btn btn-select text-sm min-w-[200px]"
                     >
-                        Continuar
+                        Continuar editando
                     </button>
                                         <button
                         type="button"
                         onClick={onExit}
                         className="btn btn-danger-condition text-sm min-w-[200px]"
                     >
-                        Salir
+                        Salir sin exportar
                     </button>
                 </div>
             </div>

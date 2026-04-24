@@ -18,16 +18,9 @@ export const PRIMARY = {
     secondary: {
       crear: "Crear",
       buscar: "Buscar",
+      test: "Test",
     },
     defaultSecondary: "crear",
-  },
-  test: {
-    label: "Test",
-    secondary: {
-      historia: "Historia",
-      escena: "Escena",
-    },
-    defaultSecondary: "historia",
   },
 } as const;
 

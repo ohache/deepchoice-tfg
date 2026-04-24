@@ -4,12 +4,10 @@ import type { Node, SceneImageLayer } from "@/domain/types";
 import { buildAssetPath } from "@/store/assets/assetPath";
 
 export type FieldError = { message: string };
-
 export type SceneToggleFieldId = "title" | "layers" | "dialogues" | "map" | "music" | "type";
+export type LayerToggleFieldId = "name" | "image" | "text" | "hotspots" | "placedItems" | "placedNpcs" | "placedPlayers" | "music";
 
-export type LayerToggleFieldId = | "image" | "text" | "hotspots" | "placedItems" | "placedNpcs" | "placedPlayers" | "music";
-
-/* Parte activa de la escena */
+/* Estado del campo activo a nivel escena */
 export function useSceneFieldState(deps: unknown[] = []) {
   const [activeField, setActiveField] = useState<SceneToggleFieldId | null>("title");
 
@@ -17,36 +15,41 @@ export function useSceneFieldState(deps: unknown[] = []) {
 
   useEffect(() => {
     if (activeField !== "title") return;
+
     titleInputRef.current?.focus();
     titleInputRef.current?.select();
   }, [activeField, ...deps]);
 
-  const toggleField = (field: SceneToggleFieldId) =>
+  const toggleField = useCallback((field: SceneToggleFieldId) => {
     setActiveField((current) => (current === field ? null : field));
+  }, []);
 
   return { activeField, setActiveField, toggleField, titleInputRef };
 }
 
-/* Parte activa de la layer (para SceneLayersField) */
+/* Estado del campo activo dentro de SceneLayersField */
 export function useLayerFieldState(deps: unknown[] = []) {
-  const [activeLayerField, setActiveLayerField] = useState<LayerToggleFieldId | null>(null);
+  const activeLayerField = useEditorStore((state) => state.activeLayerField);
+  const setActiveLayerField = useEditorStore((state) => state.setActiveLayerField);
 
   const layerLabelInputRef = useRef<HTMLInputElement | null>(null);
   const layerTextAreaRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     if (activeLayerField !== "text") return;
+
     layerTextAreaRef.current?.focus();
     layerTextAreaRef.current?.select();
   }, [activeLayerField, ...deps]);
 
-  const toggleLayerField = (field: LayerToggleFieldId) =>
-    setActiveLayerField((current) => (current === field ? null : field));
+  const toggleLayerField = useCallback((field: LayerToggleFieldId) => {
+    setActiveLayerField(activeLayerField === field ? null : field);
+  }, [activeLayerField, setActiveLayerField]);
 
   return { activeLayerField, setActiveLayerField, toggleLayerField, layerLabelInputRef, layerTextAreaRef };
 }
 
-/* Navegación hacia Historia/Vista */
+/* Navegación hacia Historia - Vista */
 export function useSceneNavigation() {
   const setPrimaryMode = useEditorStore((s) => s.setPrimaryMode);
   const setSecondaryMode = useEditorStore((s) => s.setSecondaryMode);
@@ -59,7 +62,8 @@ export function useSceneNavigation() {
   return { goToHistoriaVista };
 }
 
-/* ✅ Errores por campo (nivel escena) en formato UI mínimo */
+/* Errores de validación a nivel escena */
+
 export type SceneFieldErrors = {
   title?: FieldError;
   layers?: FieldError;
@@ -70,11 +74,13 @@ export type SceneFieldErrors = {
   meta?: FieldError;
 };
 
+/* Convierte string opcional en el formato de error usado por la UI */
 export function toFieldError(message?: string | null): FieldError | undefined {
-  const m = typeof message === "string" ? message.trim() : "";
-  return m ? { message: m } : undefined;
+  const trimmed = typeof message === "string" ? message.trim() : "";
+  return trimmed ? { message: trimmed } : undefined;
 }
 
+/* Construye el draft mínimo de escena a partir de un nodo existente */
 export function buildDraftSceneInputFromNode(node: Node) {
   return {
     title: node.title ?? "",
@@ -87,29 +93,26 @@ export function buildDraftSceneInputFromNode(node: Node) {
   };
 }
 
-/* Handler para la imagen */
+/* Utilidades para procesar imágenes de escena */
 interface HandleSceneImageOptions {
   setImageLocalError: (msg: string | null) => void;
   onValidImagePath: (relativePath: string, file: File) => void;
 }
 
-/** Lógica común para procesar un File de imagen (png/jpg/jpeg/gif) */
-export function processSceneImageFile(file: File, options: HandleSceneImageOptions) {
+const VALID_IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif"] as const;
+const VALID_IMAGE_MIME_TYPES = ["image/png", "image/jpeg", "image/gif", ""] as const;
+
+function isValidSceneImageFile(file: File): boolean {
   const lowerName = file.name.toLowerCase();
 
-  const hasValidExt =
-    lowerName.endsWith(".png") ||
-    lowerName.endsWith(".jpg") ||
-    lowerName.endsWith(".jpeg") ||
-    lowerName.endsWith(".gif");
+  const hasValidExt = VALID_IMAGE_EXTENSIONS.some((ext) => lowerName.endsWith(ext));
+  const hasValidMime = VALID_IMAGE_MIME_TYPES.includes(file.type as (typeof VALID_IMAGE_MIME_TYPES)[number]);
 
-  const hasValidMime =
-    file.type === "image/png" ||
-    file.type === "image/jpeg" ||
-    file.type === "image/gif" ||
-    file.type === "";
+  return hasValidExt && hasValidMime;
+}
 
-  if (!hasValidExt || !hasValidMime) {
+export function processSceneImageFile(file: File, options: HandleSceneImageOptions) {
+  if (!isValidSceneImageFile(file)) {
     options.setImageLocalError("La imagen debe ser .png, .jpg, .jpeg o .gif.");
     return;
   }
@@ -120,7 +123,6 @@ export function processSceneImageFile(file: File, options: HandleSceneImageOptio
   options.onValidImagePath(relativePath, file);
 }
 
-/** Versión para usar directamente como onChange del input file */
 export function handleSceneImageFileChange(event: ChangeEvent<HTMLInputElement>, options: HandleSceneImageOptions) {
   const file = event.target.files?.[0];
   if (!file) return;

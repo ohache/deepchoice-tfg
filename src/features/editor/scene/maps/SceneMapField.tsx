@@ -1,7 +1,9 @@
-import { useMemo } from "react";
-import type { WorldMap, MapRegion, NodeMapLocation } from "@/domain/types";
+import { useMemo, useCallback } from "react";
+import type { WorldMap, MapRegion, NodeMapLocation, ID } from "@/domain/types";
 import { useEditorStore } from "@/store/editorStore";
 import { ToggleFieldBlock } from "@/features/editor/scene/SceneFieldBlocks";
+import { Checkbox } from "@/components/Checkbox";
+import { Select, type Option } from "@/components/Select";
 
 type SceneMapFieldProps = {
   label?: string;
@@ -9,203 +11,151 @@ type SceneMapFieldProps = {
   onToggle: () => void;
 };
 
-export function SceneMapField({
-  label = "Mapa",
-  active,
-  onToggle,
-}: SceneMapFieldProps) {
-  const project = useEditorStore((s) => s.project ?? null);
+export function SceneMapField({ label = "Mapa", active, onToggle }: SceneMapFieldProps) {
+  const project = useEditorStore((s) => s.project);
   const nodeDraft = useEditorStore((s) => s.nodeDraft);
   const setNodeMapLocation = useEditorStore((s) => s.setNodeMapLocation);
 
   const maps = useMemo<WorldMap[]>(() => project?.maps ?? [], [project?.maps]);
-  const nodes = useMemo(() => project?.nodes ?? [], [project?.nodes]);
 
   const selectedMapId = nodeDraft?.mapLocation?.mapId ?? "";
   const selectedRegionId = nodeDraft?.mapLocation?.regionId ?? "";
   const isEntry = Boolean(nodeDraft?.mapLocation?.isEntry);
-  const currentNodeId = nodeDraft?.id ?? "";
 
-  const selectedMap = useMemo(
-    () => maps.find((map) => map.id === selectedMapId) ?? null,
-    [maps, selectedMapId]
+  const selectedMap = useMemo(() => maps.find((map) => map.id === selectedMapId) ?? null, [maps, selectedMapId]);
+
+  const regions = useMemo<MapRegion[]>(() => selectedMap?.regions ?? [], [selectedMap]);
+
+  // Opciones de UI para el selector de mapas.
+  const mapOptions = useMemo<Option<ID>[]>(() =>
+    maps.map((map) => ({ id: map.id, label: map.name?.trim() || map.id })), [maps]
   );
 
-  const regions = useMemo<MapRegion[]>(
-    () => selectedMap?.regions ?? [],
-    [selectedMap]
+  // Opciones de UI para el selector de regiones.
+  const regionOptions = useMemo<Option<ID>[]>(() =>
+    regions.map((region) => ({ id: region.id, label: region.label?.trim() || "(Sin etiqueta)" })), [regions]
   );
 
-  const selectedRegion = useMemo(
-    () => regions.find((region) => region.id === selectedRegionId) ?? null,
-    [regions, selectedRegionId]
+  /* Cambia el mapa asociado a la escena */
+  const handleMapChange = useCallback(
+    (nextMapId: string) => {
+      if (!nextMapId) {
+        setNodeMapLocation(undefined);
+        return;
+      }
+
+      const map = maps.find((m) => m.id === nextMapId) ?? null;
+      const firstRegion = map?.regions?.[0] ?? null;
+
+      if (!map || !firstRegion) {
+        setNodeMapLocation(undefined);
+        return;
+      }
+
+      const nextLoc: NodeMapLocation = {
+        mapId: map.id,
+        regionId: firstRegion.id,
+        isEntry: false,
+      };
+
+      setNodeMapLocation(nextLoc);
+    }, [maps, setNodeMapLocation]
   );
 
-  const currentEntrySceneId = selectedRegion?.entrySceneId ?? "";
-  const currentEntryScene =
-    currentEntrySceneId
-      ? nodes.find((node) => node.id === currentEntrySceneId) ?? null
-      : null;
+  /* Cambia la región dentro del mapa actualmente seleccionado */
+  const handleRegionChange = useCallback(
+    (nextRegionId: string) => {
+      if (!selectedMapId || !nextRegionId) {
+        setNodeMapLocation(undefined);
+        return;
+      }
 
-  const currentEntrySceneTitle =
-    currentEntryScene?.title?.trim() || currentEntrySceneId || "";
+      const nextLoc: NodeMapLocation = {
+        mapId: selectedMapId,
+        regionId: nextRegionId,
+        isEntry: false,
+      };
 
-  const regionSceneIds = selectedRegion?.sceneIds ?? [];
-  const regionHasAnyAssignedScene = regionSceneIds.length > 0;
-  const regionHasAssignedEntry = Boolean(currentEntrySceneId);
+      setNodeMapLocation(nextLoc);
+    }, [selectedMapId, setNodeMapLocation]
+  );
 
-  const handleMapChange = (nextMapId: string) => {
-    if (!nextMapId) {
-      setNodeMapLocation(undefined);
-      return;
-    }
+  /* Marca o desmarca la escena como entrada de la región actual */
+  const handleEntryChange = useCallback(
+    (checked: boolean) => {
+      if (!selectedMapId || !selectedRegionId) return;
 
-    const map = maps.find((m) => m.id === nextMapId) ?? null;
-    const firstRegion = map?.regions?.[0] ?? null;
+      const nextLoc: NodeMapLocation = {
+        mapId: selectedMapId,
+        regionId: selectedRegionId,
+        isEntry: checked,
+      };
 
-    if (!map || !firstRegion) {
-      setNodeMapLocation(undefined);
-      return;
-    }
-
-    const nextLoc: NodeMapLocation = {
-      mapId: map.id,
-      regionId: firstRegion.id,
-      isEntry: false,
-    };
-
-    setNodeMapLocation(nextLoc);
-  };
-
-  const handleRegionChange = (nextRegionId: string) => {
-    if (!selectedMapId || !nextRegionId) {
-      setNodeMapLocation(undefined);
-      return;
-    }
-
-    const nextLoc: NodeMapLocation = {
-      mapId: selectedMapId,
-      regionId: nextRegionId,
-      isEntry: false,
-    };
-
-    setNodeMapLocation(nextLoc);
-  };
-
-  const handleEntryChange = (checked: boolean) => {
-    if (!selectedMapId || !selectedRegionId) return;
-
-    const nextLoc: NodeMapLocation = {
-      mapId: selectedMapId,
-      regionId: selectedRegionId,
-      isEntry: checked,
-    };
-
-    setNodeMapLocation(nextLoc);
-  };
+      setNodeMapLocation(nextLoc);
+    }, [selectedMapId, selectedRegionId, setNodeMapLocation]
+  );
 
   return (
     <ToggleFieldBlock label={label} active={active} onToggle={onToggle}>
       <div className="space-y-3">
+        {/* Selector de mapa */}
         <div className="bg-slate-950/30 px-2 py-2">
-          <div className="text-xs text-slate-300 text-center mb-2">
+          <div className="mb-2 text-center text-[13px] text-slate-200">
             Mapa asociado
           </div>
 
-          <select
+          <Select<ID>
             value={selectedMapId}
-            onChange={(e) => handleMapChange(e.target.value)}
-            className="w-full rounded-md bg-slate-900 border-2 border-slate-700 px-2 py-2 text-xs text-slate-100 focus:outline-none focus:border-transparent focus:ring-2 focus:ring-amber-500"
-          >
-            <option value="">— Sin mapa —</option>
-            {maps.map((map) => (
-              <option key={map.id} value={map.id}>
-                {map.name}
-              </option>
-            ))}
-          </select>
+            onChange={(value) => handleMapChange(String(value ?? ""))}
+            options={mapOptions}
+            placeholder="— Sin mapa —"
+            className="w-full"
+            menuClassName="border-slate-700"
+          />
 
           {!maps.length ? (
-            <div className="mt-2 text-[11px] text-slate-400 text-center">
+            <div className="mt-2 text-center text-[11px] text-slate-400">
               No hay mapas creados en el proyecto.
             </div>
           ) : null}
         </div>
 
+        {/* Selector de región */}
         <div className="bg-slate-950/30 px-2 py-2">
-          <div className="text-xs text-slate-300 text-center mb-2">
+          <div className="mb-2 text-center text-[13px] text-slate-200">
             Región asociada
           </div>
 
-          <select
+          <Select<ID>
             value={selectedRegionId}
-            onChange={(e) => handleRegionChange(e.target.value)}
+            onChange={(value) => handleRegionChange(String(value ?? ""))}
+            options={regionOptions}
+            placeholder="— Sin región —"
             disabled={!selectedMapId || !regions.length}
-            className="w-full rounded-md bg-slate-900 border-2 border-slate-700 px-2 py-2 text-xs text-slate-100 focus:outline-none focus:border-transparent focus:ring-2 focus:ring-amber-500 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            <option value="">— Sin región —</option>
-            {regions.map((region) => (
-              <option key={region.id} value={region.id}>
-                {region.label?.trim() || "(Sin etiqueta)"}
-              </option>
-            ))}
-          </select>
+            className="w-full"
+            menuClassName="border-slate-700"
+          />
 
           {selectedMapId && !regions.length ? (
-            <div className="mt-2 text-[11px] text-slate-400 text-center">
+            <div className="mt-2 text-center text-[11px] text-slate-400">
               Este mapa no tiene regiones.
             </div>
           ) : null}
         </div>
 
-        <div className="bg-slate-950/30 px-2 py-2 space-y-3">
-          <div className="text-xs text-slate-300 text-center">
-            Puerta de entrada
-          </div>
-
-          <label className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 flex items-center justify-between">
-            <span className="text-xs text-slate-200">
+        {/* Checkbox de escena de entrada */}
+        <div className="bg-slate-950/30 px-2 py-2">
+          <label className="flex items-center justify-between rounded-md border border-slate-700 bg-slate-900 px-3 py-2">
+            <span className="text-xs text-slate-100">
               Esta escena es la entrada de la región
             </span>
-            <input
-              type="checkbox"
+
+            <Checkbox
               checked={isEntry}
               disabled={!selectedMapId || !selectedRegionId}
-              onChange={(e) => handleEntryChange(e.target.checked)}
+              onChange={handleEntryChange}
             />
           </label>
-
-          {selectedRegion ? (
-            <div className="space-y-1">
-              {!regionHasAnyAssignedScene ? (
-                <div className="rounded-md border border-emerald-500/40 bg-emerald-950/20 px-2 py-1 text-[11px] text-emerald-100 text-center">
-                  Si esta es la primera escena asociada a la región, al guardar se convertirá automáticamente en su entrada.
-                </div>
-              ) : null}
-
-              {regionHasAssignedEntry && currentEntrySceneId !== currentNodeId ? (
-                <div className="rounded-md border border-slate-700 bg-slate-900/60 px-2 py-1 text-[11px] text-slate-300 text-center">
-                  Entrada actual: <span className="text-slate-100 font-medium">{currentEntrySceneTitle}</span>
-                </div>
-              ) : null}
-
-              {regionHasAssignedEntry && currentEntrySceneId === currentNodeId ? (
-                <div className="rounded-md border border-emerald-500/40 bg-emerald-950/20 px-2 py-1 text-[11px] text-emerald-100 text-center">
-                  Esta escena ya es la entrada actual de la región.
-                </div>
-              ) : null}
-
-              {!regionHasAssignedEntry && regionHasAnyAssignedScene ? (
-                <div className="rounded-md border border-amber-500/40 bg-amber-950/20 px-2 py-1 text-[11px] text-amber-100 text-center">
-                  Esta región tiene escenas asociadas, pero aún no tiene entrada definida.
-                </div>
-              ) : null}
-            </div>
-          ) : (
-            <div className="text-[11px] text-slate-400 text-center">
-              Selecciona una región para configurar su entrada.
-            </div>
-          )}
         </div>
       </div>
     </ToggleFieldBlock>

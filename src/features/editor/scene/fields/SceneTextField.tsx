@@ -21,40 +21,147 @@ interface SceneTextFieldProps {
 }
 
 function pickBaseEntry(entries: ConditionalTextEntry[]): ConditionalTextEntry | null {
-  return entries.find((e) => !e.when) ?? null;
+  return entries.find((entry) => !entry.when) ?? null;
 }
 
 function pickVariants(entries: ConditionalTextEntry[]): ConditionalTextEntry[] {
-  return entries.filter((e) => !!e.when);
+  return entries.filter((entry) => !!entry.when);
 }
 
 type Mode = "idle" | "editingBase" | "editingVariant";
 
-export function SceneTextField({ label = "Texto", active, onToggle, textareaRef, onPreview, onClearPreview, layerId }: SceneTextFieldProps) {
-  const project = useEditorStore((s) => s.project);
-  const nodeDraft = useEditorStore((s) => s.nodeDraft);
+type TokenTargetKind = "base" | "variant";
 
-  const addLayerTextEntry = useEditorStore((s) => s.addLayerTextEntry);
-  const updateLayerTextEntry = useEditorStore((s) => s.updateLayerTextEntry);
-  const removeLayerTextEntry = useEditorStore((s) => s.removeLayerTextEntry);
-  const reorderLayerTextEntries = useEditorStore((s) => s.reorderLayerTextEntries);
+type TextEditorBlockProps = {
+  value: string;
+  onChange: (next: string) => void;
+  placeholder: string;
+  textareaRef: RefObject<HTMLTextAreaElement | null>;
+  onOpenTokenModal: () => void;
+  insertTokenDisabled: boolean;
+  showLabelInput?: boolean;
+  labelValue?: string;
+  onLabelChange?: (next: string) => void;
+  labelError?: string | null;
+  contentError?: string | null;
+  labelInputRef?: RefObject<HTMLInputElement | null>;
+  extraTopAction?: React.ReactNode;
+  footerLeft?: React.ReactNode;
+  footerRight?: React.ReactNode;
+};
+
+function TextEditorBlock({ value, onChange, placeholder, textareaRef, onOpenTokenModal, insertTokenDisabled, showLabelInput = false, labelValue = "", onLabelChange,
+  labelError, contentError, labelInputRef, extraTopAction, footerLeft, footerRight }: TextEditorBlockProps) {
+  return (
+    <div className="space-y-3 bg-slate-950/40 p-3">
+      {showLabelInput ? (
+        <div className="space-y-1">
+          <div className="text-[13px] text-white">Nombre</div>
+          <input
+            ref={labelInputRef}
+            value={labelValue}
+            onChange={(event) => onLabelChange?.(event.currentTarget.value)}
+            className={"w-full rounded-md border bg-slate-900/30 px-2 py-1.5 pl-3 text-xs text-white focus:outline-none focus:ring-2 " +
+              (labelError
+                ? "border-rose-500 focus:ring-rose-500/50"
+                : "border-slate-600 focus:ring-fuchsia-500")}
+            placeholder='Ej: "Aquella noche estrellada..."'
+          />
+          {labelError ? <p className="form-field-error">{labelError}</p> : null}
+        </div>
+      ) : null}
+
+      <div className="space-y-1">
+        {showLabelInput ? <div className="text-[13px] text-white">Texto</div> : null}
+
+        <textarea
+          ref={textareaRef}
+          value={value}
+          onChange={(event) => onChange(event.currentTarget.value)}
+          className={"editor-scroll w-full h-48 resize-none overflow-auto rounded-md bg-slate-900/30 py-1.5 pr-6 text-xs text-white " +
+            "focus:outline-none focus:border-transparent focus:ring-2 " +
+            (contentError
+              ? "border-2 border-rose-500 focus:ring-rose-500/50"
+              : "border-2 border-slate-600 focus:ring-fuchsia-500")}
+          placeholder={placeholder}
+        />
+        {contentError ? <p className="form-field-error">{contentError}</p> : null}
+      </div>
+
+      <div className="flex items-center justify-between gap-2 pt-1">
+        <button
+          type="button"
+          onMouseDown={onOpenTokenModal}
+          disabled={insertTokenDisabled}
+          className="btn border-2 border-yellow-700 bg-yellow-950 text-xs text-white hover:bg-yellow-900 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Insertar dato
+        </button>
+
+        {extraTopAction}
+      </div>
+
+      <div className="flex items-center justify-between gap-2 pt-1">
+        <div>{footerLeft}</div>
+        <div className="flex items-center gap-2">{footerRight}</div>
+      </div>
+    </div>
+  );
+}
+
+export function SceneTextField({ label = "Texto", active, onToggle, textareaRef, onPreview, onClearPreview, layerId }: SceneTextFieldProps) {
+  const project = useEditorStore((state) => state.project);
+  const nodeDraft = useEditorStore((state) => state.nodeDraft);
+
+  const addLayerTextEntry = useEditorStore((state) => state.addLayerTextEntry);
+  const updateLayerTextEntry = useEditorStore((state) => state.updateLayerTextEntry);
+  const removeLayerTextEntry = useEditorStore((state) => state.removeLayerTextEntry);
+  const reorderLayerTextEntries = useEditorStore((state) => state.reorderLayerTextEntries);
+  const setActiveTextEntryId = useEditorStore((state) => state.setActiveTextEntryId);
 
   const layers = useMemo<SceneImageLayer[]>(() => nodeDraft?.layers ?? [], [nodeDraft?.layers]);
-  const layer = useMemo(() => layers.find((l) => String(l.id) === String(layerId)) ?? null, [layers, layerId]);
 
+  const layer = useMemo(() => layers.find((currentLayer) => String(currentLayer.id) === String(layerId)) ?? null, [layers, layerId]);
+
+  const liveProject = useMemo(() => {
+    if (!project) return null;
+    if (!nodeDraft) return project;
+
+    const nodes = project.nodes ?? [];
+    const index = nodes.findIndex((node) => String(node.id) === String(nodeDraft.id));
+
+    if (index >= 0) {
+      const nextNodes = [...nodes];
+      nextNodes[index] = nodeDraft;
+
+      return {
+        ...project,
+        nodes: nextNodes,
+      };
+    }
+
+    return {
+      ...project,
+      nodes: [...nodes, nodeDraft],
+    };
+  }, [project, nodeDraft]);
+
+  /* Fuerza que la capa actual sea la activa antes de lanzar cualquier acción de escritura sobre ella */
   const withThisLayerActive = (fn: () => void) => {
-    const st = useEditorStore.getState();
+    const state = useEditorStore.getState();
 
-    if (String(st.activeLayerId ?? "") !== String(layerId)) st.setActiveLayerId(layerId);
+    if (String(state.activeLayerId ?? "") !== String(layerId)) state.setActiveLayerId(layerId);
 
     fn();
   };
 
   const entries = useMemo<ConditionalTextEntry[]>(() => layer?.text ?? [], [layer?.text]);
+
   const baseEntry = useMemo(() => pickBaseEntry(entries), [entries]);
   const variants = useMemo(() => pickVariants(entries), [entries]);
 
   const [mode, setMode] = useState<Mode>("idle");
+
   const [baseDraftContent, setBaseDraftContent] = useState("");
 
   const [editingVariantId, setEditingVariantId] = useState<ID | null>(null);
@@ -73,7 +180,7 @@ export function SceneTextField({ label = "Texto", active, onToggle, textareaRef,
   const labelInputRef = useRef<HTMLInputElement | null>(null);
 
   const tokenTargetRef = useRef<HTMLTextAreaElement | null>(null);
-  const tokenTargetKindRef = useRef<"base" | "variant">("base");
+  const tokenTargetKindRef = useRef<TokenTargetKind>("base");
   const lastSelRef = useRef<{ start: number; end: number; scrollTop?: number } | null>(null);
 
   const resetVariantDraftErrors = () => {
@@ -81,69 +188,92 @@ export function SceneTextField({ label = "Texto", active, onToggle, textareaRef,
     setDraftContentError(null);
   };
 
-  const snapshotSelection = (el: HTMLTextAreaElement | null, fallbackText: string) => {
-    if (!el) {
+  /* Resetea por completo el draft de variante */
+  const resetVariantDraftToIdle = () => {
+    setMode("idle");
+    setEditingVariantId(null);
+    setVariantDraftLabel("");
+    setVariantDraftContent("");
+    setVariantDraftWhen(ConditionBuilder.and());
+    resetVariantDraftErrors();
+  };
+
+  /* Guarda la selección del textarea para restaurarla tras cerrar el modal de tokens */
+  const snapshotSelection = (element: HTMLTextAreaElement | null, fallbackText: string) => {
+    if (!element) {
       lastSelRef.current = { start: fallbackText.length, end: fallbackText.length };
       return;
     }
 
     lastSelRef.current = {
-      start: el.selectionStart ?? fallbackText.length,
-      end: el.selectionEnd ?? fallbackText.length,
-      scrollTop: el.scrollTop,
+      start: element.selectionStart ?? fallbackText.length,
+      end: element.selectionEnd ?? fallbackText.length,
+      scrollTop: element.scrollTop,
     };
   };
 
+  /* Inserta el token en el textarea activo en la posición del cursor */
   const insertTokenAtCursor = (token: string) => {
-    const el = tokenTargetRef.current;
-    const kind = tokenTargetKindRef.current;
-    const currentText = kind === "variant" ? variantDraftContent : baseDraftContent;
+    const element = tokenTargetRef.current;
+    const targetKind = tokenTargetKindRef.current;
+    const currentText = targetKind === "variant" ? variantDraftContent : baseDraftContent;
 
-    const start = el?.selectionStart ?? currentText.length;
-    const end = el?.selectionEnd ?? currentText.length;
-    const next = currentText.slice(0, start) + token + currentText.slice(end);
+    const start = element?.selectionStart ?? currentText.length;
+    const end = element?.selectionEnd ?? currentText.length;
+    const nextText = currentText.slice(0, start) + token + currentText.slice(end);
 
-    if (kind === "variant") {
-      setVariantDraftContent(next);
-      onPreview?.({ text: next });
+    if (targetKind === "variant") {
+      setVariantDraftContent(nextText);
+      onPreview?.({ text: nextText });
     } else {
-      setBaseDraftContent(next);
-      onPreview?.({ text: next });
+      setBaseDraftContent(nextText);
+      onPreview?.({ text: nextText });
     }
 
     requestAnimationFrame(() => {
-      if (!el) return;
+      if (!element) return;
 
-      el.focus();
       const caret = start + token.length;
-      el.setSelectionRange(caret, caret);
-      lastSelRef.current = { start: caret, end: caret, scrollTop: el.scrollTop };
+      element.focus();
+      element.setSelectionRange(caret, caret);
+
+      lastSelRef.current = { start: caret, end: caret, scrollTop: element.scrollTop };
     });
   };
 
+  /* Cierra el modal de tokens y restaura foco/selección */
   const handleCloseTokenModal = () => {
     setOpenTokenModal(false);
 
     requestAnimationFrame(() => {
-      const el = tokenTargetRef.current;
-      if (!el) return;
+      const element = tokenTargetRef.current;
+      if (!element) return;
 
-      el.focus();
+      element.focus();
 
-      const saved = lastSelRef.current;
-      if (!saved) return;
+      const savedSelection = lastSelRef.current;
+      if (!savedSelection) return;
 
-      el.setSelectionRange(saved.start, saved.end);
+      element.setSelectionRange(savedSelection.start, savedSelection.end);
 
-      if (typeof saved.scrollTop === "number") el.scrollTop = saved.scrollTop;
+      if (typeof savedSelection.scrollTop === "number") element.scrollTop = savedSelection.scrollTop;
     });
   };
 
+  /* Prepara la apertura del modal de tokens para base o variante */
+  const openTokenModalFor = (targetKind: TokenTargetKind, element: HTMLTextAreaElement | null, fallbackText: string) => {
+    tokenTargetRef.current = element;
+    tokenTargetKindRef.current = targetKind;
+    snapshotSelection(element, fallbackText);
+    setOpenTokenModal(true);
+  };
+
+  /* Al cambiar de capa o de entrada base, resincroniza el draft base */
   useEffect(() => {
     setBaseDraftContent(baseEntry?.content ?? "");
     setMode("idle");
     onClearPreview();
-  }, [layerId, baseEntry?.id]);
+  }, [layerId, baseEntry?.id, baseEntry?.content, onClearPreview]);
 
   useEffect(() => {
     if (!active) return;
@@ -152,40 +282,42 @@ export function SceneTextField({ label = "Texto", active, onToggle, textareaRef,
     requestAnimationFrame(() => textareaRef.current?.focus());
   }, [active, mode, textareaRef]);
 
-
+  /* Lista de elementos que se muestran en SceneVariantList */
   const listItems = useMemo(() => {
-    const out: Array<{ id: ID; label?: string | null }> = [];
+    const items: Array<{ id: ID; label?: string | null }> = [];
 
-    if (baseEntry) out.push({ id: baseEntry.id, label: baseEntry.label ?? "Base" });
+    if (baseEntry) items.push({ id: baseEntry.id, label: baseEntry.label ?? "Base" });
 
-    for (const v of variants) out.push({ id: v.id, label: v.label });
+    for (const variant of variants) {
+      items.push({ id: variant.id, label: variant.label });
+    }
 
-    return out;
+    return items;
   }, [baseEntry, variants]);
 
-  const baseEntryId = (baseEntry?.id ?? "");
+  const baseEntryId = baseEntry?.id ?? "";
   const isBaseItemId = (id: ID) => Boolean(baseEntryId && String(id) === String(baseEntryId));
 
-  const openEditBaseFromList = () => {
-    setMode("editingBase");
-    requestAnimationFrame(() => textareaRef.current?.focus());
-  };
+const openEditBaseFromList = () => {
+  if (baseEntry) {
+    withThisLayerActive(() => {
+      setActiveTextEntryId(baseEntry.id);
+    });
+  }
+
+  setMode("editingBase");
+
+  requestAnimationFrame(() => textareaRef.current?.focus());
+};
 
   const saveBase = () => {
     if (!layer) return;
 
     withThisLayerActive(() => {
       if (baseEntry) {
-        updateLayerTextEntry(baseEntry.id, {
-          content: baseDraftContent,
-          label: baseEntry.label ?? "Base",
-        });
+        updateLayerTextEntry(baseEntry.id, { content: baseDraftContent, label: baseEntry.label ?? "Base" });
       } else {
-        addLayerTextEntry({
-          label: "Base",
-          when: undefined,
-          content: baseDraftContent,
-        });
+        addLayerTextEntry({ label: "Base", when: undefined, content: baseDraftContent });
       }
     });
 
@@ -217,38 +349,30 @@ export function SceneTextField({ label = "Texto", active, onToggle, textareaRef,
   const openEditVariant = (id: ID) => {
     if (!layer) return;
 
-    const v = entries.find((e) => String(e.id) === String(id)) ?? null;
-    if (!v) return;
+    const variant = entries.find((entry) => String(entry.id) === String(id)) ?? null;
+    if (!variant) return;
+
+    withThisLayerActive(() => {setActiveTextEntryId(id)});
 
     setMode("editingVariant");
     setEditingVariantId(id);
-    setVariantDraftLabel(v.label ?? "");
-    setVariantDraftContent(v.content ?? "");
-    setVariantDraftWhen((v.when) ?? ConditionBuilder.and());
+    setVariantDraftLabel(variant.label ?? "");
+    setVariantDraftContent(variant.content ?? "");
+    setVariantDraftWhen(variant.when ?? ConditionBuilder.and());
     resetVariantDraftErrors();
 
-    onPreview?.({ text: v.content ?? "" });
+    onPreview?.({ text: variant.content ?? "" });
 
     requestAnimationFrame(() => {
       labelInputRef.current?.focus();
 
-      const el = variantTextareaRef.current;
-      if (!el) return;
+      const element = variantTextareaRef.current;
+      if (!element) return;
 
-      const end = el.value.length;
-      el.setSelectionRange(end, end);
-      el.scrollTop = el.scrollHeight;
+      const end = element.value.length;
+      element.setSelectionRange(end, end);
+      element.scrollTop = element.scrollHeight;
     });
-  };
-
-
-  const resetVariantDraftToIdle = () => {
-    setMode("idle");
-    setEditingVariantId(null);
-    setVariantDraftLabel("");
-    setVariantDraftContent("");
-    setVariantDraftWhen(ConditionBuilder.and());
-    resetVariantDraftErrors();
   };
 
   const cancelVariantEdit = () => {
@@ -260,59 +384,50 @@ export function SceneTextField({ label = "Texto", active, onToggle, textareaRef,
   const saveVariant = () => {
     if (!layer) return;
 
-    const labelTrim = variantDraftLabel.trim();
-    const contentTrim = variantDraftContent.trim();
+    const labelTrimmed = variantDraftLabel.trim();
+    const contentTrimmed = variantDraftContent.trim();
 
-    let ok = true;
+    let isValid = true;
     resetVariantDraftErrors();
 
-    if (!labelTrim) {
+    if (!labelTrimmed) {
       setDraftLabelError("El label es obligatorio.");
-      ok = false;
+      isValid = false;
     } else {
-      const key = labelTrim.toLowerCase();
+      const normalizedLabel = labelTrimmed.toLowerCase();
 
-      const dup = variants.some((x) =>
-          String(x.id) !== String(editingVariantId) &&
-          (x.label ?? "").trim().toLowerCase() === key
+      const hasDuplicate = variants.some((variant) =>
+        String(variant.id) !== String(editingVariantId) &&
+        (variant.label ?? "").trim().toLowerCase() === normalizedLabel,
       );
 
-      if (dup) {
+      if (hasDuplicate) {
         setDraftLabelError("Ya existe una variante con este label en esta capa.");
-        ok = false;
+        isValid = false;
       }
     }
 
-    if (!contentTrim) {
+    if (!contentTrimmed) {
       setDraftContentError("El texto no puede estar vacío.");
-      ok = false;
+      isValid = false;
     }
 
-    if(isEmptyCondition(variantDraftWhen)) {
-      toast.error("Falta condición", "La variante debe tener al menos una condición");
-      ok = false;
+    if (isEmptyCondition(variantDraftWhen)) {
+      toast.error("Falta condición", "La variante debe tener al menos una condición.");
+      isValid = false;
     }
 
-    if (!ok) {
-      toast.error("Errores en el formulario", "Revisa los campos marcados.");
+    if (!isValid) {
       return;
     }
 
     withThisLayerActive(() => {
       if (editingVariantId) {
-        updateLayerTextEntry(editingVariantId, {
-          label: labelTrim,
-          content: variantDraftContent,
-          when: variantDraftWhen,
-        });
+        updateLayerTextEntry(editingVariantId, { label: labelTrimmed, content: variantDraftContent, when: variantDraftWhen });
 
         toast.success("Variante actualizada", "Los cambios se han guardado.");
       } else {
-        addLayerTextEntry({
-          label: labelTrim,
-          when: variantDraftWhen,
-          content: variantDraftContent,
-        });
+        addLayerTextEntry({ label: labelTrimmed, when: variantDraftWhen, content: variantDraftContent });
 
         toast.success("Variante guardada", "La variante se ha creado.");
       }
@@ -325,28 +440,25 @@ export function SceneTextField({ label = "Texto", active, onToggle, textareaRef,
   const deleteVariant = () => {
     if (!editingVariantId) return;
 
-    withThisLayerActive(() => {
-      removeLayerTextEntry(editingVariantId);
-    });
+    withThisLayerActive(() => { removeLayerTextEntry(editingVariantId) });
 
     toast.success("Variante eliminada", "Se ha eliminado del proyecto.");
     resetVariantDraftToIdle();
     onClearPreview();
   };
 
+  /* Reordena variantes manteniendo la base fija en la posición 0 */
   const handleReorderVariants = (from: number, to: number) => {
     if (!baseEntry) return;
     if (from === 0 || to === 0) return;
 
-    const fromV = from - 1;
-    const toV = to - 1;
+    const fromVariantIndex = from - 1;
+    const toVariantIndex = to - 1;
 
-    if (fromV < 0 || toV < 0) return;
-    if (fromV >= variants.length || toV >= variants.length) return;
+    if (fromVariantIndex < 0 || toVariantIndex < 0) return;
+    if (fromVariantIndex >= variants.length || toVariantIndex >= variants.length) return;
 
-    withThisLayerActive(() => {
-      reorderLayerTextEntries(from, to);
-    });
+    withThisLayerActive(() => { reorderLayerTextEntries(from, to) });
 
     toast.success("Orden actualizado", "Se ha actualizado la prioridad de las variantes.");
   };
@@ -360,213 +472,135 @@ export function SceneTextField({ label = "Texto", active, onToggle, textareaRef,
     <>
       <ToggleFieldBlock label={label} active={active} onToggle={onToggle}>
         <div className="space-y-3">
-          {/* Estado inicial */}
+          {/* Estado inicial: aún no existe texto base */}
           {showBasePanelInitial ? (
-            <div className="bg-slate-950/40 p-3 space-y-3">
-              <div className="space-y-1">
-                <textarea
-                  ref={textareaRef}
-                  value={baseDraftContent}
-                  onChange={(e) => {
-                    const next = e.currentTarget.value;
-                    setBaseDraftContent(next);
-                    onPreview?.({ text: next });
-                  }}
-                  className="editor-scroll w-full h-48 rounded-md bg-slate-900/30 border-2 border-slate-600 py-1.5 pr-6 text-xs text-white resize-none overflow-auto
-                    focus:outline-none focus:border-transparent focus:ring-2 focus:ring-fuchsia-500"
-                  placeholder="Escribe aquí el texto de la escena…"
-                />
-              </div>
+            <TextEditorBlock
+              value={baseDraftContent}
+              onChange={(next) => {
+                setBaseDraftContent(next);
+                onPreview?.({ text: next });
+              }}
+              placeholder="Escribe aquí el texto de la escena…"
+              textareaRef={textareaRef}
+              onOpenTokenModal={() => { openTokenModalFor("base", textareaRef.current, baseDraftContent) }}
+              insertTokenDisabled={!project}
+              footerRight={
+                <>
+                  <button type="button" onClick={cancelBase} className="btn btn-cancel text-[12px]">
+                    Cancelar
+                  </button>
+                  <button type="button" onClick={saveBase} className="btn btn-json text-[12px]">
+                    Guardar
+                  </button>
+                </>
+              }
+            />
+          ) : null}
 
-              <div className="flex items-center justify-between gap-2 pt-1">
-                <button
-                  type="button"
-                  onMouseDown={() => {
-                    tokenTargetRef.current = textareaRef.current;
-                    tokenTargetKindRef.current = "base";
-                    snapshotSelection(textareaRef.current, baseDraftContent);
-                    setOpenTokenModal(true);
-                  }}
-                  disabled={!project}
-                  className="btn border-2 border-slate-700 bg-slate-800 hover:bg-slate-700 text-xs text-white disabled:opacity-40 disabled:cursor-not-allowed"
-                  title={!project ? "Carga un proyecto para insertar datos" : "Insertar dato dinámico"}
-                >
-                  Insertar dato
-                </button>
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-1">
-                <button type="button" onClick={cancelBase} className="btn btn-cancel text-[11px]">
-                  Cancelar
-                </button>
-                <button type="button" onClick={saveBase} className="btn btn-json text-[11px]">
-                  Guardar
-                </button>
-              </div>
-
-              <div className="pt-2 flex items-center justify-center">
-                <button
-                  type="button"
-                  onClick={openCreateVariant}
-                  className="btn border-2 border-cyan-700 bg-cyan-900/60 hover:bg-cyan-800 text-xs text-white"
-                >
-                  + Añadir variante
-                </button>
-              </div>
+          {/* Botón extra en estado inicial */}
+          {showBasePanelInitial ? (
+            <div className="flex items-center justify-center pt-2">
+              <button
+                type="button"
+                onClick={openCreateVariant}
+                className="btn border-2 border-cyan-700 bg-cyan-900/60 text-[13px] text-white hover:bg-cyan-800"
+              >
+                + Añadir variante
+              </button>
             </div>
           ) : null}
 
-          {/* Editor del texto base */}
+          {/* Editor explícito del texto base */}
           {showBaseEditor ? (
-            <div className="bg-slate-950/40 p-3 space-y-3">
-              <div className="space-y-1">
-                <textarea
-                  ref={textareaRef}
-                  value={baseDraftContent}
-                  onChange={(e) => {
-                    const next = e.currentTarget.value;
-                    setBaseDraftContent(next);
-                    onPreview?.({ text: next });
-                  }}
-                  className="editor-scroll w-full h-48 rounded-md bg-slate-900/30 border-2 border-slate-600 py-1.5 pr-6 text-xs text-white resize-none overflow-auto
-                    focus:outline-none focus:border-transparent focus:ring-2 focus:ring-fuchsia-500"
-                  placeholder="Escribe aquí el texto base…"
-                />
-              </div>
-
-              <div className="flex items-center justify-between gap-2 pt-1">
-                <button
-                  type="button"
-                  onMouseDown={() => {
-                    tokenTargetRef.current = textareaRef.current;
-                    tokenTargetKindRef.current = "base";
-                    snapshotSelection(textareaRef.current, baseDraftContent);
-                    setOpenTokenModal(true);
-                  }}
-                  disabled={!project}
-                  className="btn border-2 border-slate-700 bg-slate-800 hover:bg-slate-700 text-xs text-white disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  Insertar dato
-                </button>
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-1">
-                <button type="button" onClick={cancelBase} className="btn btn-cancel text-[11px]">
-                  Cancelar
-                </button>
-                <button type="button" onClick={saveBase} className="btn btn-json text-[11px]">
-                  Guardar
-                </button>
-              </div>
-            </div>
+            <TextEditorBlock
+              value={baseDraftContent}
+              onChange={(next) => {
+                setBaseDraftContent(next);
+                onPreview?.({ text: next });
+              }}
+              placeholder="Escribe aquí el texto base…"
+              textareaRef={textareaRef}
+              onOpenTokenModal={() => { openTokenModalFor("base", textareaRef.current, baseDraftContent) }}
+              insertTokenDisabled={!project}
+              footerRight={
+                <>
+                  <button type="button" onClick={cancelBase} className="btn btn-cancel text-[12px]">
+                    Cancelar
+                  </button>
+                  <button type="button" onClick={saveBase} className="btn btn-json text-[12px]">
+                    Guardar
+                  </button>
+                </>
+              }
+            />
           ) : null}
 
           {/* Editor de variante */}
           {showVariantEditor ? (
-            <div className="bg-slate-950/40 p-3 space-y-3">
-              <div className="space-y-1">
-                <div className="text-[12px] text-white">Etiqueta</div>
-                <input
-                  ref={labelInputRef}
-                  value={variantDraftLabel}
-                  onChange={(e) => {
-                    setVariantDraftLabel(e.currentTarget.value);
-                    if (draftLabelError) setDraftLabelError(null);
-                  }}
-                  className={"w-full rounded-md bg-slate-900/30 border px-2 py-1.5 pl-3 text-xs text-white focus:outline-none focus:ring-2 " +
-                    (draftLabelError
-                      ? "border-rose-500 focus:ring-rose-500/50"
-                      : "border-slate-700 focus:ring-fuchsia-500")}
-                  placeholder='Ej: "Aquella noche estrellalda..."'
-                />
-                {draftLabelError ? <p className="form-field-error">{draftLabelError}</p> : null}
-              </div>
-
-              <div className="space-y-1">
-                <div className="text-[12px] text-white">Texto</div>
-                <textarea
-                  ref={variantTextareaRef}
-                  value={variantDraftContent}
-                  onChange={(e) => {
-                    const next = e.currentTarget.value;
-                    setVariantDraftContent(next);
-                    if (draftContentError) setDraftContentError(null);
-                    onPreview?.({ text: next });
-                  }}
-                  className={"editor-scroll w-full h-48 rounded-md bg-slate-900/30 border-2 py-1.5 pr-6 text-xs text-white resize-none overflow-auto " +
-                    "focus:outline-none focus:border-transparent focus:ring-2 " +
-                    (draftContentError
-                      ? "border-rose-500 focus:ring-rose-500/50"
-                      : "border-slate-600 focus:ring-fuchsia-500")}
-                  placeholder="Escribe aquí el texto de la variante…"
-                />
-                {draftContentError ? <p className="form-field-error">{draftContentError}</p> : null}
-              </div>
-
-              <div className="flex items-center justify-between gap-2 pt-1">
-                <button
-                  type="button"
-                  onMouseDown={() => {
-                    tokenTargetRef.current = variantTextareaRef.current;
-                    tokenTargetKindRef.current = "variant";
-                    snapshotSelection(variantTextareaRef.current, variantDraftContent);
-                    setOpenTokenModal(true);
-                  }}
-                  disabled={!project}
-                  className="btn border-2 border-slate-700 bg-slate-800 hover:bg-slate-700 text-xs text-white disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  Insertar dato
-                </button>
-
+            <TextEditorBlock
+              value={variantDraftContent}
+              onChange={(next) => {
+                setVariantDraftContent(next);
+                if (draftContentError) setDraftContentError(null);
+                onPreview?.({ text: next });
+              }}
+              placeholder="Escribe aquí el texto de la variante…"
+              textareaRef={variantTextareaRef}
+              onOpenTokenModal={() => { openTokenModalFor("variant", variantTextareaRef.current, variantDraftContent) }}
+              insertTokenDisabled={!project}
+              showLabelInput
+              labelValue={variantDraftLabel}
+              onLabelChange={(next) => {
+                setVariantDraftLabel(next);
+                if (draftLabelError) setDraftLabelError(null);
+              }}
+              labelError={draftLabelError}
+              contentError={draftContentError}
+              labelInputRef={labelInputRef}
+              extraTopAction={
                 <button
                   type="button"
                   onClick={() => setOpenCondModal(true)}
-                  className="btn border-2 border-cyan-700 bg-cyan-900/60 hover:bg-cyan-800 text-xs text-white"
+                  className="btn border-2 border-cyan-700 bg-cyan-900/60 text-xs text-white hover:bg-cyan-800"
                 >
                   Añadir condición
                 </button>
-              </div>
-
-              <div className="flex items-center justify-between gap-2 pt-1">
-                <div>
-                  {editingVariantId ? (
-                    <button
-                      type="button"
-                      onClick={() => setOpenDeleteModal(true)}
-                      className="px-2 py-1 rounded-md border border-rose-700 bg-rose-950/20 text-rose-200 hover:bg-rose-900/30 text-[11px]"
-                    >
-                      Eliminar
-                    </button>
-                  ) : null}
-                </div>
-
-                <div className="flex items-center gap-2">
+              }
+              footerLeft={
+                editingVariantId ? (
+                  <button
+                    type="button"
+                    onClick={() => setOpenDeleteModal(true)}
+                    className="rounded-md border border-rose-700 bg-rose-950/50 px-2 py-1 text-[12px] text-white hover:bg-rose-950"
+                  >
+                    Eliminar
+                  </button>
+                ) : null
+              }
+              footerRight={
+                <>
                   <button
                     type="button"
                     onClick={cancelVariantEdit}
-                    className="btn btn-cancel text-[11px]"
+                    className="btn btn-cancel text-[12px]"
                   >
                     Cancelar
                   </button>
-                  <button
-                    type="button"
-                    onClick={saveVariant}
-                    className="btn btn-json text-[11px]"
-                  >
+                  <button type="button" onClick={saveVariant} className="btn btn-json text-[12px]">
                     {editingVariantId ? "Guardar cambios" : "Guardar variante"}
                   </button>
-                </div>
-              </div>
-            </div>
+                </>
+              }
+            />
           ) : null}
 
           {/* Crear variante cuando ya existe base */}
           {mode === "idle" && baseEntry ? (
-            <div className="pt-1 flex items-center justify-center">
+            <div className="flex items-center justify-center pt-1">
               <button
                 type="button"
                 onClick={openCreateVariant}
-                className="btn border-2 border-cyan-700 bg-cyan-900/60 hover:bg-cyan-800 text-xs text-white"
+                className="btn border-2 border-cyan-700 bg-cyan-900/60 text-[13px] text-white hover:bg-cyan-800"
               >
                 + Añadir variante
               </button>
@@ -580,8 +614,13 @@ export function SceneTextField({ label = "Texto", active, onToggle, textareaRef,
             hidden={!showList}
             isItemDraggable={(id) => !isBaseItemId(id)}
             onSelectVariant={(id) => {
-              const entry = entries.find((e) => String(e.id) === String(id)) ?? null;
+              const entry = entries.find((currentEntry) => String(currentEntry.id) === String(id)) ?? null;
               if (!entry) return;
+
+              withThisLayerActive(() => {
+                setActiveTextEntryId(id);
+              });
+
               onPreview?.({ text: entry.content ?? "" });
             }}
             onEditVariant={(id) => {
@@ -589,6 +628,7 @@ export function SceneTextField({ label = "Texto", active, onToggle, textareaRef,
                 openEditBaseFromList();
                 return;
               }
+
               openEditVariant(id);
             }}
             onReorder={handleReorderVariants}
@@ -600,7 +640,7 @@ export function SceneTextField({ label = "Texto", active, onToggle, textareaRef,
       {/* Modal para insertar tokens dinámicos */}
       <InsertTextTokenModal
         open={openTokenModal}
-        project={project}
+        project={liveProject}
         onClose={handleCloseTokenModal}
         onInsert={insertTokenAtCursor}
       />
@@ -608,11 +648,11 @@ export function SceneTextField({ label = "Texto", active, onToggle, textareaRef,
       {/* Modal para editar la condición de la variante */}
       <ConditionBuilderModal
         open={openCondModal}
-        project={project}
+        project={liveProject}
         value={variantDraftWhen}
         onClose={() => setOpenCondModal(false)}
-        onSave={(next) => {
-          setVariantDraftWhen(next);
+        onSave={(nextCondition) => {
+          setVariantDraftWhen(nextCondition);
           setOpenCondModal(false);
           toast.success("Condición guardada", "La condición se ha aplicado a la variante.");
         }}

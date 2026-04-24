@@ -17,6 +17,7 @@ import { MapOverlay } from "@/features/player/components/MapOVerlay";
 import { useUiMessageStore } from "@/engine/messages/uiMessageStore";
 import { iconForInteractionKind, type InteractionKind } from "@/features/player/components/interactionCursors";
 import { applyInventoryItemUseItem } from "@/engine/apply/applyInventoryItem";
+import { applyPlacedNpcUseItem } from "@/engine/apply/applyPlacedNpc";
 import { DialogueChoicesPanel } from "@/features/player/components/DialogueChoicesPanel";
 import { usePlayerKeyboard } from "@/features/player/hooks/usePlayerKeyboard";
 import { isEmptyCondition } from "@/features/editor/core/editorGenericSlice";
@@ -189,7 +190,8 @@ export function PlayerShell() {
   const prevNodeIdRef = useRef<ID | null>(null);
 
   const [displayedNodeId, setDisplayedNodeId] = useState<ID | null>(currentNodeId ?? null);
-const fadeTimeoutRef = useRef<number | null>(null);
+  const [displayedGameState, setDisplayedGameState] = useState<GameState | null>(gameState ?? null);
+  const fadeTimeoutRef = useRef<number | null>(null);
 
   const [textCursor, setTextCursor] = useState<{ visible: boolean; x: number; y: number }>({ visible: false, x: 0, y: 0 });
   const [playerCursor, setPlayerCursor] = useState<{ visible: boolean; kind: InteractionKind; x: number; y: number }>({ visible: false, kind: "idle", x: 0, y: 0 });
@@ -202,43 +204,55 @@ const fadeTimeoutRef = useRef<number | null>(null);
 
   const loadInputRef = useRef<HTMLInputElement | null>(null);
 
-useEffect(() => {
-  if (!currentNodeId) return;
+  useEffect(() => {
+    if (!currentNodeId) return;
 
-  if (displayedNodeId == null) {
+    if (displayedNodeId == null) {
+      if (fadeTimeoutRef.current) {
+        window.clearTimeout(fadeTimeoutRef.current);
+        fadeTimeoutRef.current = null;
+      }
+
+      setIsFading(false);
+      setDisplayedNodeId(currentNodeId);
+      prevNodeIdRef.current = currentNodeId;
+      return;
+    }
+
+    if (prevNodeIdRef.current === currentNodeId) {
+      setIsFading(false);
+      return;
+    }
+
     if (fadeTimeoutRef.current) {
       window.clearTimeout(fadeTimeoutRef.current);
       fadeTimeoutRef.current = null;
     }
 
+    setIsFading(true);
+
+    fadeTimeoutRef.current = window.setTimeout(() => {
+  setDisplayedNodeId(currentNodeId);
+  setDisplayedGameState(gameState ?? null);
+
+  window.setTimeout(() => {
     setIsFading(false);
-    setDisplayedNodeId(currentNodeId);
-    prevNodeIdRef.current = currentNodeId;
-    return;
-  }
-
-  if (prevNodeIdRef.current === currentNodeId) {
-    setIsFading(false);
-    return;
-  }
-
-  if (fadeTimeoutRef.current) {
-    window.clearTimeout(fadeTimeoutRef.current);
-    fadeTimeoutRef.current = null;
-  }
-
-  setIsFading(true);
-
-  fadeTimeoutRef.current = window.setTimeout(() => {
-    setDisplayedNodeId(currentNodeId);
-
-    window.setTimeout(() => {
-      setIsFading(false);
-    }, 120);
   }, 120);
+}, 120);
 
-  prevNodeIdRef.current = currentNodeId;
-}, [currentNodeId, displayedNodeId]);
+    prevNodeIdRef.current = currentNodeId;
+  }, [currentNodeId, displayedNodeId]);
+
+  useEffect(() => {
+  if (!gameState) {
+    setDisplayedGameState(null);
+    return;
+  }
+
+  if (displayedNodeId === gameState.currentNodeId) {
+    setDisplayedGameState(gameState);
+  }
+}, [gameState, displayedNodeId]);
 
 useEffect(() => {
   if (!gameState?.currentNodeId) return;
@@ -250,17 +264,18 @@ useEffect(() => {
 
   setIsFading(false);
   setDisplayedNodeId(gameState.currentNodeId);
+  setDisplayedGameState(gameState);
   prevNodeIdRef.current = gameState.currentNodeId;
 }, [gameState?.project?.id]);
 
-useEffect(() => {
-  return () => {
-    if (fadeTimeoutRef.current) {
-      window.clearTimeout(fadeTimeoutRef.current);
-      fadeTimeoutRef.current = null;
-    }
-  };
-}, []);
+  useEffect(() => {
+    return () => {
+      if (fadeTimeoutRef.current) {
+        window.clearTimeout(fadeTimeoutRef.current);
+        fadeTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   const handleLoadSaveFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -408,17 +423,17 @@ useEffect(() => {
     },
   });
 
-const currentNode = useMemo(() => {
-  if (!project || !displayedNodeId) return null;
+  const currentNode = useMemo(() => {
+    if (!project || !displayedNodeId) return null;
 
-  return pickNodeById(project, displayedNodeId);
-}, [project, displayedNodeId]);
+    return pickNodeById(project, displayedNodeId);
+  }, [project, displayedNodeId]);
 
-const runtimeNode = useMemo(() => {
-  if (!project || !gameState?.currentNodeId) return null;
+  const runtimeNode = useMemo(() => {
+    if (!project || !gameState?.currentNodeId) return null;
 
-  return pickNodeById(project, gameState.currentNodeId);
-}, [project, gameState?.currentNodeId]);
+    return pickNodeById(project, gameState.currentNodeId);
+  }, [project, gameState?.currentNodeId]);
 
   const currentIndex = useMemo(() => {
     if (!project || !gameState) return 0;
@@ -438,36 +453,36 @@ const runtimeNode = useMemo(() => {
     return findCurrentDialogueNode(gameState);
   }, [gameState]);
 
-const dialogueOptions = useMemo(() => {
-  if (!gameState || !activeDialogue || !currentDialogueNode) return [];
-  if (gameState.activeDialogue?.phase !== "choosing") return [];
+  const dialogueOptions = useMemo(() => {
+    if (!gameState || !activeDialogue || !currentDialogueNode) return [];
+    if (gameState.activeDialogue?.phase !== "choosing") return [];
 
-  return currentDialogueNode.childrenIds
-    .map((childId) => activeDialogue.nodes.find((n) => n.id === childId))
-    .filter((node): node is NonNullable<typeof node> => !!node)
-    .filter((node) => node.type === "line")
-    .filter((node) => node.speaker === "player")
-    .filter((node) => !node.when || evaluateCondition(gameState, node.when));
-}, [gameState, activeDialogue, currentDialogueNode]);
+    return currentDialogueNode.childrenIds
+      .map((childId) => activeDialogue.nodes.find((n) => n.id === childId))
+      .filter((node): node is NonNullable<typeof node> => !!node)
+      .filter((node) => node.type === "line")
+      .filter((node) => node.speaker === "player")
+      .filter((node) => !node.when || evaluateCondition(gameState, node.when));
+  }, [gameState, activeDialogue, currentDialogueNode]);
 
   const isDialogueOpen = !!gameState?.activeDialogue && !!activeDialogue && !!currentDialogueNode;
 
   const isMapOpen = Boolean(gameState?.map.isOpen);
 
-const activeDialogueLine =
-  currentDialogueNode &&
-  currentDialogueNode.type === "line" &&
-  gameState?.activeDialogue?.phase === "speaking"
-    ? currentDialogueNode
-    : null;
+  const activeDialogueLine =
+    currentDialogueNode &&
+      currentDialogueNode.type === "line" &&
+      gameState?.activeDialogue?.phase === "speaking"
+      ? currentDialogueNode
+      : null;
 
-const dialogueBubbleText = activeDialogueLine?.text ?? "";
-const dialogueBubbleSpeaker = activeDialogueLine?.speaker ?? null;
+  const dialogueBubbleText = activeDialogueLine?.text ?? "";
+  const dialogueBubbleSpeaker = activeDialogueLine?.speaker ?? null;
 
-const shouldShowDialogueChoices = useMemo(() => {
-  if (!isDialogueOpen || !currentDialogueNode || !gameState?.activeDialogue) return false;
-  return gameState.activeDialogue.phase === "choosing" && dialogueOptions.length > 0;
-}, [isDialogueOpen, currentDialogueNode, gameState?.activeDialogue, dialogueOptions.length]);
+  const shouldShowDialogueChoices = useMemo(() => {
+    if (!isDialogueOpen || !currentDialogueNode || !gameState?.activeDialogue) return false;
+    return gameState.activeDialogue.phase === "choosing" && dialogueOptions.length > 0;
+  }, [isDialogueOpen, currentDialogueNode, gameState?.activeDialogue, dialogueOptions.length]);
 
   const isFinal = currentNode?.isFinal === true;
 
@@ -603,6 +618,33 @@ const shouldShowDialogueChoices = useMemo(() => {
     }
   }, [gameState, interactionMode, pushUiMessage, audioAdapter]);
 
+  const useSelectedItemOnPlacedNpc = useCallback((placedNpc: PlacedNpc) => {
+    if (interactionMode.type !== "useItem") return;
+    if (!gameState) return;
+
+    try {
+      const nextState = applyPlacedNpcUseItem(
+        gameState,
+        placedNpc,
+        interactionMode.item.instanceId,
+        {
+          audio: audioAdapter,
+          emitMessage: (text) =>
+            useUiMessageStore.getState().push({
+              text,
+              preferredChannel: "bubble",
+            }),
+        }
+      );
+
+      useGameStore.setState({ gameState: withPreparedRuntimeAndMusic(nextState) });
+      setInteractionMode({ type: "default" });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "No se ha podido usar el objeto.";
+      pushUiMessage({ text: msg, preferredChannel: "bubble" });
+    }
+  }, [gameState, interactionMode, pushUiMessage, audioAdapter]);
+
   const useInventoryItemOnInventoryItem = useCallback((sourceItem: InventoryItemView, targetItem: InventoryItemView) => {
     if (!gameState) return;
 
@@ -639,25 +681,25 @@ const shouldShowDialogueChoices = useMemo(() => {
     setPlayerCursor((prev) => ({ ...prev, visible: true, kind: "dialogue" }));
   }, [isDialogueOpen]);
 
-useEffect(() => {
-  if (!isDialogueOpen || !currentDialogueNode || !gameState?.activeDialogue) return;
-  if (gameState.activeDialogue.phase !== "speaking") return;
-  if (dialogueOptions.length > 0) return;
+  useEffect(() => {
+    if (!isDialogueOpen || !currentDialogueNode || !gameState?.activeDialogue) return;
+    if (gameState.activeDialogue.phase !== "speaking") return;
+    if (dialogueOptions.length > 0) return;
 
-  const delay = currentDialogueNode.type === "root" ? 0 : DIALOGUE_AUTO_ADVANCE_MS;
+    const delay = currentDialogueNode.type === "root" ? 0 : DIALOGUE_AUTO_ADVANCE_MS;
 
-  const timer = window.setTimeout(() => {
-    useGameStore.getState().advanceDialogue();
-  }, delay);
+    const timer = window.setTimeout(() => {
+      useGameStore.getState().advanceDialogue();
+    }, delay);
 
-  return () => window.clearTimeout(timer);
-}, [
-  isDialogueOpen,
-  currentDialogueNode?.id,
-  currentDialogueNode?.type,
-  gameState?.activeDialogue?.phase,
-  dialogueOptions.length,
-]);
+    return () => window.clearTimeout(timer);
+  }, [
+    isDialogueOpen,
+    currentDialogueNode?.id,
+    currentDialogueNode?.type,
+    gameState?.activeDialogue?.phase,
+    dialogueOptions.length,
+  ]);
 
   const handlePrev = useCallback(() => {
     if (!canGoPrev || isMapOpen) return;
@@ -670,16 +712,16 @@ useEffect(() => {
   }, [canGoNext, currentIndex, goToIndex]);
 
   const activeLayer = useMemo(() => {
-    if (!currentNode || !gameState) return null;
+    if (!currentNode || !displayedGameState) return null;
 
-    return pickActiveLayer(currentNode, gameState);
-  }, [currentNode, gameState]);
+    return pickActiveLayer(currentNode, displayedGameState);
+  }, [currentNode, displayedGameState]);
 
   const activeText = useMemo(() => {
-    if (!gameState) return { text: "", dock: "bottom" as TextDock };
+    if (!displayedGameState) return { text: "", dock: "bottom" as TextDock };
 
-    return pickActiveText(activeLayer, gameState);
-  }, [activeLayer, gameState]);
+    return pickActiveText(activeLayer, displayedGameState);
+  }, [activeLayer, displayedGameState]);
 
   const activeImageSrc = useMemo(() => {
     if (!activeLayer || !project) return undefined;
@@ -687,10 +729,10 @@ useEffect(() => {
     return resolveAssetIdToSrc(activeLayer.assetId, assetIdToFile, assetUrls);
   }, [activeLayer, project, assetIdToFile, assetUrls]);
 
-const activeMusicTrackId = useMemo(() => {
-  if (!runtimeNode || !gameState) return undefined;
-  return pickActiveMusicTrackId(runtimeNode, gameState);
-}, [runtimeNode, gameState]);
+  const activeMusicTrackId = useMemo(() => {
+    if (!runtimeNode || !gameState) return undefined;
+    return pickActiveMusicTrackId(runtimeNode, gameState);
+  }, [runtimeNode, gameState]);
 
   const activeMusicSrc = useMemo(() => {
     if (!activeMusicTrackId) return undefined;
@@ -772,11 +814,11 @@ const activeMusicTrackId = useMemo(() => {
   const isTextFirst =
     hasText && (activeText.dock === "top" || activeText.dock === "left");
 
-const nodeRt = useMemo(() => {
-  if (!gameState || !currentNode?.id) return null;
+  const nodeRt = useMemo(() => {
+    if (!displayedGameState  || !currentNode?.id) return null;
 
-  return gameState.nodes?.[currentNode.id] ?? null;
-}, [gameState?.nodes, currentNode?.id]);
+    return displayedGameState .nodes?.[currentNode.id] ?? null;
+  }, [displayedGameState ?.nodes, currentNode?.id]);
 
   const hotspotsForStage = useMemo(() => {
     const hs = activeLayer?.hotspots ?? [];
@@ -1030,6 +1072,9 @@ const nodeRt = useMemo(() => {
                   onPlacedItemUseItem={(placedItem) => {
                     useSelectedItemOnPlacedItem(placedItem);
                   }}
+                  onPlacedNpcUseItem={(placedNpc) => {
+                    useSelectedItemOnPlacedNpc(placedNpc);
+                  }}
                   onSceneBackgroundClick={() => {
                     if (isMapOpen) return;
 
@@ -1047,7 +1092,7 @@ const nodeRt = useMemo(() => {
                     applyPlacedItemInteraction(placedItem);
                   }}
                   onPlacedNpcClick={(placedNpc: PlacedNpc) => {
-                    if (interactionMode.type == "useItem" || isMapOpen) return;
+                    if (interactionMode.type === "useItem" || isMapOpen) return;
                     applyPlacedNpcInteraction(placedNpc);
                   }}
                   onNotReachable={(_, text) => {

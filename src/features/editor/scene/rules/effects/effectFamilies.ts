@@ -1,20 +1,8 @@
 import type { FactoryCtx } from "@/features/editor/scene/rules/effects/effectShared";
-import {
-  getEnabledEffectTypesByFamily,
-  getEffectTypesByFamily,
-} from "@/features/editor/scene/rules/effects/effectFactory";
+import { getEnabledEffectTypesByFamily, getEffectTypesByFamily } from "@/features/editor/scene/rules/effects/effectFactory";
 import type { EnabledEffectType } from "@/features/editor/scene/rules/effects/effectFactory";
 
-export type EffectFamilyId =
-  | "message"
-  | "progress"
-  | "item"
-  | "hotspot"
-  | "npc"
-  | "player"
-  | "audio"
-  | "dialogue"
-  | "ending";
+export type EffectFamilyId = "message" | "progress" | "item" | "hotspot" | "npc" | "player" | "audio" | "dialogue" | "ending";
 
 export type EffectFamilySpec = {
   id: EffectFamilyId;
@@ -23,7 +11,9 @@ export type EffectFamilySpec = {
   effectTypes: EnabledEffectType[];
 };
 
-export const EFFECT_FAMILIES: Omit<EffectFamilySpec, "effectTypes">[] = [
+type EffectFamilyDefinition = Omit<EffectFamilySpec, "effectTypes">;
+
+export const EFFECT_FAMILIES: EffectFamilyDefinition[] = [
   {
     id: "message",
     label: "Mensaje",
@@ -44,8 +34,7 @@ export const EFFECT_FAMILIES: Omit<EffectFamilySpec, "effectTypes">[] = [
   {
     id: "hotspot",
     label: "Hotspot",
-    isAvailable: (factory) =>
-      factory.idx.getNodeHotspots(factory.ctx.nodeId).length > 0,
+    isAvailable: (factory) => factory.idx.getNodeHotspots(factory.ctx.nodeId).length > 0,
   },
   {
     id: "npc",
@@ -83,12 +72,26 @@ export const EFFECT_FAMILIES: Omit<EffectFamilySpec, "effectTypes">[] = [
   },
 ];
 
+/* Construye una familia completa resolviendo sus effectTypes desde effectFactory */
+function buildEffectFamily(factory: FactoryCtx, family: EffectFamilyDefinition): EffectFamilySpec {
+  return {
+    ...family,
+    effectTypes: getEnabledEffectTypesByFamily(factory, family.id),
+  };
+}
+
+/* Variante sin contexto de availability, útil para consultas simples por id cuando solo interesa el catálogo completo de tipos */
+function buildStaticEffectFamily(family: EffectFamilyDefinition): EffectFamilySpec {
+  return {
+    ...family,
+    effectTypes: getEffectTypesByFamily(family.id),
+  };
+}
+
+/* API */
 export function getAvailableEffectFamilies(factory: FactoryCtx): EffectFamilySpec[] {
   return EFFECT_FAMILIES
-    .map((family) => ({
-      ...family,
-      effectTypes: getEnabledEffectTypesByFamily(factory, family.id),
-    }))
+    .map((family) => buildEffectFamily(factory, family))
     .filter((family) => family.isAvailable(factory) && family.effectTypes.length > 0);
 }
 
@@ -96,8 +99,5 @@ export function getEffectFamilyById(id: EffectFamilyId): EffectFamilySpec | null
   const family = EFFECT_FAMILIES.find((item) => item.id === id);
   if (!family) return null;
 
-  return {
-    ...family,
-    effectTypes: getEffectTypesByFamily(id),
-  };
+  return buildStaticEffectFamily(family);
 }

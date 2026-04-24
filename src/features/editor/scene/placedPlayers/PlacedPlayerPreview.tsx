@@ -1,5 +1,4 @@
-import type { CSSProperties } from "react";
-import { useMemo } from "react";
+import { useMemo, type CSSProperties } from "react";
 import type { ID, PlacedPlayer, Project } from "@/domain/types";
 import { useResolvedAssetUrl } from "@/features/editor/hooks/useResolvedAssetUrl";
 import { rectStyleFromShape } from "@/features/editor/hooks/regionShape";
@@ -12,45 +11,56 @@ type PlacedPlayerPreviewProps = {
   draftPlayer?: PlacedPlayer | null;
 };
 
-function PlacedPlayerPreviewCard({ player, assetId, contentRectInContainer }: {
+type PlacedPlayerPreviewCardProps = {
   player: PlacedPlayer;
   assetId: ID | null;
   contentRectInContainer: Rect | null;
-}) {
+};
+
+function pxToNumber(value: CSSProperties["width"] | CSSProperties["height"]): number {
+  if (typeof value === "number") return value;
+  if (typeof value === "string") return Number(value.replace("px", "")) || 0;
+  return 0;
+}
+
+function canRenderFallbackLabel(width: number, height: number): boolean {
+  return width >= 50 && height >= 20;
+}
+
+function PlacedPlayerPreviewCard({ player, assetId, contentRectInContainer }: PlacedPlayerPreviewCardProps) {
   const imageUrl = useResolvedAssetUrl(assetId);
-  const st = rectStyleFromShape(player.shape ?? null, contentRectInContainer);
+  const style = rectStyleFromShape(player.shape ?? null, contentRectInContainer);
 
   const sizeInfo = useMemo(() => {
-    if (!st) return { w: 0, h: 0 };
-    const width = Number(String((st as CSSProperties).width ?? "0").replace("px", "")) || 0;
-    const height = Number(String((st as CSSProperties).height ?? "0").replace("px", "")) || 0;
-    return { w: width, h: height };
-  }, [st]);
+    if (!style) return { width: 0, height: 0 };
 
-  if (!st) return null;
+    return { width: pxToNumber(style.width), height: pxToNumber(style.height) };
+  }, [style]);
 
-  const canShowFallbackLabel = sizeInfo.w >= 50 && sizeInfo.h >= 20;
+  if (!style) return null;
+
+  const showFallbackLabel = !imageUrl && canRenderFallbackLabel(sizeInfo.width, sizeInfo.height);
 
   return (
     <div
-      style={st}
-      className="absolute rounded-sm overflow-hidden border-2 border-sky-400/60 bg-sky-500/10"
+      style={style}
+      className="absolute overflow-hidden rounded-sm border-2 border-emerald-400/60 bg-emerald-500/10"
       title="Player"
     >
       {imageUrl ? (
         <img
           src={imageUrl}
           alt="Player"
-          className="absolute inset-0 w-full h-full object-fill select-none pointer-events-none"
+          className="absolute inset-0 h-full w-full select-none object-fill pointer-events-none"
           draggable={false}
         />
       ) : null}
 
-      <div className="absolute inset-0 bg-sky-500/10 pointer-events-none" />
+      <div className="absolute inset-0 bg-emerald-500/10 pointer-events-none" />
 
-      {!imageUrl && canShowFallbackLabel ? (
+      {showFallbackLabel ? (
         <div className="absolute inset-x-1 bottom-1 flex justify-center pointer-events-none">
-          <div className="px-2 py-0.5 rounded-md border border-sky-600 bg-slate-950/60 text-slate-100 text-[11px] leading-none truncate max-w-[90%] text-center">
+          <div className="max-w-[90%] truncate rounded-md border border-emerald-600 bg-slate-950/60 px-2 py-0.5 text-center text-[11px] leading-none text-slate-100">
             Player
           </div>
         </div>
@@ -70,13 +80,13 @@ export function PlacedPlayerPreview({ placedPlayers, project, contentRectInConta
     }
 
     return map;
-  }, [project]);
+  }, [project?.assets]);
 
-  const basePlayers = draftPlayer
-    ? placedPlayers.filter((player) => player.playerId !== draftPlayer.playerId)
-    : placedPlayers;
+  const playersToRender = useMemo(() => {
+    const basePlayers = draftPlayer ? placedPlayers.filter((player) => player.playerId !== draftPlayer.playerId) : placedPlayers;
 
-  const playersToRender = draftPlayer ? [...basePlayers, draftPlayer] : basePlayers;
+    return draftPlayer ? [...basePlayers, draftPlayer] : basePlayers;
+  }, [placedPlayers, draftPlayer]);
 
   if (!playersToRender.length) return null;
 

@@ -2,10 +2,10 @@ import { useMemo, useState } from "react";
 import type { ID, Dialogue, PlayerDef, NpcDef } from "@/domain/types";
 import { useEditorStore } from "@/store/editorStore";
 import { ToggleFieldBlock } from "@/features/editor/scene/SceneFieldBlocks";
-import { toast } from "@/shared/toast/toastStore";
-import { ConfirmDangerModal } from "@/features/editor/modals/ConfirmDangerModal";
-import { DialogueListPanel, type DialogueListEntry } from "@/features/editor/scene/dialogues/DialogueListPanel";
+import { InteractiveListPanel, type InteractiveListEntry } from "@/features/editor/scene/interactiveComponents/InteractiveListPanel";
 import { DialogueEditorModal } from "@/features/editor/scene/dialogues/DialogueEditorModal";
+import { ConfirmDangerModal } from "@/features/editor/modals/ConfirmDangerModal";
+import { toast } from "@/shared/toast/toastStore";
 
 type SceneDialogueFieldProps = {
   label?: string;
@@ -13,23 +13,35 @@ type SceneDialogueFieldProps = {
   onToggle: () => void;
 };
 
-export function SceneDialogueField({
-  label = "Diálogos",
-  active,
-  onToggle,
-}: SceneDialogueFieldProps) {
-  const project = useEditorStore((s) => s.project ?? null);
-  const nodeDraft = useEditorStore((s) => s.nodeDraft);
+/* Obtiene un nombre legible de player/NPC o cae al id */
+function getEntityName<T extends PlayerDef | NpcDef>(entities: T[], id: ID): string {
+  return entities.find((entity) => entity.id === id)?.name?.trim() || id;
+}
 
-  const dialogueEditor = useEditorStore((s) => s.dialogueEditor);
-  const clearDialogueEditor = useEditorStore((s) => s.clearDialogueEditor);
+/* Convierte los diálogos de la escena a entradas del panel de lista */
+function buildDialogueListEntries(dialogues: Dialogue[], players: PlayerDef[], npcs: NpcDef[]): InteractiveListEntry[] {
+  return dialogues.map((dialogue, index) => {
+    const playerName = getEntityName(players, dialogue.playerId);
+    const npcName = getEntityName(npcs, dialogue.npcId);
+    const baseLabel = dialogue.title?.trim() || `Diálogo ${index + 1}`;
 
-  const startCreatingDialogue = useEditorStore((s) => s.startCreatingDialogue);
-  const editDialogue = useEditorStore((s) => s.editDialogue);
-  const cancelDialogueDraft = useEditorStore((s) => s.cancelDialogueDraft);
-  const commitDialogueDraft = useEditorStore((s) => s.commitDialogueDraft);
-  const removeDialogue = useEditorStore((s) => s.removeDialogue);
-  const setNodeDialogues = useEditorStore((s) => s.setNodeDialogues);
+    return { id: dialogue.id, label: `${baseLabel} : ${playerName} - ${npcName}` };
+  });
+}
+
+export function SceneDialogueField({ label = "Diálogos", active, onToggle }: SceneDialogueFieldProps) {
+  const project = useEditorStore((state) => state.project ?? null);
+  const nodeDraft = useEditorStore((state) => state.nodeDraft);
+
+  const dialogueEditor = useEditorStore((state) => state.dialogueEditor);
+  const clearDialogueEditor = useEditorStore((state) => state.clearDialogueEditor);
+
+  const startCreatingDialogue = useEditorStore((state) => state.startCreatingDialogue);
+  const editDialogue = useEditorStore((state) => state.editDialogue);
+  const cancelDialogueDraft = useEditorStore((state) => state.cancelDialogueDraft);
+  const commitDialogueDraft = useEditorStore((state) => state.commitDialogueDraft);
+  const removeDialogue = useEditorStore((state) => state.removeDialogue);
+  const setNodeDialogues = useEditorStore((state) => state.setNodeDialogues);
 
   const [panelError, setPanelError] = useState<string | null>(null);
   const [confirmNukeOpen, setConfirmNukeOpen] = useState(false);
@@ -42,26 +54,11 @@ export function SceneDialogueField({
   const selectedDialogueId = dialogueEditor.selection.selectedDialogueId;
   const editingDialogue = dialogueEditor.dialogueDraft;
 
-  const dialogueListEntries = useMemo<DialogueListEntry[]>(
-    () =>
-      dialogues.map((dialogue, index) => {
-        const playerName =
-          projectPlayers.find((p) => p.id === dialogue.playerId)?.name?.trim() || dialogue.playerId;
-        const npcName =
-          projectNpcs.find((n) => n.id === dialogue.npcId)?.name?.trim() || dialogue.npcId;
-
-        const base = dialogue.title?.trim() || `Diálogo ${index + 1}`;
-
-        return {
-          id: dialogue.id,
-          label: `${base} · ${playerName} / ${npcName}`,
-        };
-      }),
-    [dialogues, projectPlayers, projectNpcs]
-  );
+  const dialogueListEntries = useMemo(() => buildDialogueListEntries(dialogues, projectPlayers, projectNpcs), [dialogues, projectPlayers, projectNpcs]);
 
   const canCreateDialogue = projectPlayers.length > 0 && projectNpcs.length > 0;
 
+  /* Handlers */
   const handleStartCreating = () => {
     if (!nodeDraft) {
       toast.error("No hay escena en edición", "Primero debes editar una escena.");
@@ -80,20 +77,19 @@ export function SceneDialogueField({
 
     setPanelError(null);
 
-    const id = startCreatingDialogue({
+    const dialogueId = startCreatingDialogue({
       playerId: defaultPlayerId,
       npcId: defaultNpcId,
       title: "",
       description: "",
     });
 
-    if (!id) {
+    if (!dialogueId) {
       toast.error("No se ha podido crear", "No se pudo iniciar el diálogo.");
       return;
     }
 
     setModalOpen(true);
-    toast.success("Diálogo creado", "Se ha abierto el editor del diálogo.");
   };
 
   const handleEditDialogue = (dialogueId: ID) => {
@@ -105,11 +101,10 @@ export function SceneDialogueField({
   const handleDeleteDialogue = (dialogueId: ID) => {
     removeDialogue(dialogueId);
     setPanelError(null);
-    toast.success("Diálogo eliminado", "Se ha eliminado correctamente.");
 
-    if (editingDialogue?.id === dialogueId) {
-      setModalOpen(false);
-    }
+    if (editingDialogue?.id === dialogueId) setModalOpen(false);
+
+    toast.success("Diálogo eliminado", "Se ha eliminado correctamente.");
   };
 
   const handleDeleteAll = () => {
@@ -123,6 +118,7 @@ export function SceneDialogueField({
     clearDialogueEditor();
     setModalOpen(false);
     setPanelError(null);
+
     toast.success("Diálogos borrados", "Se han eliminado todos los diálogos de la escena.");
   };
 
@@ -142,10 +138,11 @@ export function SceneDialogueField({
       return;
     }
 
-    toast.success("Diálogo guardado", "Los cambios se han guardado correctamente.");
     clearDialogueEditor();
     cancelDialogueDraft();
     setModalOpen(false);
+
+    toast.success("Diálogo guardado", "Los cambios se han guardado correctamente.");
   };
 
   if (!nodeDraft) {
@@ -186,20 +183,17 @@ export function SceneDialogueField({
 
       <ToggleFieldBlock label={label} active={active} onToggle={onToggle}>
         <div className="space-y-3">
+          {/* Cabecera de acciones */}
           <div className="bg-slate-950/20 px-3 py-3 space-y-3 border-b-2 border-slate-800">
             <div className="flex justify-center">
               <button
                 type="button"
-                className="btn border border-indigo-400 bg-indigo-800 hover:bg-indigo-600 text-slate-100 font-semibold text-[12px] disabled:opacity-40 disabled:cursor-not-allowed"
+                className="btn border border-indigo-600 bg-indigo-900/60 hover:bg-indigo-800 text-white text-[12px] disabled:opacity-40 disabled:cursor-not-allowed"
                 onClick={handleStartCreating}
                 disabled={!canCreateDialogue}
-                title={
-                  !canCreateDialogue
-                    ? "Necesitas al menos 1 player y 1 NPC en el proyecto"
-                    : "Crear diálogo"
-                }
+                title={!canCreateDialogue ? "Necesitas al menos 1 player y 1 NPC en el proyecto" : "Crear diálogo"}
               >
-                Añadir diálogo
+                + Añadir diálogo
               </button>
             </div>
 
@@ -210,9 +204,15 @@ export function SceneDialogueField({
             ) : null}
           </div>
 
-          <DialogueListPanel
-            dialogues={dialogueListEntries}
+          {/* Lista de diálogos */}
+          <InteractiveListPanel
+            items={dialogueListEntries}
             selectedId={selectedDialogueId}
+            emptyText="No hay diálogos en esta escena"
+            itemTitle="Editar diálogo"
+            editTitle="Editar"
+            editAriaLabel="Editar diálogo"
+            deleteAriaLabel="Eliminar diálogo"
             onEdit={handleEditDialogue}
             onDelete={handleDeleteDialogue}
             onDeleteAll={handleDeleteAll}

@@ -4,6 +4,7 @@ import type { Condition } from "@/domain/conditions";
 type OwnerVarRef = Readonly<{ ownerId: ID; varId: ID }>;
 type MapRegionRef = Readonly<{ mapId: ID; regionId: ID }>;
 
+/* Referencias encontradas en una condición */
 export type ConditionRefs = Partial<{
   nodeIds: readonly ID[];
   placedItemIds: readonly ID[];
@@ -16,154 +17,112 @@ export type ConditionRefs = Partial<{
   playerVars: readonly OwnerVarRef[];
 }>;
 
+/* Tipos auxiliares */
 type ConditionLeaf = Exclude<Condition, { type: "and" } | { type: "or" } | { type: "not" }>;
 type ConditionLeafType = ConditionLeaf["type"];
 
-type ExtractorMap = { [T in ConditionLeafType]: (cond: Extract<ConditionLeaf, { type: T }>) => ConditionRefs };
+type ExtractorMap = {
+  [T in ConditionLeafType]: (cond: Extract<ConditionLeaf, { type: T }>) => ConditionRefs
+};
 
+/* Mapa declarativo */
 const EXTRACT_REFS: ExtractorMap = {
-  nodeVisited: (cond) => ({ nodeIds: [cond.nodeId] }),
+  nodeVisited: c => ({ nodeIds: [c.nodeId] }),
+  hasItem: c => ({ placedItemIds: [c.placedItemId] }),
 
-  hasItem: (cond) => ({ placedItemIds: [cond.placedItemId] }),
-
-  playerVar: (cond) => ({
-    playerIds: [cond.playerId],
-    playerVars: [{ ownerId: cond.playerId, varId: cond.varId }],
+  playerVar: c => ({
+    playerIds: [c.playerId],
+    playerVars: [{ ownerId: c.playerId, varId: c.varId }],
   }),
 
-  npcVar: (cond) => ({
-    npcIds: [cond.npcId],
-    npcVars: [{ ownerId: cond.npcId, varId: cond.varId }],
+  npcVar: c => ({
+    npcIds: [c.npcId],
+    npcVars: [{ ownerId: c.npcId, varId: c.varId }],
   }),
 
-  hotspotVar: (cond) => ({
-    hotspotIds: [cond.hotspotId],
-    hotspotVars: [{ ownerId: cond.hotspotId, varId: cond.varId }],
+  hotspotVar: c => ({
+    hotspotIds: [c.hotspotId],
+    hotspotVars: [{ ownerId: c.hotspotId, varId: c.varId }],
   }),
 
-  hotspotVisible: (cond) => ({ hotspotIds: [cond.hotspotId] }),
-  hotspotReachable: (cond) => ({ hotspotIds: [cond.hotspotId] }),
+  hotspotVisible: c => ({ hotspotIds: [c.hotspotId] }),
+  hotspotReachable: c => ({ hotspotIds: [c.hotspotId] }),
 
-  placedItemVisible: (cond) => ({ placedItemIds: [cond.placedItemId] }),
-  placedItemReachable: (cond) => ({ placedItemIds: [cond.placedItemId] }),
+  placedItemVisible: c => ({ placedItemIds: [c.placedItemId] }),
+  placedItemReachable: c => ({ placedItemIds: [c.placedItemId] }),
 
-  placedNpcVisible: (cond) => ({ npcIds: [cond.npcId] }),
-  placedNpcReachable: (cond) => ({ npcIds: [cond.npcId] }),
+  placedNpcVisible: c => ({ npcIds: [c.npcId] }),
+  placedNpcReachable: c => ({ npcIds: [c.npcId] }),
 
-  placedPlayerVisible: (cond) => ({ playerIds: [cond.playerId] }),
+  placedPlayerVisible: c => ({ playerIds: [c.playerId] }),
 
-  mapRegionVisited: (cond) => ({ mapRegions: [{ mapId: cond.mapId, regionId: cond.regionId }] }),
+  mapRegionVisited: c => ({ mapRegions: [{ mapId: c.mapId, regionId: c.regionId }]}),
 };
 
 function mergeRefs(a: ConditionRefs, b: ConditionRefs): ConditionRefs {
+  const merge = <T>(x?: readonly T[], y?: readonly T[]) => x || y ? [...(x ?? []), ...(y ?? [])] : undefined;
+
   return {
-    nodeIds: [...(a.nodeIds ?? []), ...(b.nodeIds ?? [])],
-    placedItemIds: [...(a.placedItemIds ?? []), ...(b.placedItemIds ?? [])],
-    hotspotIds: [...(a.hotspotIds ?? []), ...(b.hotspotIds ?? [])],
-    npcIds: [...(a.npcIds ?? []), ...(b.npcIds ?? [])],
-    playerIds: [...(a.playerIds ?? []), ...(b.playerIds ?? [])],
-    mapRegions: [...(a.mapRegions ?? []), ...(b.mapRegions ?? [])],
-    hotspotVars: [...(a.hotspotVars ?? []), ...(b.hotspotVars ?? [])],
-    npcVars: [...(a.npcVars ?? []), ...(b.npcVars ?? [])],
-    playerVars: [...(a.playerVars ?? []), ...(b.playerVars ?? [])],
+    nodeIds: merge(a.nodeIds, b.nodeIds),
+    placedItemIds: merge(a.placedItemIds, b.placedItemIds),
+    hotspotIds: merge(a.hotspotIds, b.hotspotIds),
+    npcIds: merge(a.npcIds, b.npcIds),
+    playerIds: merge(a.playerIds, b.playerIds),
+    mapRegions: merge(a.mapRegions, b.mapRegions),
+    hotspotVars: merge(a.hotspotVars, b.hotspotVars),
+    npcVars: merge(a.npcVars, b.npcVars),
+    playerVars: merge(a.playerVars, b.playerVars),
   };
+}
+
+/*Recorrido del árbol de condiciones */
+function isLeaf(cond: Condition): cond is ConditionLeaf {
+  return cond.type !== "and" && cond.type !== "or" && cond.type !== "not";
 }
 
 function getConditionRefs(cond: Condition | undefined): ConditionRefs {
   if (!cond) return {};
 
-  switch (cond.type) {
-    case "and":
-      return cond.all.reduce<ConditionRefs>((acc, c) => mergeRefs(acc, getConditionRefs(c)), {});
+if (cond.type === "and") return cond.all.reduce<ConditionRefs>((acc, c) => mergeRefs(acc, getConditionRefs(c)), {});
 
-    case "or":
-      return cond.any.reduce<ConditionRefs>((acc, c) => mergeRefs(acc, getConditionRefs(c)), {});
+if (cond.type === "or") return cond.any.reduce<ConditionRefs>((acc, c) => mergeRefs(acc, getConditionRefs(c)), {});
 
-    case "not":
-      return getConditionRefs(cond.cond);
+  if (cond.type === "not") return getConditionRefs(cond.cond);
 
-    case "nodeVisited":
-      return EXTRACT_REFS.nodeVisited(cond);
+   if (isLeaf(cond)) { const extractor = EXTRACT_REFS[cond.type] as (c: typeof cond) => ConditionRefs;
 
-    case "hasItem":
-      return EXTRACT_REFS.hasItem(cond);
-
-    case "playerVar":
-      return EXTRACT_REFS.playerVar(cond);
-
-    case "npcVar":
-      return EXTRACT_REFS.npcVar(cond);
-
-    case "hotspotVar":
-      return EXTRACT_REFS.hotspotVar(cond);
-
-    case "hotspotVisible":
-      return EXTRACT_REFS.hotspotVisible(cond);
-
-    case "hotspotReachable":
-      return EXTRACT_REFS.hotspotReachable(cond);
-
-    case "placedItemVisible":
-      return EXTRACT_REFS.placedItemVisible(cond);
-
-    case "placedItemReachable":
-      return EXTRACT_REFS.placedItemReachable(cond);
-
-    case "placedNpcVisible":
-      return EXTRACT_REFS.placedNpcVisible(cond);
-
-    case "placedNpcReachable":
-      return EXTRACT_REFS.placedNpcReachable(cond);
-
-    case "placedPlayerVisible":
-      return EXTRACT_REFS.placedPlayerVisible(cond);
-
-    case "mapRegionVisited":
-      return EXTRACT_REFS.mapRegionVisited(cond);
+    return extractor(cond);
   }
+
+  return {};
 }
 
-export function conditionReferencesPlacedItem(cond: Condition | undefined, placedItemId: ID): boolean {
-  const refs = getConditionRefs(cond);
-  return (refs.placedItemIds ?? []).includes(placedItemId);
+
+function includes<T>(arr: readonly T[] | undefined, value: T) {
+  return arr?.includes(value) ?? false;
 }
 
-export function conditionReferencesNode(cond: Condition | undefined, nodeId: ID): boolean {
-  const refs = getConditionRefs(cond);
-  return (refs.nodeIds ?? []).includes(nodeId);
+function some<T>(arr: readonly T[] | undefined, fn: (v: T) => boolean) {
+  return arr?.some(fn) ?? false;
 }
 
-export function conditionReferencesHotspot(cond: Condition | undefined, hotspotId: ID): boolean {
-  const refs = getConditionRefs(cond);
-  return (refs.hotspotIds ?? []).includes(hotspotId);
-}
+/* API pública */
+export const conditionReferences = {
+  placedItem: (cond: Condition | undefined, id: ID) => includes(getConditionRefs(cond).placedItemIds, id),
 
-export function conditionReferencesNpc(cond: Condition | undefined, npcId: ID): boolean {
-  const refs = getConditionRefs(cond);
-  return (refs.npcIds ?? []).includes(npcId);
-}
+  node: (cond: Condition | undefined, id: ID) => includes(getConditionRefs(cond).nodeIds, id),
 
-export function conditionReferencesPlayer(cond: Condition | undefined, playerId: ID): boolean {
-  const refs = getConditionRefs(cond);
-  return (refs.playerIds ?? []).includes(playerId);
-}
+  hotspot: (cond: Condition | undefined, id: ID) => includes(getConditionRefs(cond).hotspotIds, id),
 
-export function conditionReferencesNpcVar(cond: Condition | undefined, input: { npcId: ID; varId: ID }): boolean {
-  const refs = getConditionRefs(cond);
-  return (refs.npcVars ?? []).some((r) => r.ownerId === input.npcId && r.varId === input.varId);
-}
+  npc: (cond: Condition | undefined, id: ID) => includes(getConditionRefs(cond).npcIds, id),
 
-export function conditionReferencesPlayerVar(cond: Condition | undefined, input: { playerId: ID; varId: ID }): boolean {
-  const refs = getConditionRefs(cond);
-  return (refs.playerVars ?? []).some((r) => r.ownerId === input.playerId && r.varId === input.varId);
-}
+  player: (cond: Condition | undefined, id: ID) => includes(getConditionRefs(cond).playerIds, id),
 
-export function conditionReferencesHotspotVar(cond: Condition | undefined, input: { hotspotId: ID; varId: ID }): boolean {
-  const refs = getConditionRefs(cond);
-  return (refs.hotspotVars ?? []).some((r) => r.ownerId === input.hotspotId && r.varId === input.varId);
-}
+  npcVar: (cond: Condition | undefined, input: { npcId: ID; varId: ID }) => some(getConditionRefs(cond).npcVars, r => r.ownerId === input.npcId && r.varId === input.varId),
 
-export function conditionReferencesMapRegion(cond: Condition | undefined, input: { mapId: ID; regionId: ID }): boolean {
-  const refs = getConditionRefs(cond);
-  return (refs.mapRegions ?? []).some((r) => r.mapId === input.mapId && r.regionId === input.regionId);
-}
+  playerVar: (cond: Condition | undefined, input: { playerId: ID; varId: ID }) => some(getConditionRefs(cond).playerVars, r => r.ownerId === input.playerId && r.varId === input.varId),
+
+  hotspotVar: (cond: Condition | undefined, input: { hotspotId: ID; varId: ID }) => some(getConditionRefs(cond).hotspotVars, r => r.ownerId === input.hotspotId && r.varId === input.varId),
+
+  mapRegion: (cond: Condition | undefined, input: { mapId: ID; regionId: ID }) => some(getConditionRefs(cond).mapRegions, r => r.mapId === input.mapId && r.regionId === input.regionId),
+};

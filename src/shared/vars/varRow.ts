@@ -6,8 +6,20 @@ import { parseVarDraftRow, validateVarDraftRows, type VarsErrorBag } from "@/val
 export type VarDraftInput = z.input<typeof VarDraftSchema>;
 
 export type VarRow =
-  | { id: string; name: string; type: "number"; min: number | string; max: number | string; initial: number | string }
-  | { id: string; name: string; type: "boolean"; initial: boolean };
+  | {
+    id: string;
+    name: string;
+    type: "number";
+    min: number | string;
+    max: number | string;
+    initial: number | string;
+  }
+  | {
+    id: string;
+    name: string;
+    type: "boolean";
+    initial: boolean;
+  };
 
 export type VarRowErrors = {
   name?: string;
@@ -17,95 +29,96 @@ export type VarRowErrors = {
   form?: string;
 };
 
-export function varDefToRow(v: VarDef): VarRow {
-  return v.type === "number"
-    ? { id: v.id, name: v.name, type: "number", min: v.min, max: v.max, initial: v.initial }
-    : { id: v.id, name: v.name, type: "boolean", initial: v.initial };
+/* Mensajes de validación de dominio reutilizados */
+const DOMAIN_VALIDATION_MESSAGES = {
+  duplicateVarName: "Nombre de variable duplicado.",
+  minGreaterThanMax: "Min no puede ser mayor que Max ni viceversa.",
+  initialOutOfRange: "Inicial debe estar entre Min y Max.",
+} as const;
+
+/* Convierte un VarDef del dominio a su forma editable en UI */
+export function varDefToRow(variable: VarDef): VarRow {
+  return variable.type === "number"
+    ? {
+      id: variable.id,
+      name: variable.name,
+      type: "number",
+      min: variable.min,
+      max: variable.max,
+      initial: variable.initial
+    }
+    : {
+      id: variable.id,
+      name: variable.name,
+      type: "boolean",
+      initial: variable.initial
+    };
 }
 
-export function getDefaultVarName(rows: VarRow[]) {
+export function getDefaultVarName(rows: VarRow[]): string {
   return `Variable${rows.length + 1}`;
 }
 
-/* Adaptación UI -> Draft (*/
+/* Adaptación UI -> draft validable */
 export function varRowToDraftInput(row: VarRow): VarDraftInput {
   if (row.type === "number") {
-    const draft = { name: row.name, type: "number", min: row.min, max: row.max, initial: row.initial } satisfies VarDraftInput;
-    return draft;
+    return { name: row.name, type: "number", min: row.min, max: row.max, initial: row.initial } satisfies VarDraftInput;
   }
 
-  const draft = { name: row.name, type: "boolean", initial: row.initial } satisfies VarDraftInput;
-  return draft;
+  return { name: row.name, type: "boolean", initial: row.initial } satisfies VarDraftInput;
 }
 
-/* Mapear issues de Zod a errores para UI */
+/* Convierte issues de Zod a errores orientados a la UI */
 function issuesToRowErrors(issues: ZodError["issues"]): VarRowErrors {
   const errors: VarRowErrors = {};
 
   for (const issue of issues) {
     const key = issue.path?.[0];
-    const msg = issue.message;
+    const message = issue.message;
 
-    if (key === "name") errors.name = errors.name ?? msg;
-    else if (key === "min") errors.min = errors.min ?? msg;
-    else if (key === "max") errors.max = errors.max ?? msg;
-    else if (key === "initial") errors.initial = errors.initial ?? msg;
-    else errors.form = errors.form ?? msg;
+    if (key === "name") errors.name = errors.name ?? message;
+    else if (key === "min") errors.min = errors.min ?? message;
+    else if (key === "max") errors.max = errors.max ?? message;
+    else if (key === "initial") errors.initial = errors.initial ?? message;
+    else errors.form = errors.form ?? message;
   }
 
   return errors;
 }
 
-/* Valida y convierte fila UI -> VarDef */
-export function rowToVarDefValidatedDetailed(row: VarRow, allRows: VarRow[]): { ok: true; value: VarDef } | { ok: false; errors: VarRowErrors } {
-  // Estructura (Zod)
-  const draft = varRowToDraftInput(row);
-  const parsed = parseVarDraftRow(draft);
-  if (!parsed.ok) return { ok: false, errors: issuesToRowErrors(parsed.issues) };
-
-  // Reglas “de dominio” (duplicados y rangos) reutilizando validateVarDraftRows
-  const bag: VarsErrorBag = {};
+/* Extrae errores de dominio para una fila concreta */
+function getDomainErrorsForRow(row: VarRow, allRows: VarRow[]): VarRowErrors | null {
+  const errorsBag: VarsErrorBag = {};
   const drafts = allRows.map(varRowToDraftInput);
 
-  validateVarDraftRows({
-    errors: bag, vars: drafts,
-    opts: {
-      messages: {
-        duplicateVarName: "Nombre de variable duplicado.",
-        minGreaterThanMax: "Min no puede ser mayor que Max ni Max menor que Min.",
-        initialOutOfRange: "Inicial debe estar entre Min y Max.",
-      },
-    },
-  });
+  validateVarDraftRows({ errors: errorsBag, vars: drafts, opts: { messages: DOMAIN_VALIDATION_MESSAGES } });
 
-  const idx = allRows.findIndex((r) => r.id === row.id);
-  const e = idx >= 0 ? bag.varByIndex?.[idx] : undefined;
+  const rowIndex = allRows.findIndex((entry) => entry.id === row.id);
+  const entryErrors = rowIndex >= 0 ? errorsBag.varByIndex?.[rowIndex] : undefined;
 
-  if (e?.name || e?.min || e?.max || e?.initial) {
-    const out: VarRowErrors = {};
-    if (e.name) out.name = e.name;
-    if (e.min) out.min = e.min;
-    if (e.max) out.max = e.max;
-    if (e.initial) out.initial = e.initial;
+  if (!entryErrors?.name && !entryErrors?.min && !entryErrors?.max && !entryErrors?.initial) return null;
 
-    return { ok: false, errors: out };
+  return { name: entryErrors.name, min: entryErrors.min, max: entryErrors.max, initial: entryErrors.initial };
+}
+
+/* Convierte el resultado parseado a VarDef del dominio */
+function parsedDraftToVarDef(rowId: string, draft: VarDraftInput): VarDef {
+  if (draft.type === "number") {
+    return { id: rowId, name: draft.name, type: "number", min: Number(draft.min), max: Number(draft.max), initial: Number(draft.initial) };
   }
 
-  const v = parsed.value;
+  return { id: rowId, name: draft.name, type: "boolean", initial: Boolean(draft.initial) };
+}
 
-  if (v.type === "number") {
-    const min = Number(v.min);
-    const max = Number(v.max);
-    const initial = Number(v.initial);
+/* Valida una fila UI y la convierte a VarDef listo para persistir */
+export function rowToVarDefValidatedDetailed(row: VarRow, allRows: VarRow[]): { ok: true; value: VarDef } | { ok: false; errors: VarRowErrors } {
+  const draft = varRowToDraftInput(row);
+  const parsed = parseVarDraftRow(draft);
 
-    return {
-      ok: true,
-      value: { id: row.id, name: v.name, type: "number", min, max, initial }
-    };
-  }
+  if (!parsed.ok) return { ok: false, errors: issuesToRowErrors(parsed.issues) };
 
-  return {
-    ok: true,
-    value: { id: row.id, name: v.name, type: "boolean", initial: Boolean(v.initial) },
-  };
+  const domainErrors = getDomainErrorsForRow(row, allRows);
+  if (domainErrors) return { ok: false, errors: domainErrors };
+
+  return { ok: true, value: parsedDraftToVarDef(row.id, parsed.value) };
 }

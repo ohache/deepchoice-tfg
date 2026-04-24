@@ -24,14 +24,18 @@ interface SceneImageFieldProps {
 
 const IMG_ACCEPT = ".png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp";
 
-function isValidImageFile(file: File) {
+/* Valida extensiones y mime permitidos para imágenes de fondo */
+function isValidImageFile(file: File): boolean {
   const lower = (file.name ?? "").toLowerCase();
+
   const hasValidExt = lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".gif") || lower.endsWith(".webp");
+
   const hasValidMime = file.type === "image/png" || file.type === "image/jpeg" || file.type === "image/gif" || file.type === "image/webp" || file.type === "";
 
   return hasValidExt && hasValidMime;
 }
 
+/* Posiciones disponibles del bloque de texto respecto a la imagen */
 const DOCKS: { id: TextDock; label: string; Icon: React.ComponentType<React.SVGProps<SVGSVGElement>> }[] = [
   { id: "top", label: "Arriba", Icon: ArrowUpIcon },
   { id: "left", label: "Izquierda", Icon: ArrowLeftIcon },
@@ -39,13 +43,11 @@ const DOCKS: { id: TextDock; label: string; Icon: React.ComponentType<React.SVGP
   { id: "bottom", label: "Abajo", Icon: ArrowDownIcon },
 ];
 
-
 export function SceneImageField({ label = "Imagen", value, active, onToggle, fileInputRef: externalFileInputRef, onCommitAssetId, dock, onDockChange,
-  showAddCondition, addConditionLabel = "Añadir condición", addConditionTitle, onAddCondition, addConditionDisabled }: SceneImageFieldProps) {
-  const project = useEditorStore((s) => s.project);
-  const assetFiles = useEditorStore((s) => s.assetFiles);
-  const upsertBackgroundAsset = useEditorStore((s) => s.upsertBackgroundAsset);
-  const registerAssetFile = useEditorStore((s) => s.registerAssetFile);
+  showAddCondition, addConditionLabel, addConditionTitle, onAddCondition, addConditionDisabled }: SceneImageFieldProps) {
+  const project = useEditorStore((state) => state.project);
+  const assetFiles = useEditorStore((state) => state.assetFiles);
+  const upsertBackgroundAsset = useEditorStore((state) => state.upsertBackgroundAsset);
 
   const internalRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = externalFileInputRef ?? internalRef;
@@ -55,13 +57,14 @@ export function SceneImageField({ label = "Imagen", value, active, onToggle, fil
 
   const effectiveAssetId = value ? String(value) : "";
 
+  /* Nombre visible del fichero actualmente asociado al asset */
   const currentFileName = useMemo(() => {
     if (!effectiveAssetId) return "";
 
-    const f = assetFiles?.effectiveAssetId;
-    if (f?.name) return f.name;
+    const file = assetFiles?.[effectiveAssetId];
+    if (file?.name) return file.name;
 
-    const asset = (project?.assets ?? []).find((a) => a.kind === "backgrounds" && a.id === effectiveAssetId) ?? null;
+    const asset = (project?.assets ?? []).find((entry) => entry.kind === "backgrounds" && entry.id === effectiveAssetId) ?? null;
 
     const path = String(asset?.file ?? "").trim();
     if (!path) return "";
@@ -69,84 +72,87 @@ export function SceneImageField({ label = "Imagen", value, active, onToggle, fil
     return path.split("/").pop() ?? path;
   }, [assetFiles, project, effectiveAssetId]);
 
-  const fileLabel = currentFileName ? `Imagen seleccionada: ${currentFileName}`
-    : effectiveAssetId ? "Imagen seleccionada" : "No hay imagen seleccionada";
+  const fileLabel = currentFileName ? `Imagen seleccionada: ${currentFileName}` : effectiveAssetId ? "Imagen seleccionada" : "No hay imagen seleccionada";
 
-  const openPicker = () => fileInputRef.current?.click();
+  const showDock = Boolean(effectiveAssetId);
+  const effectiveDock: TextDock = dock ?? "bottom";
 
+  const openPicker = () => { fileInputRef.current?.click() };
+
+  /* Aplica el fichero al store y mantiene este toggle abierto */
   const applyFile = (file: File) => {
     if (!isValidImageFile(file)) {
-      const msg = "La imagen debe ser .png, .jpg, .jpeg, .gif o .webp.";
-      toast.warning("Formato no válido", msg);
+      toast.warning("Formato no válido", "La imagen debe ser .png, .jpg, .jpeg, .gif o .webp.");
       return;
     }
 
     const assetId: ID = generateId.background();
     upsertBackgroundAsset(assetId, file);
-    registerAssetFile(assetId, file);
-
     onCommitAssetId(assetId);
+
+    if (!active) onToggle();
   };
 
-  const onInputChange = (evt: ChangeEvent<HTMLInputElement>) => {
-    const file = evt.target.files?.[0] ?? null;
+  /* Cambio desde input nativo */
+  const handleInputChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null;
     if (!file) return;
 
     applyFile(file);
-    evt.target.value = "";
+    event.target.value = "";
   };
 
-  const onDragOver = (evt: DragEvent<HTMLDivElement>) => {
-    evt.preventDefault();
-    evt.stopPropagation();
+  /* Drag over */
+  const handleDragOver = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+
     if (!isDragging) setIsDragging(true);
   };
 
-  const onDragLeave = (evt: DragEvent<HTMLDivElement>) => {
-    evt.preventDefault();
-    evt.stopPropagation();
+  /* Drag leave */
+  const handleDragLeave = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
     setIsDragging(false);
   };
 
-  const onDrop = (evt: DragEvent<HTMLDivElement>) => {
-    evt.preventDefault();
-    evt.stopPropagation();
+  /* Drop directo sobre la zona */
+  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
     setIsDragging(false);
 
-    const file = evt.dataTransfer.files?.[0] ?? null;
+    const file = event.dataTransfer.files?.[0] ?? null;
     if (!file) return;
 
     applyFile(file);
   };
-
-  const showDock = Boolean(effectiveAssetId);
-  const effectiveDock: TextDock = dock ?? "bottom";
 
   return (
     <ToggleFieldBlock label={label} active={active} onToggle={onToggle}>
       <div className="pt-2 space-y-2">
+        {/* Selector de dock, disponible solo si la capa ya tiene imagen */}
         {showDock ? (
           <div className="pb-1">
-            <div className="flex flex-wrap items-center justify-center gap-2">
-              {DOCKS.map((d) => {
-                const activeDock = effectiveDock === d.id;
+            <div className="flex flex-wrap items-center justify-center gap-2.5">
+              {DOCKS.map((dockOption) => {
+                const isActiveDock = effectiveDock === dockOption.id;
 
                 return (
                   <button
-                    key={d.id}
+                    key={dockOption.id}
                     type="button"
-                    onClick={() => onDockChange?.(d.id)}
-                    className={
-                      "p-2 rounded-md border transition-colors " +
-                      (activeDock
+                    onClick={() => onDockChange?.(dockOption.id)}
+                    className={"rounded-md border p-2 transition-colors " +
+                      (isActiveDock
                         ? "border-fuchsia-500 bg-fuchsia-950/40 text-white"
-                        : "border-slate-500 bg-slate-950/35 hover:bg-slate-800 text-white")
-                    }
-                    aria-label={`Dock: ${d.label}`}
-                    title={d.label}
-                    aria-pressed={activeDock}
+                        : "border-slate-500 bg-slate-950/35 text-white hover:bg-fuchsia-950 hover:border-fuchsia-600")}
+                    aria-label={`Dock: ${dockOption.label}`}
+                    title={dockOption.label}
+                    aria-pressed={isActiveDock}
                   >
-                    <d.Icon className="w-2 h-2 drop-shadow" aria-hidden="true" />
+                    <dockOption.Icon className="h-2.5 w-2.5 drop-shadow" aria-hidden="true" />
                   </button>
                 );
               })}
@@ -154,19 +160,18 @@ export function SceneImageField({ label = "Imagen", value, active, onToggle, fil
           </div>
         ) : null}
 
-        {/* Dropzone */}
+        {/* Zona de drop / click */}
         <div
-          className={"mt-1.5 px-3 py-3.5 rounded-md flex flex-col items-center justify-center text-[12px] " +
-            "transition-colors duration-150 border-2 border-dashed cursor-pointer " +
+          className={"mt-1.5 flex cursor-pointer flex-col items-center justify-center rounded-md border-2 border-dashed px-3 py-3.5 text-[13px] transition-colors duration-150 " +
             (isDragging
-              ? "border-fuchsia-500 bg-fuchsia-900/50"
-              : "border-fuchsia-700 bg-slate-900/40 " + (isHovering ? "" : "hover:bg-fuchsia-900/50"))}
-          onDragOver={onDragOver}
-          onDragLeave={onDragLeave}
-          onDrop={onDrop}
+              ? "border-fuchsia-500 bg-fuchsia-950/50"
+              : "border-fuchsia-700 bg-slate-900/40 " + (isHovering ? "" : "hover:bg-fuchsia-950/50"))}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
           onClick={openPicker}
         >
-          <p className="mb-2 text-slate-100 text-center">
+          <p className="mb-2 text-center text-slate-100">
             Arrastra aquí una imagen
             <span className="block text-[11px] text-slate-400">(o haz clic para seleccionarla)</span>
           </p>
@@ -174,11 +179,11 @@ export function SceneImageField({ label = "Imagen", value, active, onToggle, fil
           {/* Botón explícito */}
           <button
             type="button"
-            className="px-3 py-1.5 rounded-md border-2 border-slate-700 bg-slate-900 hover:bg-slate-700 text-xs text-slate-100"
+            className="rounded-md border border-fuchsia-700 px-3 py-1.5 text-xs text-slate-100 hover:bg-fuchsia-900"
             onMouseEnter={() => setIsHovering(true)}
             onMouseLeave={() => setIsHovering(false)}
-            onClick={(e) => {
-              e.stopPropagation();
+            onClick={(event) => {
+              event.stopPropagation();
               openPicker();
             }}
           >
@@ -186,20 +191,26 @@ export function SceneImageField({ label = "Imagen", value, active, onToggle, fil
           </button>
         </div>
 
-        {/* Input real */}
-        <input ref={fileInputRef} type="file" accept={IMG_ACCEPT} className="hidden" onChange={onInputChange} />
+        {/* Input real oculto */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept={IMG_ACCEPT}
+          className="hidden"
+          onChange={handleInputChange}
+        />
 
-        {/* Info */}
-        <p className="mt-1 text-[11px] text-slate-400 break-all text-center">{fileLabel}</p>
+        {/* Información del fichero actual */}
+        <p className="break-all text-center text-[12px] text-slate-400">{fileLabel}</p>
 
-        {/* Botón de condición */}
+        {/* Acción para añadir/editar condición de capa */}
         {showAddCondition ? (
-          <div className="pb-1 flex items-center justify-center">
+          <div className="flex items-center justify-center pb-1 pt-1">
             <button
               type="button"
               onClick={() => onAddCondition?.()}
               disabled={Boolean(addConditionDisabled)}
-              className="btn border-2 border-cyan-700 bg-cyan-900/60 hover:bg-cyan-800 text-xs text-white disabled:opacity-40 disabled:cursor-not-allowed"
+              className="btn border-2 border-cyan-700 bg-cyan-900/60 text-xs text-white hover:bg-cyan-800 disabled:cursor-not-allowed disabled:opacity-40"
               title={addConditionTitle}
             >
               {addConditionLabel}

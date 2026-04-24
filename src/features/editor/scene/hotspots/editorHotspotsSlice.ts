@@ -1,60 +1,10 @@
-import type { ID, Hotspot, RegionShape, PlaceableState, InteractionRules } from "@/domain/types";
-import type {
-  HotspotDraft,
-  HotspotEditorContext,
-  HotspotEditorState,
-  HotspotRuleChannel,
-} from "@/features/editor/scene/hotspots/hotspotEditorTypes";
+import type { Hotspot, ID, InteractionRules, PlaceableState, RegionShape } from "@/domain/types";
+import type { HotspotEditorState, HotspotRuleChannel } from "@/features/editor/scene/hotspots/hotspotEditorTypes";
+import {
+  buildContext, buildDraftFromHotspot, buildEmptyHotspotDraft, defaultChannel, initialHotspotEditorState,
+  rectFromGesture, validateHotspotDraftCandidate
+} from "@/features/editor/scene/interactiveComponents/interactiveEditorHelpers";
 import { generateId } from "@/utils/id";
-import { validateHotspot } from "@/features/editor/scene/hotspots/hotspotValidator";
-
-export const initialHotspotEditorState: HotspotEditorState = {
-  context: null,
-  mode: { type: "idle" },
-  selection: { hotspotId: null, selectedChannel: null, selectedRuleId: null },
-  draft: null,
-  drawing: null,
-};
-
-function defaultInitialState(): PlaceableState {
-  return { visible: true, reachable: true };
-}
-
-function rectFromGesture(g: { startX: number; startY: number; currentX: number; currentY: number }): RegionShape {
-  const x = Math.min(g.startX, g.currentX);
-  const y = Math.min(g.startY, g.currentY);
-  const w = Math.abs(g.currentX - g.startX);
-  const h = Math.abs(g.currentY - g.startY);
-  return { type: "rect", x, y, w, h };
-}
-
-function defaultRules(): InteractionRules {
-  return {};
-}
-
-function defaultChannel(): HotspotRuleChannel {
-  return { type: "onClick" };
-}
-
-function buildContext(activeLayerId: ID | null): HotspotEditorContext | null {
-  if (!activeLayerId) return null;
-  return {
-    layerId: activeLayerId,
-  };
-}
-
-function buildCandidateFromDraft(
-  draft: HotspotDraft & { shape: RegionShape }
-): Hotspot {
-  return {
-    id: draft.id,
-    label: (draft.label ?? "").trim(),
-    shape: draft.shape,
-    initialState: draft.initialState,
-    vars: draft.vars ?? [],
-    rules: draft.rules ?? {},
-  };
-}
 
 type Store = {
   activeLayerId: ID | null;
@@ -70,11 +20,7 @@ type Store = {
 
 export interface EditorHotspotsSlice {
   hotspotEditor: HotspotEditorState;
-  setHotspotSelection: (input: {
-    hotspotId: ID | null;
-    selectedChannel?: HotspotRuleChannel | null;
-    selectedRuleId?: ID | null;
-  }) => void;
+  setHotspotSelection: (input: { hotspotId: ID | null; selectedChannel?: HotspotRuleChannel | null; selectedRuleId?: ID | null }) => void;
   clearHotspotEditor: () => void;
   startDrawingHotspot: () => void;
   setHotspotDraftShape: (shape: RegionShape | null) => void;
@@ -94,52 +40,42 @@ export interface EditorHotspotsSlice {
   commitHotspotDraft: () => { ok: boolean; error?: string; hotspotId?: ID };
 }
 
-export function createEditorHotspotsSlice(
-  set: (partial: Partial<Store> | ((s: Store) => Partial<Store> | Store)) => void,
-  get: () => Store,
-): EditorHotspotsSlice {
+export function createEditorHotspotsSlice(set: (partial: Partial<Store> | ((s: Store) => Partial<Store> | Store)) => void,
+  get: () => Store): EditorHotspotsSlice {
   return {
     hotspotEditor: initialHotspotEditorState,
 
     setHotspotSelection: (input) =>
-      set((s) => ({
-        ...s,
+      set((state) => ({
+        ...state,
         hotspotEditor: {
-          ...s.hotspotEditor,
+          ...state.hotspotEditor,
           selection: {
             hotspotId: input.hotspotId,
-            selectedChannel: input.selectedChannel ?? s.hotspotEditor.selection.selectedChannel,
-            selectedRuleId: input.selectedRuleId ?? s.hotspotEditor.selection.selectedRuleId,
+            selectedChannel: input.selectedChannel ?? state.hotspotEditor.selection.selectedChannel,
+            selectedRuleId: input.selectedRuleId ?? state.hotspotEditor.selection.selectedRuleId,
           },
         },
       })),
 
     clearHotspotEditor: () =>
-      set((s) => ({ ...s, hotspotEditor: initialHotspotEditorState })),
+      set((state) => ({
+        ...state,
+        hotspotEditor: initialHotspotEditorState,
+      })),
 
     startDrawingHotspot: () =>
-      set((s) => {
-        if (!s.activeLayerId) return s;
+      set((state) => {
+        if (!state.activeLayerId) return state;
 
-        const draft: HotspotDraft = {
-          id: generateId.hotspot(),
-          label: "",
-          shape: null,
-          initialState: defaultInitialState(),
-          vars: [],
-          rules: defaultRules(),
-        };
+        const draft = buildEmptyHotspotDraft();
 
         return {
-          ...s,
+          ...state,
           hotspotEditor: {
-            context: buildContext(s.activeLayerId),
+            context: buildContext(state.activeLayerId),
             mode: { type: "drawing" },
-            selection: {
-              hotspotId: draft.id,
-              selectedChannel: defaultChannel(),
-              selectedRuleId: null,
-            },
+            selection: { hotspotId: draft.id, selectedChannel: defaultChannel(), selectedRuleId: null },
             draft,
             drawing: null,
           },
@@ -147,85 +83,79 @@ export function createEditorHotspotsSlice(
       }),
 
     setHotspotDraftShape: (shape) =>
-      set((s) => {
-        const draft = s.hotspotEditor.draft;
-        if (!draft) return s;
+      set((state) => {
+        const draft = state.hotspotEditor.draft;
+        if (!draft) return state;
 
         return {
-          ...s,
-          hotspotEditor: {
-            ...s.hotspotEditor,
-            draft: { ...draft, shape },
-          },
+          ...state,
+          hotspotEditor: { ...state.hotspotEditor, draft: { ...draft, shape } },
         };
       }),
 
     clearHotspotDraftShape: () =>
-      set((s) => {
-        const draft = s.hotspotEditor.draft;
-        if (!draft) return s;
+      set((state) => {
+        const draft = state.hotspotEditor.draft;
+        if (!draft) return state;
 
         return {
-          ...s,
-          hotspotEditor: {
-            ...s.hotspotEditor,
-            draft: { ...draft, shape: null },
-          },
+          ...state,
+          hotspotEditor: { ...state.hotspotEditor, draft: { ...draft, shape: null } },
         };
       }),
 
     updateDrawingHotspot: (pt) =>
-      set((s) => {
-        const ed = s.hotspotEditor;
-        if (ed.mode.type !== "drawing" || !ed.draft) return s;
+      set((state) => {
+        const editor = state.hotspotEditor;
+        if (editor.mode.type !== "drawing" || !editor.draft) return state;
 
-        const drawing0 = ed.drawing;
-        const nextDrawing = drawing0
-          ? { ...drawing0, currentX: pt.x, currentY: pt.y }
+        const currentDrawing = editor.drawing;
+        const nextDrawing = currentDrawing
+          ? { ...currentDrawing, currentX: pt.x, currentY: pt.y }
           : { startX: pt.x, startY: pt.y, currentX: pt.x, currentY: pt.y };
 
         const shape = rectFromGesture(nextDrawing);
 
         return {
-          ...s,
+          ...state,
           hotspotEditor: {
-            ...ed,
+            ...editor,
             drawing: nextDrawing,
-            draft: { ...ed.draft, shape },
+            draft: { ...editor.draft, shape }
           },
         };
       }),
 
     finishDrawingHotspot: () =>
-      set((s) => {
-        const ed = s.hotspotEditor;
-        if (ed.mode.type !== "drawing" || !ed.draft) return s;
+      set((state) => {
+        const editor = state.hotspotEditor;
+        if (editor.mode.type !== "drawing" || !editor.draft) return state;
 
         return {
-          ...s,
+          ...state,
           hotspotEditor: {
-            ...ed,
-            mode: { type: "editing", hotspotId: ed.draft.id },
+            ...editor,
+            mode: { type: "editing", hotspotId: editor.draft.id },
             drawing: null,
           },
         };
       }),
 
     startRedrawHotspotShape: () =>
-      set((s) => {
-        const ed = s.hotspotEditor;
-        if (!ed.draft) return s;
+      set((state) => {
+        const editor = state.hotspotEditor;
+        if (!editor.draft) return state;
 
         return {
-          ...s,
+          ...state,
           hotspotEditor: {
-            ...ed,
+            ...editor,
             mode: { type: "drawing" },
             drawing: null,
-            draft: { ...ed.draft, shape: null },
+            draft: { ...editor.draft, shape: null },
             selection: {
-              ...ed.selection,
-              hotspotId: ed.draft.id,
+              ...editor.selection,
+              hotspotId: editor.draft.id,
               selectedRuleId: null,
             },
           },
@@ -233,67 +163,53 @@ export function createEditorHotspotsSlice(
       }),
 
     editHotspot: (hotspotId) =>
-      set((s) => {
-        if (!s.activeLayerId) return s;
+      set((state) => {
+        if (!state.activeLayerId) return state;
 
-        const hotspots = s.getActiveHotspots() ?? [];
-        const hs = hotspots.find((h) => h.id === hotspotId);
-        if (!hs) return s;
-
-        const draft: HotspotDraft = {
-          id: hs.id,
-          label: hs.label,
-          shape: hs.shape,
-          initialState: hs.initialState,
-          vars: hs.vars ?? [],
-          rules: hs.rules ?? {},
-        };
+        const hotspot = (state.getActiveHotspots() ?? []).find((item) => item.id === hotspotId);
+        if (!hotspot) return state;
 
         return {
-          ...s,
+          ...state,
           hotspotEditor: {
-            context: buildContext(s.activeLayerId),
+            context: buildContext(state.activeLayerId),
             mode: { type: "editing", hotspotId },
-            selection: {
-              hotspotId,
-              selectedChannel: defaultChannel(),
-              selectedRuleId: null,
-            },
-            draft,
+            selection: { hotspotId, selectedChannel: defaultChannel(), selectedRuleId: null },
+            draft: buildDraftFromHotspot(hotspot),
             drawing: null,
           },
         };
       }),
 
     cancelHotspotDraft: () =>
-      set((s) => ({
-        ...s,
+      set((state) => ({
+        ...state,
         hotspotEditor: initialHotspotEditorState,
       })),
 
     setHotspotDraftLabel: (label) =>
-      set((s) => {
-        const draft = s.hotspotEditor.draft;
-        if (!draft) return s;
+      set((state) => {
+        const draft = state.hotspotEditor.draft;
+        if (!draft) return state;
 
         return {
-          ...s,
+          ...state,
           hotspotEditor: {
-            ...s.hotspotEditor,
+            ...state.hotspotEditor,
             draft: { ...draft, label },
           },
         };
       }),
 
     setHotspotDraftInitialState: (patch) =>
-      set((s) => {
-        const draft = s.hotspotEditor.draft;
-        if (!draft) return s;
+      set((state) => {
+        const draft = state.hotspotEditor.draft;
+        if (!draft) return state;
 
         return {
-          ...s,
+          ...state,
           hotspotEditor: {
-            ...s.hotspotEditor,
+            ...state.hotspotEditor,
             draft: {
               ...draft,
               initialState: { ...draft.initialState, ...patch },
@@ -303,39 +219,41 @@ export function createEditorHotspotsSlice(
       }),
 
     setHotspotDraftVars: (vars) =>
-      set((s) => {
-        const draft = s.hotspotEditor.draft;
-        if (!draft) return s;
+      set((state) => {
+        const draft = state.hotspotEditor.draft;
+        if (!draft) return state;
 
         return {
-          ...s,
+          ...state,
           hotspotEditor: {
-            ...s.hotspotEditor,
-            draft: { ...draft, vars },
+            ...state.hotspotEditor,
+            draft: {
+              ...draft, vars,
+            },
           },
         };
       }),
 
     setHotspotDraftRules: (rules) =>
-      set((s) => {
-        const draft = s.hotspotEditor.draft;
-        if (!draft) return s;
+      set((state) => {
+        const draft = state.hotspotEditor.draft;
+        if (!draft) return state;
 
         return {
-          ...s,
+          ...state,
           hotspotEditor: {
-            ...s.hotspotEditor,
+            ...state.hotspotEditor,
             draft: { ...draft, rules },
           },
         };
       }),
 
     addRuleToSelectedChannel: (args) => {
-      const s = get();
-      const draft = s.hotspotEditor.draft;
+      const state = get();
+      const draft = state.hotspotEditor.draft;
       if (!draft) return null;
 
-      const channel = s.hotspotEditor.selection.selectedChannel ?? defaultChannel();
+      const channel = state.hotspotEditor.selection.selectedChannel ?? defaultChannel();
       const ruleId = generateId.rule();
       const phrase = (args?.phrase ?? "").trim();
 
@@ -345,28 +263,32 @@ export function createEditorHotspotsSlice(
         effects: [],
       };
 
-      const rules0: InteractionRules = draft.rules ?? {};
+      const currentRules: InteractionRules = draft.rules ?? {};
 
-      const nextRules: InteractionRules =
-        channel.type === "onClick"
-          ? { ...rules0, onClick: [...(rules0.onClick ?? []), baseRule] }
-          : {
-            ...rules0,
-            onUseItem: [
-              ...(rules0.onUseItem ?? []),
-              { ...baseRule, placedItemId: channel.placedItemId },
-            ],
-          };
+      const nextRules: InteractionRules = channel.type === "onClick"
+        ? {
+          ...currentRules,
+          onClick: [...(currentRules.onClick ?? []), baseRule]
+        }
+        : {
+          ...currentRules,
+          onUseItem: [
+            ...(currentRules.onUseItem ?? []),
+            { ...baseRule, placedItemId: channel.placedItemId }],
+        };
 
-      set((st) => ({
-        ...st,
+      set((storeState) => ({
+        ...storeState,
         hotspotEditor: {
-          ...st.hotspotEditor,
-          draft: st.hotspotEditor.draft
-            ? { ...st.hotspotEditor.draft, rules: nextRules }
+          ...storeState.hotspotEditor,
+          draft: storeState.hotspotEditor.draft
+            ? {
+              ...storeState.hotspotEditor.draft,
+              rules: nextRules
+            }
             : null,
           selection: {
-            ...st.hotspotEditor.selection,
+            ...storeState.hotspotEditor.selection,
             selectedChannel: channel,
             selectedRuleId: ruleId,
           },
@@ -377,103 +299,67 @@ export function createEditorHotspotsSlice(
     },
 
     deleteRuleFromSelectedChannel: (ruleId) =>
-      set((s) => {
-        const draft = s.hotspotEditor.draft;
-        if (!draft) return s;
+      set((state) => {
+        const draft = state.hotspotEditor.draft;
+        if (!draft) return state;
 
-        const channel = s.hotspotEditor.selection.selectedChannel ?? defaultChannel();
-        const rules0: InteractionRules = draft.rules ?? {};
+        const channel = state.hotspotEditor.selection.selectedChannel ?? defaultChannel();
+        const currentRules: InteractionRules = draft.rules ?? {};
 
-        const nextRules: InteractionRules =
-          channel.type === "onClick"
-            ? { ...rules0, onClick: (rules0.onClick ?? []).filter((r) => r.id !== ruleId) }
-            : { ...rules0, onUseItem: (rules0.onUseItem ?? []).filter((r) => r.id !== ruleId) };
+        const nextRules: InteractionRules = channel.type === "onClick"
+          ? {
+            ...currentRules,
+            onClick: (currentRules.onClick ?? []).filter((rule) => rule.id !== ruleId)
+          }
+          : {
+            ...currentRules,
+            onUseItem: (currentRules.onUseItem ?? []).filter((rule) => rule.id !== ruleId)
+          };
 
-        const shouldClearSelected = s.hotspotEditor.selection.selectedRuleId === ruleId;
+        const shouldClearSelectedRule = state.hotspotEditor.selection.selectedRuleId === ruleId;
 
         return {
-          ...s,
+          ...state,
           hotspotEditor: {
-            ...s.hotspotEditor,
+            ...state.hotspotEditor,
             draft: { ...draft, rules: nextRules },
             selection: {
-              ...s.hotspotEditor.selection,
-              selectedRuleId: shouldClearSelected ? null : s.hotspotEditor.selection.selectedRuleId,
+              ...state.hotspotEditor.selection,
+              selectedRuleId: shouldClearSelectedRule
+                ? null
+                : state.hotspotEditor.selection.selectedRuleId,
             },
           },
         };
       }),
 
     validateHotspotDraft: () => {
-      const s = get();
-      const draft = s.hotspotEditor.draft;
+      const result = validateHotspotDraftCandidate(get().hotspotEditor.draft);
 
-      if (!draft) return { ok: false, error: "No hay borrador de hotspot." };
-      if (!draft.shape) {
-        return { ok: false, error: "Debes dibujar un área válida antes de guardar el hotspot." };
-      }
-
-      const draftWithShape: HotspotDraft & { shape: RegionShape } = {
-        ...draft,
-        shape: draft.shape,
-      };
-
-      const candidate = buildCandidateFromDraft(draftWithShape);
-
-      const result = validateHotspot(candidate);
-      if (!result.ok) {
-        const msg =
-          result.errors.rules ??
-          result.errors.label ??
-          result.errors.shape ??
-          result.errors.initialState ??
-          "El hotspot no es válido.";
-
-        return { ok: false, error: msg };
-      }
+      if (!result.ok) return { ok: false, error: result.error };
 
       return { ok: true };
     },
 
     commitHotspotDraft: () => {
-      const s = get();
-      const draft = s.hotspotEditor.draft;
+      const state = get();
+      const draft = state.hotspotEditor.draft;
 
-      if (!draft) return { ok: false, error: "No hay borrador de hotspot." };
-      if (!draft.shape) {
-        return { ok: false, error: "Debes dibujar un área válida antes de guardar el hotspot." };
-      }
+      if (!draft) return { ok: false, code: "missing_draft", error: "No hay borrador de hotspot." } as const;
 
-      const draftWithShape: HotspotDraft & { shape: RegionShape } = {
-        ...draft,
-        shape: draft.shape,
-      };
+      const result = validateHotspotDraftCandidate(draft);
 
-      const candidate = buildCandidateFromDraft(draftWithShape);
+      if (!result.ok) return { ok: false, code: "invalid_draft", error: result.error } as const;
 
-      const result = validateHotspot(candidate);
-      if (!result.ok) {
-        const msg =
-          result.errors.rules ??
-          result.errors.label ??
-          result.errors.shape ??
-          result.errors.initialState ??
-          "El hotspot no es válido.";
+      const candidate = result.candidate;
+      const exists = (state.getActiveHotspots() ?? []).some((hotspot) => hotspot.id === candidate.id);
 
-        return { ok: false, error: msg };
-      }
+      if (exists) state.updateHotspot(candidate.id, candidate);
+      else state.addHotspot(candidate);
 
-      const exists = (s.getActiveHotspots() ?? []).some((h) => h.id === candidate.id);
+      set((storeState) => ({ ...storeState, hotspotEditor: initialHotspotEditorState }));
 
-      if (exists) s.updateHotspot(candidate.id, candidate);
-      else s.addHotspot(candidate);
-
-      set((st) => ({
-        ...st,
-        hotspotEditor: initialHotspotEditorState,
-      }));
-
-      return { ok: true, hotspotId: candidate.id };
+      return { ok: true, hotspotId: candidate.id } as const;
     },
   };
 }

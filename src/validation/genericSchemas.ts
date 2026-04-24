@@ -25,10 +25,18 @@ export const placeableStateSchema = z.object({
   visible: z.boolean(),
   reachable: z.boolean(),
   notReachableText: z.string().max(400).optional(),
-}).refine((state) => state.reachable ? state.notReachableText === undefined : typeof state.notReachableText === "string" && state.notReachableText.trim().length > 0,
-  { message: "Si el elemento no es alcanzable debe definirse notReachableText, y si es alcanzable no debe existir.",
-    path: ["notReachableText"] }
-);
+}).refine((state) => {
+  const text = state.notReachableText?.trim();
+
+  if (!state.visible) return state.reachable === false && !text;
+
+  if (state.reachable) return !text;
+
+  return typeof text === "string" && text.length > 0;
+}, {
+  message: "Si el elemento es visible pero no alcanzable debe definirse notReachableText. Si no es visible, o sí es alcanzable, no debe existir.",
+  path: ["notReachableText"]
+});
 
 /* Vars */
 export const VarDefSchema = z.discriminatedUnion("type", [

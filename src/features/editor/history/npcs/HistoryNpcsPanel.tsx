@@ -244,9 +244,9 @@ export function HistoryNpcsPanel() {
   const disableAddVar = mode === "none" || openVarId !== null;
 
   return (
-    <div className="max-w-[900px] mx-auto rounded-xl border-2 border-slate-700 bg-slate-900 p-4 space-y-3">
+    <div className="max-w-[900px] mx-auto rounded-xl border-3 border-slate-700 bg-slate-900 p-4 space-y-3">
       <div className="flex gap-4 h-full">
-        <aside className="w-1/3 rounded-lg bg-slate-950 flex flex-col overflow-hidden">
+        <aside className="w-1/3 rounded-lg border border-lime-700 bg-slate-950 flex flex-col overflow-hidden">
           <button
             type="button"
             onClick={panel.startNew}
@@ -259,19 +259,26 @@ export function HistoryNpcsPanel() {
             {npcList.length === 0 ? (
               <p className="p-4 text-xs text-slate-320 text-center">No hay PNJs en el proyecto</p>
             ) : (
-              <ul className="divide-y-2 divide-slate-700">
-                {npcList.map((npc) => {
+              <ul>
+                {npcList.map((npc, index) => {
                   const isSelected = npc.id === selectedNpcId;
+                  const isFirst = index === 0;
+                  const isLast = index === npcList.length - 1;
 
                   return (
                     <li key={npc.id}>
                       <button
                         type="button"
                         onClick={() => panel.handleListClick(npc)}
-                        className={ "w-full text-left px-6 py-3 text-[15px] border-t border-t-black " +
+                        className={
+                          "w-full text-left px-6 py-3 text-[15px] border-x border-lime-700 " +
+                          (isFirst ? "border-t " : "") +
+                          (!isLast ? "border-b " : "") +
+                          (isLast && !isSelected ? "rounded-b-lg " : "") +
                           (isSelected
                             ? "bg-lime-900/60 text-slate-50"
-                            : "hover:bg-lime-900/60 text-slate-200")}
+                            : "hover:bg-lime-900/60 text-slate-200")
+                        }
                       >
                         <span className="block w-full overflow-hidden text-ellipsis whitespace-nowrap">
                           {npc.name}
@@ -285,7 +292,7 @@ export function HistoryNpcsPanel() {
           </div>
         </aside>
 
-        <section className="relative flex-1 rounded-lg bg-slate-950 text-sm text-slate-100 flex flex-col overflow-hidden">
+        <section className="relative flex-1 rounded-lg border border-lime-700 bg-slate-950 text-sm text-slate-100 flex flex-col overflow-hidden">
           {mode !== "none" && (
             <img
               src="/ui/npc-watermark.png"
@@ -308,7 +315,7 @@ export function HistoryNpcsPanel() {
             ) : (
               <>
                 <div className="mb-2">
-                  <label className="block text-[13px] text-slate-200 mb-1 text-center">Nombre</label>
+                  <label className="block text-[14px] text-slate-200 mb-1 text-center">Nombre</label>
                   <input
                     ref={nameInputRef}
                     type="text"
@@ -322,7 +329,7 @@ export function HistoryNpcsPanel() {
                 </div>
 
                 <div className="mb-2">
-                  <label className="block text-[13px] text-slate-200 mb-1 text-center">
+                  <label className="block text-[14px] text-slate-200 mb-1 text-center">
                     Descripción <span className="text-slate-400">(opcional)</span>
                   </label>
 
@@ -338,7 +345,7 @@ export function HistoryNpcsPanel() {
                 </div>
 
                 <div className="mb-2 mt-2">
-                  <label className="block text-[13px] text-slate-200 mb-1 text-center">Imagen</label>
+                  <label className="block text-[14px] text-slate-100 mb-1 text-center">Imagen</label>
 
                   <div
                     className={ "group relative mt-1.5 px-3 py-3.5 rounded-md flex flex-col items-center justify-center text-[12px] " +
@@ -357,14 +364,14 @@ export function HistoryNpcsPanel() {
                       <span className="block text-xs text-slate-400">(o haz clic para seleccionarla)</span>
                       {mode === "edit" && (
                         <span className="block text-xs text-slate-400 mt-2">
-                          En edición, sustituirá la imagen actual.
+                          En edición, sustituirá la imagen actual
                         </span>
                       )}
                     </p>
 
                     <button
                       type="button"
-                      className="btn btn-select"
+                      className="btn btn-select border-lime-800 hover:bg-lime-950"
                       onMouseEnter={() => image.setIsHoveringSelectButton(true)}
                       onMouseLeave={() => image.setIsHoveringSelectButton(false)}
                       onClick={(e) => {
@@ -384,14 +391,6 @@ export function HistoryNpcsPanel() {
                     onChange={image.handleFileChange}
                   />
 
-                  <p className="mt-2 text-[11px] text-slate-400 break-all text-center">
-                    {image.draftFile
-                      ? `Archivo seleccionado: ${image.draftFile.name}`
-                      : mode === "edit" && selectedNpcId
-                        ? `Archivo actual: ${image.draftFileName || "—"}`
-                        : "No hay archivo seleccionado"}
-                  </p>
-
                   {fileError && <p className="form-field-error mt-1">{fileError}</p>}
                 </div>
 
@@ -400,23 +399,14 @@ export function HistoryNpcsPanel() {
                     <img
                       src={image.previewUrl}
                       alt="Preview"
-                      className="max-h-40 rounded-md border border-slate-700"
+                      className="max-h-50 rounded-md border-2 border-lime-700"
                       draggable="false"
                     />
                   </div>
                 )}
 
-                {image.isReady && (
-                  <div className="mt-3 text-[11px] text-slate-400 flex justify-center mb-1">
-                    <span className="inline-flex items-center gap-1 text-emerald-400">
-                      <span className="inline-block h-3 w-3 rounded-full bg-emerald-400" />
-                      <span>Archivo listo</span>
-                    </span>
-                  </div>
-                )}
-
                 <div className="mt-4 border-t border-slate-700 pt-4">
-                  <h5 className="text-[13px] font-semibold text-slate-200 m-0 text-center">Variables</h5>
+                  <h5 className="text-[14px] text-slate-100 m-0 text-center">Variables</h5>
 
                   <div className="mt-2 flex justify-center">
                     <button
@@ -434,11 +424,7 @@ export function HistoryNpcsPanel() {
 
                   {fieldErrors.vars && <p className="form-field-error mt-2 text-center">{fieldErrors.vars}</p>}
 
-                  {draftVars.length === 0 ? (
-                    <p className="text-[11px] text-slate-400 text-center mt-3">
-                      Este PNJ no tiene variables.
-                    </p>
-                  ) : (
+
                     <div className="space-y-2 mt-3">
                       {draftVars.map((row, idx) => {
                         const isOpen = row.id === openVarId;
@@ -473,10 +459,9 @@ export function HistoryNpcsPanel() {
                         );
                       })}
                     </div>
-                  )}
                 </div>
 
-                <div className="mt-auto flex justify-between pt-5">
+                <div className="mt-auto flex justify-between pt-6">
                   <button
                     type="button"
                     onClick={panel.openDelete}
@@ -490,10 +475,11 @@ export function HistoryNpcsPanel() {
                     <button
                       type="button"
                       onClick={panel.reset}
-                      className="btn btn-cancel text-[12px]"
+                      className="px-4 py-2 rounded-md border border-slate-500 bg-slate-800 hover:bg-slate-700 text-[12px] text-slate-100"
                     >
                       Cancelar
                     </button>
+
                     <button
                       type="button"
                       onClick={handleSave}
@@ -511,10 +497,9 @@ export function HistoryNpcsPanel() {
 
       <DeleteProjectEntityModal
         open={panel.isDeleteModalOpen}
-        title="Eliminar PNJ"
         entityName={selectedNpc?.name ?? ""}
         description={ referenced
-            ? "Este PNJ está referenciado en el proyecto. Si lo eliminas, se borrará también de escenas, condiciones, efectos y diálogos donde aparezca."
+            ? "Este PNJ está referenciado en el proyecto. Si lo eliminas, se borrará de los lugares donde aparezca."
             : "El PNJ dejará de estar disponible para las escenas que lo usen." }
         onConfirm={handleConfirmDelete}
         onCancel={panel.cancelDelete}

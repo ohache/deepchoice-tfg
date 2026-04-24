@@ -1,10 +1,8 @@
 import { create } from "zustand";
-import type { Project, ID, AssetDef } from "@/domain/types";
+import type { Project, ID } from "@/domain/types";
 import { downloadProjectJsonFile, exportProjectAsZip } from "@/store/utils/editorPersistence";
 import { resolveDirectoryImport } from "@/shared/directoryImport";
 import { createEmptyProject, buildBaseEditorState, canUseHistoryViewZoom, clamp, DEFAULT_ZOOM, MAX_ZOOM, MIN_ZOOM, STEP_ZOOM } from "@/store/utils/editorStoreUtils";
-import { buildAssetPath } from "@/store/assets/assetPath";
-import { removeAsset, removeAssetFile } from "@/features/editor/core/editorGenericSlice";
 import { type EditorPrimaryMode, type EditorSecondaryMode, getDefaultSecondaryMode } from "@/features/editor/core/editorModes";
 import { type EditorHistoryViewSlice, createEditorHistoryViewSlice } from "@/features/editor/history/view/editorHistoryViewSlice";
 import { type EditorMusicSlice, createEditorMusicSlice } from "@/features/editor/history/music/editorMusicSlice";
@@ -41,8 +39,6 @@ export interface EditorStore extends EditorMusicSlice, EditorSfxSlice, EditorIte
   resetEditor: () => void;
 
   registerAssetFile: (assetId: ID, file: File) => void;
-  upsertBackgroundAsset: (assetId: ID, file: File) => void;
-  removeBackgroundAsset: (assetId: ID) => void;
 
   downloadProjectJson: () => void;
   exportProject: () => Promise<void>;
@@ -161,54 +157,7 @@ export const useEditorStore = create<EditorStore>()((set, get) => ({
     ));
   },
 
-  /* Inserta o actualiza un asset de fondo */
-  upsertBackgroundAsset: (assetId, file) => {
-    const state = get();
-    const project = state.project;
-    if (!project) return;
-
-    state.registerAssetFile(assetId, file);
-
-    const relativePath = buildAssetPath("backgrounds", file.name);
-    const existing = project.assets.find(
-      (asset) => asset.kind === "backgrounds" && asset.id === assetId,
-    );
-
-    const nextAsset: AssetDef = {
-      id: assetId,
-      kind: "backgrounds",
-      name: existing && existing.name.trim() !== ""
-        ? existing.name
-        : file.name || "Background",
-      file: relativePath,
-    };
-
-    const nextAssets = existing
-      ? project.assets.map((asset) => asset.kind === "backgrounds" && asset.id === assetId ? nextAsset : asset)
-      : [...project.assets, nextAsset];
-
-    set({
-      project: { ...project, assets: nextAssets },
-    });
-  },
-
-  /* Elimina el asset de fondo del catálogo y su File asociado */
-  removeBackgroundAsset: (id: ID) =>
-    set((state) => {
-      if (!state.project) return state;
-
-      const assetResult = removeAsset(state.project.assets, { id, kind: "backgrounds" });
-
-      const fileResult = removeAssetFile(state.assetFiles, id);
-
-      if (!assetResult.touched && !fileResult.touched) return state;
-
-      return {
-        ...state,
-        project: { ...state.project, assets: assetResult.assets },
-        assetFiles: fileResult.assetFiles,
-      };
-    }),
+  
 
   /* Descarga el JSON del proyecto */
   downloadProjectJson: () => {

@@ -1,5 +1,5 @@
 import type { ID, PlacedPlayer, PlayerDef, PlayerImage, Project, VarDef } from "@/domain/types";
-import { conditionReferencesPlayer, conditionReferencesPlayerVar } from "@/domain/conditionRefs";
+import { conditionReferences } from "@/domain/conditionRefs";
 import { effectReferencesPlayer, effectReferencesPlayerVar } from "@/domain/effectRefs";
 import { hasDuplicateName } from "@/validation/genericValidator";
 import { generateId } from "@/utils/id";
@@ -520,8 +520,8 @@ export function createEditorPlayerSlice(set: (partial: | Partial<EditorStoreLike
           somePlacedPlayer(currentProject, (placedPlayer) => placedPlayer.playerId === playerId) ||
           someDialogue(currentProject, (dialogue) => dialogue.playerId === playerId),
 
-        someWhenRef: (when) => conditionReferencesPlayer(when, playerId) ||
-          playerVars.some((variable) => conditionReferencesPlayerVar(when, { playerId, varId: variable.id })),
+        someWhenRef: (when) => conditionReferences.player(when, playerId) ||
+          playerVars.some((variable) => conditionReferences.playerVar(when, { playerId, varId: variable.id })),
 
         someEffectRef: (effect) => effectReferencesPlayer(effect, playerId) || effectIsStartDialogueForAnyOf(effect, dialogueIds)});
     },

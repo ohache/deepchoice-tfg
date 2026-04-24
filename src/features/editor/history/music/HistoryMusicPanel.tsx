@@ -62,7 +62,7 @@ export function HistoryMusicPanel() {
     },
   });
 
-  useEffect(()  => setSelectedTrackId(null), [setSelectedTrackId]);
+  useEffect(() => setSelectedTrackId(null), [setSelectedTrackId]);
 
   const loadDraftFromSelectedTrack = (track: MusicTrackDef) => {
     setDraftName(track.name);
@@ -99,9 +99,11 @@ export function HistoryMusicPanel() {
 
     const { ok, errors } = validateMusicDraft(
       { name: draftName, file: audio.draftFile ?? undefined },
-      { mode: mode === "edit" ? "edit" : "new",
+      {
+        mode: mode === "edit" ? "edit" : "new",
         project,
-        currentTrackId: selectedTrackId ?? undefined},
+        currentTrackId: selectedTrackId ?? undefined
+      },
     );
 
     setFieldErrors(errors);
@@ -170,9 +172,9 @@ export function HistoryMusicPanel() {
   if (!project) return null;
 
   return (
-    <div className="max-w-[900px] mx-auto rounded-xl border-2 border-slate-700 bg-slate-900 p-4 space-y-3">
+    <div className="max-w-[900px] mx-auto rounded-xl border-3 border-slate-700 bg-slate-900 p-4 space-y-3">
       <div className="flex gap-4 h-full">
-        <aside className="w-1/3 rounded-lg bg-slate-950 flex flex-col overflow-hidden">
+        <aside className="w-1/3 rounded-lg border border-cyan-700 bg-slate-950 flex flex-col overflow-hidden">
           <button
             type="button"
             onClick={panel.startNew}
@@ -187,19 +189,26 @@ export function HistoryMusicPanel() {
                 No hay pistas de música en el proyecto
               </p>
             ) : (
-              <ul className="divide-y-2 divide-slate-700">
-                {musicTrackList.map((track) => {
+              <ul>
+                {musicTrackList.map((track, index) => {
                   const isSelected = track.id === selectedTrackId;
+                  const isFirst = index === 0;
+                  const isLast = index === musicTrackList.length - 1;
 
                   return (
                     <li key={track.id}>
                       <button
                         type="button"
                         onClick={() => panel.handleListClick(track)}
-                        className={ "w-full text-left px-6 py-3 text-[15px] border-t border-t-black " +
+                        className={
+                          "w-full text-left px-6 py-3 text-[15px] border-x border-cyan-700 " +
+                          (isFirst ? "border-t " : "") +
+                          (!isLast ? "border-b " : "") +
+                          (isLast && !isSelected ? "rounded-b-lg " : "") +
                           (isSelected
                             ? "bg-cyan-900/60 text-slate-50"
-                            : "hover:bg-cyan-900/60 text-slate-200")}
+                            : "hover:bg-cyan-900/60 text-slate-200")
+                        }
                       >
                         <span className="block w-full overflow-hidden text-ellipsis whitespace-nowrap">
                           {track.name}
@@ -213,7 +222,7 @@ export function HistoryMusicPanel() {
           </div>
         </aside>
 
-        <section className="relative flex-1 rounded-lg bg-slate-950 text-sm text-slate-100 flex flex-col overflow-hidden">
+        <section className="relative flex-1 rounded-lg border border-cyan-700 bg-slate-950 text-sm text-slate-100 flex flex-col overflow-hidden">
           {mode !== "none" && (
             <img
               src="/ui/music-watermark.jpg"
@@ -223,7 +232,7 @@ export function HistoryMusicPanel() {
             />
           )}
 
-          <div className="relative z-10 bg-cyan-800/80 border-b border-cyan-900 rounded-t-lg px-4 py-2">
+          <div className="relative z-10 bg-cyan-800/80 border-b border-cyan-700 rounded-t-lg px-4 py-2">
             <h4 className="text-base font-semibold text-center text-white m-0">{rightTitle}</h4>
           </div>
 
@@ -236,15 +245,13 @@ export function HistoryMusicPanel() {
             ) : (
               <>
                 <div className="mb-2">
-                  <label className="block text-[13px] text-slate-200 mb-1 text-center">
-                    Nombre
-                  </label>
+                  <label className="block text-[14px] text-slate-100 mb-1 text-center">Nombre</label>
                   <input
                     ref={nameInputRef}
                     type="text"
                     value={draftName}
                     onChange={(e) => setDraftName(e.target.value)}
-                    className="w-full rounded-md bg-slate-900 border-2 border-slate-700 px-2 py-2 text-xs text-slate-100
+                    className="w-full rounded-md bg-slate-900 border border-slate-700 px-2 py-2 text-xs text-slate-100
                       focus:outline-none focus:border-transparent focus:ring-2 focus:ring-cyan-500"
                     placeholder="Ej: Bosque"
                   />
@@ -252,17 +259,15 @@ export function HistoryMusicPanel() {
                 </div>
 
                 <div className="mb-2 mt-2">
-                  <label className="block text-[13px] text-slate-200 mb-1 text-center">
-                    Archivo de música
-                  </label>
+                  <label className="block text-[14px] text-slate-100 mb-1 text-center">Archivo de música</label>
 
                   <div
-                    className={ "group relative mt-1.5 px-3 py-3.5 rounded-md flex flex-col items-center justify-center text-[12px] " +
+                    className={"group relative mt-1.5 px-3 py-3.5 rounded-md flex flex-col items-center justify-center text-[12px] " +
                       "transition-colors duration-150 border-2 border-dashed cursor-pointer " +
                       (audio.isDragging
                         ? "border-cyan-400 bg-cyan-800"
                         : "border-cyan-800 bg-slate-900/40 " +
-                          (audio.isHoveringSelectButton ? "" : "hover:bg-cyan-900/60"))}
+                        (audio.isHoveringSelectButton ? "" : "hover:bg-cyan-900/60"))}
                     onDragOver={audio.handleDragOver}
                     onDragLeave={audio.handleDragLeave}
                     onDrop={audio.handleDrop}
@@ -275,14 +280,14 @@ export function HistoryMusicPanel() {
                       </span>
                       {mode === "edit" && (
                         <span className="block text-xs text-slate-400 mt-2">
-                          En edición, sustituirá el archivo actual.
+                          En edición, sustituirá el archivo actual
                         </span>
                       )}
                     </p>
 
                     <button
                       type="button"
-                      className="btn btn-select"
+                      className="btn btn-select border-cyan-800 hover:bg-cyan-950"
                       onMouseEnter={() => audio.setIsHoveringSelectButton(true)}
                       onMouseLeave={() => audio.setIsHoveringSelectButton(false)}
                       onClick={(e) => {
@@ -302,25 +307,8 @@ export function HistoryMusicPanel() {
                     onChange={audio.handleFileChange}
                   />
 
-                  <p className="mt-2 text-[11px] text-slate-400 break-all text-center">
-                    {audio.draftFile
-                      ? `Archivo seleccionado: ${audio.draftFile.name}`
-                      : mode === "edit" && selectedTrackId
-                        ? `Archivo actual: ${audio.draftFileName}`
-                        : "No hay archivo seleccionado"}
-                  </p>
-
                   {fieldErrors.file && <p className="form-field-error mt-1">{fieldErrors.file}</p>}
                 </div>
-
-                {audio.isReady && (
-                  <div className="mt-1 text-[11px] text-slate-400 flex justify-center mb-1">
-                    <span className="inline-flex items-center gap-1 text-emerald-400">
-                      <span className="inline-block h-3 w-3 rounded-full bg-emerald-400" />
-                      <span>Archivo listo</span>
-                    </span>
-                  </div>
-                )}
 
                 <audio
                   ref={audio.audioRef}
@@ -392,7 +380,6 @@ export function HistoryMusicPanel() {
 
       <DeleteProjectEntityModal
         open={panel.isDeleteModalOpen}
-        title="Eliminar archivo de música"
         entityName={selectedMusicTrack?.name ?? ""}
         description="El archivo dejará de estar disponible para las escenas que lo usen."
         onConfirm={handleConfirmDelete}

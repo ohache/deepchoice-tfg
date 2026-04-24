@@ -1,7 +1,10 @@
-import React, { useRef, useState, type RefObject } from "react";
+import React, { useRef, useState } from "react";
 import type { ID } from "@/domain/types";
 
-type VariantListItem = { id: ID; label?: string | null };
+type VariantListItem = {
+  id: ID;
+  label?: string | null;
+};
 
 type VariantListProps = {
   title: string;
@@ -14,86 +17,154 @@ type VariantListProps = {
   cardWidthClassName?: string;
 };
 
-/*  Lista visual de variantes */
-export function SceneVariantList({ title, variants, hidden, onReorder, isItemDraggable, onSelectVariant, onEditVariant, cardWidthClassName = "w-full"}: VariantListProps) {
+type VariantDragHandlersArgs = {
+  variantId: ID;
+  index: number;
+  draggable: boolean;
+  dragFromIndexRef: React.MutableRefObject<number | null>;
+  setDraggingId: React.Dispatch<React.SetStateAction<ID | null>>;
+  setOverId: React.Dispatch<React.SetStateAction<ID | null>>;
+  resetDragState: () => void;
+  onReorder: (fromIndex: number, toIndex: number) => void;
+};
+
+const EMPTY_LABEL_TEXT = "(Sin label)";
+
+function getVariantCardTitle(draggable: boolean): string {
+  return draggable
+    ? "Click: previsualizar · Doble click: editar · Arrastra para reordenar"
+    : "Click: previsualizar · Doble click: editar";
+}
+
+function getVariantLabel(label?: string | null): string {
+  return label?.trim() || EMPTY_LABEL_TEXT;
+}
+
+/* Construye la clase visual de una card */
+function getVariantCardClassName(args: { draggable: boolean; isDragging: boolean; isOver: boolean; cardWidthClassName: string }): string {
+  const { draggable, isDragging, isOver, cardWidthClassName } = args;
+
+  return ("flex items-center gap-2 rounded-md border-2 px-2 py-2 select-none border-slate-700 bg-slate-900 hover:bg-slate-800 variant-draggable " +
+    (draggable ? "cursor-pointer " : "cursor-default opacity-95 ") +
+    (isDragging ? "variant-dragging " : "") +
+    (isOver ? "variant-drop-target " : "") +
+    cardWidthClassName);
+}
+
+function createVariantDragStartHandler(args: VariantDragHandlersArgs) {
+  const { variantId, index, draggable, dragFromIndexRef, setDraggingId } = args;
+
+  return (event: React.DragEvent<HTMLDivElement>) => {
+    if (!draggable) return;
+
+    dragFromIndexRef.current = index;
+    setDraggingId(variantId);
+    event.dataTransfer.effectAllowed = "move";
+  };
+}
+
+function createVariantDragOverHandler(args: VariantDragHandlersArgs) {
+  const { variantId, draggable, setOverId } = args;
+
+  return (event: React.DragEvent<HTMLDivElement>) => {
+    if (!draggable) return;
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setOverId(variantId);
+  };
+}
+
+function createVariantDragLeaveHandler(args: VariantDragHandlersArgs) {
+  const { variantId, setOverId } = args;
+
+  return () => {setOverId((current) => (current === variantId ? null : current)) };
+}
+
+function createVariantDropHandler(args: VariantDragHandlersArgs) {
+  const { index, draggable, dragFromIndexRef, resetDragState, onReorder } = args;
+
+  return () => {
+    if (!draggable) return;
+
+    const fromIndex = dragFromIndexRef.current;
+    resetDragState();
+
+    if (fromIndex == null || fromIndex === index) return;
+    onReorder(fromIndex, index);
+  };
+}
+
+/* Lista visual de variantes */
+export function SceneVariantList({ title, variants, hidden, onReorder, isItemDraggable, onSelectVariant, onEditVariant, cardWidthClassName = "w-full" }: VariantListProps) {
   const dragFromIndexRef = useRef<number | null>(null);
 
   const [draggingId, setDraggingId] = useState<ID | null>(null);
   const [overId, setOverId] = useState<ID | null>(null);
 
-  if (hidden) return null;
-  if (!variants.length) return null;
+  if (hidden || variants.length === 0) return null;
 
-  const canDrag = (id: ID) => (isItemDraggable ? !!isItemDraggable(id) : true);
+  const canDrag = (id: ID): boolean => (isItemDraggable ? isItemDraggable(id) : true);
+
+  const resetDragState = () => {
+    dragFromIndexRef.current = null;
+    setDraggingId(null);
+    setOverId(null);
+  };
 
   return (
     <>
+      {/* Cabecera */}
       <div className="pt-1">
         <div className="h-px bg-slate-700" />
         <div className="pt-2 text-center text-[12px] font-semibold text-slate-200">{title}</div>
         <div className="text-[11px] text-slate-400">(arrastra para ordenar la prioridad)</div>
       </div>
 
+      {/* Lista */}
       <div className="pt-1 flex flex-col items-center gap-2">
-        {variants.map((v, idx) => {
-          const draggable = canDrag(v.id);
-          const isDragging = draggingId === v.id;
-          const isOver = overId === v.id && !isDragging;
+        {variants.map((variant, index) => {
+          const draggable = canDrag(variant.id);
+          const isDragging = draggingId === variant.id;
+          const isOver = overId === variant.id && !isDragging;
+
+          const dragHandlersArgs: VariantDragHandlersArgs = { variantId: variant.id, index, draggable, dragFromIndexRef, setDraggingId, setOverId, resetDragState, onReorder };
+
+          const handleDragStart = createVariantDragStartHandler(dragHandlersArgs);
+          const handleDragOver = createVariantDragOverHandler(dragHandlersArgs);
+          const handleDragLeave = createVariantDragLeaveHandler(dragHandlersArgs);
+          const handleDrop = createVariantDropHandler(dragHandlersArgs);
 
           return (
             <div
-              key={v.id}
+              key={variant.id}
               draggable={draggable}
-              onDragStart={(e) => {
-                if (!draggable) return;
-                dragFromIndexRef.current = idx;
-                setDraggingId(v.id);
-                e.dataTransfer.effectAllowed = "move";
-              }}
-              onDragEnd={() => {
-                dragFromIndexRef.current = null;
-                setDraggingId(null);
-                setOverId(null);
-              }}
-              onDragOver={(e) => {
-                if (!draggable) return;
-                e.preventDefault();
-                setOverId(v.id);
-                e.dataTransfer.dropEffect = "move";
-              }}
-              onDragLeave={() => {
-                setOverId((curr) => (curr === v.id ? null : curr));
-              }}
-              onDrop={() => {
-                if (!draggable) return;
-
-                const from = dragFromIndexRef.current;
-                dragFromIndexRef.current = null;
-
-                setDraggingId(null);
-                setOverId(null);
-
-                if (from == null) return;
-                if (from === idx) return;
-
-                onReorder(from, idx);
-              }}
-              onClick={() => onSelectVariant?.(v.id)}
-              onDoubleClick={() => onEditVariant(v.id)}
-              className={ "flex items-center gap-2 rounded-md border px-2 py-2 select-none border-slate-700 bg-slate-900 hover:bg-slate-800 variant-draggable " +
-                (draggable ? "cursor-pointer " : "cursor-default opacity-95 ") +
-                (isDragging ? "variant-dragging " : "") +
-                (isOver ? "variant-drop-target " : "") +
-                cardWidthClassName}
-              title={ draggable ? "Click: previsualizar · Doble click: editar · Arrastra para reordenar" : "Click: previsualizar · Doble click: editar"}
+              onDragStart={handleDragStart}
+              onDragEnd={resetDragState}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              onClick={() => onSelectVariant?.(variant.id)}
+              onDoubleClick={() => onEditVariant(variant.id)}
+              className={getVariantCardClassName({ draggable, isDragging, isOver, cardWidthClassName })}
+              title={getVariantCardTitle(draggable)}
             >
-              <div className="w-7 text-center text-[11px] font-semibold text-slate-100">{idx + 1}.</div>
-
-              <div className="flex-1 min-w-0">
-                <div className="text-[12px] text-white truncate">{(v.label ?? "").trim() || "(Sin label)"}</div>
+              {/* Índice visible */}
+              <div className="w-7 text-center text-[11px] font-semibold text-slate-100">
+                {index + 1}.
               </div>
 
-              <div className="px-2 text-slate-300" aria-hidden="true" title={draggable ? "Arrastra para reordenar" : "Orden fijo"}>
+              {/* Label */}
+              <div className="flex-1 min-w-0">
+                <div className="text-[13px] text-white truncate">{getVariantLabel(variant.label)}</div>
+              </div>
+
+              {/* Indicador de drag */}
+              <div
+                className="px-2 text-slate-200"
+                aria-hidden="true"
+                title={draggable ? "Arrastra para reordenar" : "Orden fijo"}
+              >
                 {draggable ? "⋮⋮" : "•"}
               </div>
             </div>
@@ -101,73 +172,5 @@ export function SceneVariantList({ title, variants, hidden, onReorder, isItemDra
         })}
       </div>
     </>
-  );
-}
-
-type VariantEditorShellProps = {
-  labelInputRef?: RefObject<HTMLInputElement | null>;
-  draftLabel: string;
-  onChangeDraftLabel: (next: string) => void;
-  onCancel: () => void;
-  onSave: () => void;
-  onDelete?: () => void;
-  children: React.ReactNode;
-  saveDisabled?: boolean;
-};
-
-export function SceneVariantEditorShell({ labelInputRef, draftLabel, onChangeDraftLabel, onCancel, onSave, onDelete, children, saveDisabled = false }: VariantEditorShellProps) {
-  return (
-    <div className="bg-slate-950/40 p-3 space-y-3">
-      {/* Label */}
-      <div className="-mx-3 space-y-1">
-        <div className="text-[12px] text-white">Nombre</div>
-
-        <input
-          ref={labelInputRef}
-          value={draftLabel}
-          onChange={(e) => onChangeDraftLabel(e.currentTarget.value)}
-          maxLength={150}
-          className="pl-4 w-full rounded-md bg-slate-900/30 border-2 border-slate-700 px-2 py-1.5 text-xs text-slate-100
-            focus:outline-none focus:border-transparent focus:ring-2 focus:ring-fuchsia-500"
-        />
-      </div>
-
-      {/* Contenido específico */}
-      <div className="space-y-3">{children}</div>
-
-      {/* Footer */}
-      <div className="flex items-center justify-between gap-2 pt-1">
-        <div>
-          {onDelete ? (
-            <button
-              type="button"
-              onClick={onDelete}
-              disabled={saveDisabled}
-              className="px-2 py-1 rounded-md border border-rose-700 bg-rose-950/20 text-rose-200 hover:bg-rose-900/30 text-[11px]"
-            >
-              Eliminar
-            </button>
-          ) : null}
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="px-2 py-1 rounded-md border border-slate-800 bg-transparent text-slate-300 hover:bg-slate-900 text-[11px]"
-          >
-            Cancelar
-          </button>
-
-          <button
-            type="button"
-            onClick={onSave}
-            className="px-2 py-1 rounded-md border border-emerald-700 bg-emerald-800/30 text-emerald-100 hover:bg-emerald-700/40 text-[11px]"
-          >
-            Guardar
-          </button>
-        </div>
-      </div>
-    </div>
   );
 }

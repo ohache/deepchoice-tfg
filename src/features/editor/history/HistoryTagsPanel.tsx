@@ -12,36 +12,36 @@ type TagColumnProps = {
 
 function TagColumn({ title, items, emptyMessage, onActivate, headerClassName }: TagColumnProps) {
   return (
-    <div className="flex flex-col border-2 border-black rounded-lg bg-slate-900/70 overflow-hidden">
-      <div className={"px-3 py-2 border-b-2 border-black " + (headerClassName ?? "bg-slate-900/90")}>
-        <h3 className="text-[15px] font-semibold text-slate-100 text-center tracking-wide">
-          {title}
-        </h3>
-      </div>
+    <div className="flex flex-col border-2 border-black rounded-lg bg-slate-950 overflow-hidden">
+  <div className={"px-3 py-2 border-b-2 border-slate-700 " + (headerClassName ?? "bg-slate-950")}>
+    <h3 className="text-[15px] font-semibold text-white text-center tracking-wide">
+      {title}
+    </h3>
+  </div>
 
-      {items.length === 0 ? (
-        <p className="p-3 text-[12px] text-slate-300 text-center">{emptyMessage}</p>
-      ) : (
-        <div className="text-[13px] max-h-[500px] overflow-y-auto">
-          <ul>
-            {items.map((item) => (
-              <li key={item.id} className="border-b border-black last:border-b-0">
-                <button
-                  type="button"
-                  onClick={() => onActivate(item.id)}
-                  className="w-full text-left px-5 py-2.5 text-white font-bold hover:bg-cyan-900/70"
-                  title={item.label}
-                >
-                  <span className="block w-full overflow-hidden text-ellipsis whitespace-nowrap">
-                    {item.label}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+  {items.length === 0 ? (
+    <p className="p-3 text-[12px] text-slate-100 text-center">{emptyMessage}</p>
+  ) : (
+    <div className="text-[14px] border-l-2 border-r-2 border-b-2 border-slate-700 rounded-b-lg max-h-[500px] overflow-y-auto">
+      <ul>
+        {items.map((item) => (
+          <li key={item.id} className="border-b-2 border-slate-700 last:border-b-0">
+            <button
+              type="button"
+              onClick={() => onActivate(item.id)}
+              className="w-full text-left px-4 py-2.5  text-white font-bold hover:bg-cyan-900/70"
+              title={item.label}
+            >
+              <span className="block w-full overflow-hidden text-ellipsis whitespace-nowrap">
+                {item.label}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
     </div>
+  )}
+</div>
   );
 }
 
@@ -62,61 +62,44 @@ export function HistoryTagsPanel() {
   const setSelectedSfxId = useEditorStore((s) => s.setSelectedSfxId);
   const setSelectedMapId = useEditorStore((s) => s.setSelectedMapId);
 
-  const openHistorySection = useCallback(
-    (secondaryMode: "jugador" | "pnjs" | "items" | "musica" | "sfx" | "mapa") => {
-      setPrimaryMode("historia");
-      setSecondaryMode(secondaryMode);
-    },
-    [setPrimaryMode, setSecondaryMode],
-  );
+const openHistoryResource = useCallback(( secondaryMode: "jugador" | "pnjs" | "items" | "musica" | "sfx" | "mapa",
+    selectResource: () => void) => {
+    setPrimaryMode("historia");
+    setSecondaryMode(secondaryMode);
 
-  const handlePlayerActivate = useCallback(
-    (id: ID) => {
-      setSelectedPlayerId(id);
-      openHistorySection("jugador");
-    },
-    [openHistorySection, setSelectedPlayerId],
-  );
+    requestAnimationFrame(() => selectResource());
+  }, [setPrimaryMode, setSecondaryMode],
+);
 
-  const handleNpcActivate = useCallback(
-    (id: ID) => {
-      setSelectedNpcId(id);
-      openHistorySection("pnjs");
-    },
-    [openHistorySection, setSelectedNpcId],
-  );
+  const handlePlayerActivate = useCallback((id: ID) => {
+    openHistoryResource("jugador", () => {setSelectedPlayerId(id)});
+  }, [openHistoryResource, setSelectedPlayerId],
+);
 
-  const handleItemActivate = useCallback(
-    (id: ID) => {
-      setSelectedItemId(id);
-      openHistorySection("items");
-    },
-    [openHistorySection, setSelectedItemId],
-  );
+const handleNpcActivate = useCallback((id: ID) => {
+    openHistoryResource("pnjs", () => {setSelectedNpcId(id)});
+  }, [openHistoryResource, setSelectedNpcId],
+);
 
-  const handleMusicActivate = useCallback(
-    (id: ID) => {
-      setSelectedMusicTrackId(id);
-      openHistorySection("musica");
-    },
-    [openHistorySection, setSelectedMusicTrackId],
-  );
+const handleItemActivate = useCallback((id: ID) => {
+    openHistoryResource("items", () => {setSelectedItemId(id)});
+  }, [openHistoryResource, setSelectedItemId],
+);
 
-  const handleSfxActivate = useCallback(
-    (id: ID) => {
-      setSelectedSfxId(id);
-      openHistorySection("sfx");
-    },
-    [openHistorySection, setSelectedSfxId],
-  );
+const handleMusicActivate = useCallback((id: ID) => {
+    openHistoryResource("musica", () => {setSelectedMusicTrackId(id)});
+  }, [openHistoryResource, setSelectedMusicTrackId],
+);
 
-  const handleMapActivate = useCallback(
-    (id: ID) => {
-      setSelectedMapId(id);
-      openHistorySection("mapa");
-    },
-    [openHistorySection, setSelectedMapId],
-  );
+const handleSfxActivate = useCallback((id: ID) => {
+    openHistoryResource("sfx", () => {setSelectedSfxId(id)});
+  }, [openHistoryResource, setSelectedSfxId],
+);
+
+const handleMapActivate = useCallback((id: ID) => {
+    openHistoryResource("mapa", () => {setSelectedMapId(id)});
+  }, [openHistoryResource, setSelectedMapId],
+);
 
   const playerItems = useMemo(() => toTagItems(project?.players), [project?.players]);
   const npcItems = useMemo(() => toTagItems(project?.npcs), [project?.npcs]);
@@ -127,7 +110,7 @@ export function HistoryTagsPanel() {
 
   if (!project) {
     return (
-      <div className="max-w-[900px] mx-auto rounded-xl border border-slate-800 bg-slate-800 p-4">
+      <div className="max-w-[900px] mx-auto rounded-xl border border-slate-700 bg-slate-800 p-4">
         <p className="text-sm text-slate-300 text-center">
           Abre o crea un proyecto para ver sus etiquetas.
         </p>
@@ -136,10 +119,10 @@ export function HistoryTagsPanel() {
   }
 
   return (
-    <div className="max-w-[1500px] mx-auto rounded-xl border-2 border-slate-700 bg-slate-800 p-4 space-y-3 h-[560px] overflow-hidden">
+    <div className="max-w-[1500px] mx-auto rounded-xl border-3 border-slate-700 bg-slate-900 p-4 space-y-3 h-[560px] overflow-hidden">
       <header className="mb-1">
-        <p className="text-[15px] text-white text-center mb-3">
-          Haz clic sobre un recurso para ir a su editor correspondiente
+        <p className="text-[16px] text-white text-center mb-3">
+          Haz clic sobre un recurso para abrirlo en su editor correspondiente
         </p>
       </header>
 

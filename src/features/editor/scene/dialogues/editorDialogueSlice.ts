@@ -1,12 +1,16 @@
-import type { ID, Node, Dialogue, DialogueNode, DialogueLineNode, DialogueRootNode } from "@/domain/types";
-import type { DialogueEditorContext, DialogueEditorSelection, DialogueEditorState } from "@/features/editor/scene/dialogues/dialogueEditorTypes";
+import type { ID, Node, Dialogue, DialogueLineNode } from "@/domain/types";
+import type { DialogueEditorSelection, DialogueEditorState } from "@/features/editor/scene/dialogues/dialogueEditorTypes";
 import { createDialogue, createDialogueLineNode, createEmptyDialogueEditorState } from "@/features/editor/scene/dialogues/dialogueHelpers";
-import { validateDialogue } from "@/features/editor/scene/dialogues/dialogueValidator";
+import {
+  buildDialogueEditorContext, cloneDialogue, cloneDialogueLine, collectDialogueSubtreeIds, commitCurrentLineIntoDialogueEditorState,
+  ensureDialogueSelectionForNode, findDialogueLineNode, findDialogueNode, findDialogueRootNode, getDialogueValidationError,
+  isDialogueLineNode, materializeDialogueDraft, readNodeDialogues, removeIdFromDialogueChildren, reorderItems,
+  replaceNodeInDialogue, upsertLineInDialogue
+} from "@/features/editor/scene/dialogues/dialogueHelpersSlice";
 import { generateId } from "@/utils/id";
-import { deepClonePojo, safeTrim } from "@/features/editor/core/editorGenericSlice";
+import { safeTrim } from "@/features/editor/core/editorGenericSlice";
 
-export const initialDialogueEditorState: DialogueEditorState =
-  createEmptyDialogueEditorState();
+export const initialDialogueEditorState: DialogueEditorState = createEmptyDialogueEditorState();
 
 type Store = {
   nodeDraft: Node | null;
@@ -47,226 +51,82 @@ export interface EditorDialoguesSlice {
   validateDialogueDraft: (dialogueId?: ID | null) => { ok: boolean; error?: string };
 }
 
-function buildContext(nodeId: ID | null | undefined): DialogueEditorContext | null {
-  if (!nodeId) return null;
-  return { nodeId };
-}
-
-function reorder<T>(arr: T[], fromIndex: number, toIndex: number): T[] {
-  if (arr.length <= 1) return arr;
-  if (fromIndex === toIndex) return arr;
-  if (fromIndex < 0 || fromIndex >= arr.length) return arr;
-  if (toIndex < 0 || toIndex >= arr.length) return arr;
-
-  const next = arr.slice();
-  const [moved] = next.splice(fromIndex, 1);
-  next.splice(toIndex, 0, moved);
-  return next;
-}
-
-function readDialogues(nodeDraft: Node | null): Dialogue[] {
-  return nodeDraft?.dialogues ?? [];
-}
-
-function cloneDialogue(dialogue: Dialogue): Dialogue {
-  return deepClonePojo(dialogue);
-}
-
-function cloneLine(line: DialogueLineNode): DialogueLineNode {
-  return deepClonePojo(line);
-}
-
-function isLineNode(node: DialogueNode): node is DialogueLineNode {
-  return node.type === "line";
-}
-
-function isRootNode(node: DialogueNode): node is DialogueRootNode {
-  return node.type === "root";
-}
-
-function findNode(dialogue: Dialogue | null, nodeId: ID | null | undefined): DialogueNode | null {
-  if (!dialogue || !nodeId) return null;
-  return dialogue.nodes.find((node) => node.id === nodeId) ?? null;
-}
-
-function findLineNode(dialogue: Dialogue | null, nodeId: ID | null | undefined): DialogueLineNode | null {
-  const node = findNode(dialogue, nodeId);
-  return node && isLineNode(node) ? node : null;
-}
-
-function findRootNode(dialogue: Dialogue | null): DialogueRootNode | null {
-  if (!dialogue) return null;
-  const node = findNode(dialogue, dialogue.rootId);
-  return node && isRootNode(node) ? node : null;
-}
-
-function replaceNodeInDialogue(dialogue: Dialogue, nextNode: DialogueNode): Dialogue {
-  const nodes0 = dialogue.nodes ?? [];
-  const idx = nodes0.findIndex((node) => node.id === nextNode.id);
-
-  if (idx < 0) return dialogue;
-
-  const nodes1 = nodes0.slice();
-  nodes1[idx] = nextNode;
-
-  return { ...dialogue, nodes: nodes1 };
-}
-
-function upsertLineInDialogue(dialogue: Dialogue, line: DialogueLineNode): Dialogue {
-  const nodes0 = dialogue.nodes ?? [];
-  const idx = nodes0.findIndex((node) => node.id === line.id);
-
-  if (idx < 0) return { ...dialogue, nodes: [...nodes0, cloneLine(line)] };
-
-  const nodes1 = nodes0.slice();
-  nodes1[idx] = cloneLine(line);
-
-  return { ...dialogue, nodes: nodes1 };
-}
-
-function materializeDialogueDraft(editor: DialogueEditorState): Dialogue | null {
-  const dialogueDraft = editor.dialogueDraft;
-  if (!dialogueDraft) return null;
-
-  if (!editor.lineDraft) return cloneDialogue(dialogueDraft);
-  return upsertLineInDialogue(cloneDialogue(dialogueDraft), editor.lineDraft);
-}
-
-function ensureSelectionForNode(selection: DialogueEditorSelection, nodeId: ID | null): DialogueEditorSelection {
-  return {
-    ...selection,
-    selectedNodeId: nodeId,
-  };
-}
-
-function removeIdFromChildren(nodes: DialogueNode[], targetId: ID): DialogueNode[] {
-  let changed = false;
-
-  const nextNodes = nodes.map((node) => {
-    const current = node.childrenIds ?? [];
-    const filtered = current.filter((id) => id !== targetId);
-
-    if (filtered.length === current.length) return node;
-
-    changed = true;
-    return { ...node, childrenIds: filtered };
-  });
-
-  return changed ? nextNodes : nodes;
-}
-
-function collectSubtreeIds(dialogue: Dialogue, startId: ID): Set<ID> {
-  const byId = new Map(dialogue.nodes.map((node) => [node.id, node]));
-  const collected = new Set<ID>();
-
-  function dfs(nodeId: ID) {
-    if (collected.has(nodeId)) return;
-    const node = byId.get(nodeId);
-    if (!node) return;
-
-    collected.add(nodeId);
-
-    for (const childId of node.childrenIds ?? []) {
-      dfs(childId);
-    }
-  }
-
-  dfs(startId);
-  return collected;
-}
-
-export function createEditorDialoguesSlice(set: (partial: Partial<Store> | ((s: Store) => Partial<Store> | Store)) => void,
+export function createEditorDialoguesSlice(set: (partial: Partial<Store> | ((state: Store) => Partial<Store> | Store)) => void,
   get: () => Store): EditorDialoguesSlice {
+  /* Helper interno del slice para mutar solo el dialogueDraft actual */
   function withDialogueDraft(updater: (dialogue: Dialogue) => Dialogue) {
-    set((s) => {
-      const dialogue0 = s.dialogueEditor.dialogueDraft;
-      if (!dialogue0) return s;
+    set((state) => {
+      const dialogue0 = state.dialogueEditor.dialogueDraft;
+      if (!dialogue0) return state;
 
       const dialogue1 = updater(dialogue0);
-      if (dialogue1 === dialogue0) return s;
+      if (dialogue1 === dialogue0) return state;
 
-      return {
-        ...s,
-        dialogueEditor: {
-          ...s.dialogueEditor,
-          dialogueDraft: dialogue1,
-        },
-      };
+      return { ...state, dialogueEditor: { ...state.dialogueEditor, dialogueDraft: dialogue1 } };
     });
-  }
-
-  function commitCurrentLineIntoDraft(s: Store): DialogueEditorState {
-    const ed = s.dialogueEditor;
-    if (!ed.dialogueDraft || !ed.lineDraft) return ed;
-
-    return {
-      ...ed,
-      dialogueDraft: upsertLineInDialogue(ed.dialogueDraft, ed.lineDraft),
-    };
   }
 
   return {
     dialogueEditor: initialDialogueEditorState,
 
-    getActiveDialogues: () => readDialogues(get().nodeDraft),
+    /* Lectura / Esctritura de diálogos en la escena */
+    getActiveDialogues: () => readNodeDialogues(get().nodeDraft),
 
     setNodeDialogues: (dialogues) =>
-      set((s) => {
-        if (!s.nodeDraft) return s;
+      set((state) => {
+        if (!state.nodeDraft) return state;
 
         return {
-          ...s,
+          ...state,
           nodeDraft: {
-            ...s.nodeDraft,
+            ...state.nodeDraft,
             dialogues: Array.isArray(dialogues) ? dialogues : [],
           },
         };
       }),
 
+    /* Selección y ciclo del editor */
     setDialogueSelection: (input) =>
-      set((s) => {
-        const ed0 = commitCurrentLineIntoDraft(s);
-        const currentSelection = ed0.selection;
+      set((state) => {
+        const editor0 = commitCurrentLineIntoDialogueEditorState(state.dialogueEditor);
+        const currentSelection = editor0.selection;
 
         const nextSelection: DialogueEditorSelection = {
           ...currentSelection,
           ...input,
         };
 
-        const nodeSelectionChanged =
-          input.selectedNodeId !== undefined &&
-          input.selectedNodeId !== currentSelection.selectedNodeId;
+        const nodeSelectionChanged = input.selectedNodeId !== undefined && input.selectedNodeId !== currentSelection.selectedNodeId;
 
         const normalizedSelection = nodeSelectionChanged
-          ? ensureSelectionForNode(nextSelection, input.selectedNodeId ?? null)
+          ? ensureDialogueSelectionForNode(nextSelection, input.selectedNodeId ?? null)
           : nextSelection;
 
-        const nextNodeId =
-          input.selectedNodeId !== undefined
-            ? input.selectedNodeId
-            : ed0.selection.selectedNodeId;
+        const nextNodeId = input.selectedNodeId !== undefined
+          ? input.selectedNodeId
+          : editor0.selection.selectedNodeId;
 
-        const found = findLineNode(ed0.dialogueDraft, nextNodeId);
+        const found = findDialogueLineNode(editor0.dialogueDraft, nextNodeId);
 
         return {
-          ...s,
+          ...state,
           dialogueEditor: {
-            ...ed0,
+            ...editor0,
             selection: normalizedSelection,
-            lineDraft: found ? cloneLine(found) : null,
+            lineDraft: found ? cloneDialogueLine(found) : null,
           },
         };
       }),
 
     clearDialogueEditor: () =>
-      set((s) => ({
-        ...s,
+      set((state) => ({
+        ...state,
         dialogueEditor: initialDialogueEditorState,
       })),
 
     startCreatingDialogue: (input) => {
-      const s = get();
-      if (!s.nodeDraft) return null;
+      const state = get();
+      if (!state.nodeDraft) return null;
 
       const dialogueId = generateId.dialogue();
 
@@ -278,10 +138,10 @@ export function createEditorDialoguesSlice(set: (partial: Partial<Store> | ((s: 
         description: safeTrim(input.description ?? ""),
       };
 
-      set((st) => ({
-        ...st,
+      set((currentState) => ({
+        ...currentState,
         dialogueEditor: {
-          context: buildContext(st.nodeDraft?.id),
+          context: buildDialogueEditorContext(currentState.nodeDraft?.id),
           mode: { type: "creating" },
           selection: {
             selectedDialogueId: dialogueId,
@@ -296,19 +156,19 @@ export function createEditorDialoguesSlice(set: (partial: Partial<Store> | ((s: 
     },
 
     editDialogue: (dialogueId) =>
-      set((s) => {
-        const nodeDraft = s.nodeDraft;
-        if (!nodeDraft) return s;
+      set((state) => {
+        const nodeDraft = state.nodeDraft;
+        if (!nodeDraft) return state;
 
-        const source = (nodeDraft.dialogues ?? []).find((d) => d.id === dialogueId);
-        if (!source) return s;
+        const source = (nodeDraft.dialogues ?? []).find((dialogue) => dialogue.id === dialogueId);
+        if (!source) return state;
 
         const dialogueDraft = cloneDialogue(source);
 
         return {
-          ...s,
+          ...state,
           dialogueEditor: {
-            context: buildContext(nodeDraft.id),
+            context: buildDialogueEditorContext(nodeDraft.id),
             mode: { type: "editing", dialogueId },
             selection: {
               selectedDialogueId: dialogueId,
@@ -321,24 +181,25 @@ export function createEditorDialoguesSlice(set: (partial: Partial<Store> | ((s: 
       }),
 
     cancelDialogueDraft: () =>
-      set((s) => ({
-        ...s,
+      set((state) => ({
+        ...state,
         dialogueEditor: initialDialogueEditorState,
       })),
 
     commitLineDraft: () => {
-      const s = get();
-      const lineDraft = s.dialogueEditor.lineDraft;
-      const dialogueDraft = s.dialogueEditor.dialogueDraft;
+      const state = get();
+      const lineDraft = state.dialogueEditor.lineDraft;
+      const dialogueDraft = state.dialogueEditor.dialogueDraft;
+
       if (!lineDraft || !dialogueDraft) return null;
 
-      set((st) => ({
-        ...st,
+      set((currentState) => ({
+        ...currentState,
         dialogueEditor: {
-          ...st.dialogueEditor,
+          ...currentState.dialogueEditor,
           dialogueDraft: upsertLineInDialogue(
-            st.dialogueEditor.dialogueDraft as Dialogue,
-            st.dialogueEditor.lineDraft as DialogueLineNode
+            currentState.dialogueEditor.dialogueDraft as Dialogue,
+            currentState.dialogueEditor.lineDraft as DialogueLineNode
           ),
         },
       }));
@@ -347,151 +208,134 @@ export function createEditorDialoguesSlice(set: (partial: Partial<Store> | ((s: 
     },
 
     commitDialogueDraft: () => {
-      const s = get();
-      if (!s.nodeDraft) return { ok: false, error: "No hay escena en edición." };
+      const state = get();
 
-      const materialized = materializeDialogueDraft(s.dialogueEditor);
+      if (!state.nodeDraft) return { ok: false, error: "No hay escena en edición." };
+
+      const materialized = materializeDialogueDraft(state.dialogueEditor);
       if (!materialized) return { ok: false, error: "No hay diálogo en edición." };
 
-      const validation = validateDialogue(materialized);
-      if (!validation.ok) {
-        const error =
-          validation.errors.title ??
-          validation.errors.nodes ??
-          validation.errors.rootId ??
-          validation.errors.playerId ??
-          validation.errors.npcId ??
-          "El diálogo no es válido.";
+      const validationError = getDialogueValidationError(materialized);
+      if (validationError) return { ok: false, error: validationError };
 
-        return { ok: false, error };
-      }
+      const mode = state.dialogueEditor.mode;
+      const dialogues0 = state.nodeDraft.dialogues ?? [];
 
-      const mode = s.dialogueEditor.mode;
-      const dialogues0 = s.nodeDraft.dialogues ?? [];
+      const dialogues1 = mode.type === "creating"
+        ? [...dialogues0, materialized]
+        : dialogues0.some((dialogue) => dialogue.id === materialized.id)
+          ? dialogues0.map((dialogue) => dialogue.id === materialized.id ? materialized : dialogue)
+          : [...dialogues0, materialized];
 
-      const dialogues1 =
-        mode.type === "creating"
-          ? [...dialogues0, materialized]
-          : dialogues0.some((d) => d.id === materialized.id)
-            ? dialogues0.map((d) => (d.id === materialized.id ? materialized : d))
-            : [...dialogues0, materialized];
+      const selectedLine = findDialogueLineNode(materialized, state.dialogueEditor.selection.selectedNodeId) ??
+        materialized.nodes.find(isDialogueLineNode) ?? null;
 
-      const selectedLine =
-        findLineNode(materialized, s.dialogueEditor.selection.selectedNodeId) ??
-        materialized.nodes.find(isLineNode) ??
-        null;
-
-      set((st) => ({
-        ...st,
+      set((currentState) => ({
+        ...currentState,
         nodeDraft: {
-          ...st.nodeDraft!,
+          ...currentState.nodeDraft!,
           dialogues: dialogues1,
         },
         dialogueEditor: {
-          context: buildContext(st.nodeDraft?.id),
+          context: buildDialogueEditorContext(currentState.nodeDraft?.id),
           mode: { type: "editing", dialogueId: materialized.id },
           selection: {
             selectedDialogueId: materialized.id,
             selectedNodeId: selectedLine?.id ?? null,
           },
           dialogueDraft: cloneDialogue(materialized),
-          lineDraft: selectedLine ? cloneLine(selectedLine) : null,
+          lineDraft: selectedLine ? cloneDialogueLine(selectedLine) : null,
         },
       }));
 
       return { ok: true, id: materialized.id };
     },
 
+    /* Mutaciones de metadatos del diálogo */
     setDialogueTitle: (dialogueId, title) =>
       withDialogueDraft((dialogue) => {
         if (dialogue.id !== dialogueId) return dialogue;
+
         const next = safeTrim(title ?? "");
         if ((dialogue.title ?? "") === next) return dialogue;
+
         return { ...dialogue, title: next };
       }),
 
     setDialogueDescription: (dialogueId, description) =>
       withDialogueDraft((dialogue) => {
         if (dialogue.id !== dialogueId) return dialogue;
+
         const next = safeTrim(description ?? "");
         if ((dialogue.description ?? "") === next) return dialogue;
+
         return { ...dialogue, description: next };
       }),
 
     setDialoguePlayerId: (dialogueId, playerId) =>
-      withDialogueDraft((dialogue) =>
-        dialogue.id !== dialogueId || dialogue.playerId === playerId
-          ? dialogue
-          : { ...dialogue, playerId }
-      ),
+      withDialogueDraft((dialogue) => dialogue.id !== dialogueId || dialogue.playerId === playerId
+        ? dialogue : { ...dialogue, playerId }),
 
     setDialogueNpcId: (dialogueId, npcId) =>
-      withDialogueDraft((dialogue) =>
-        dialogue.id !== dialogueId || dialogue.npcId === npcId
-          ? dialogue
-          : { ...dialogue, npcId }
-      ),
+      withDialogueDraft((dialogue) => dialogue.id !== dialogueId || dialogue.npcId === npcId
+        ? dialogue : { ...dialogue, npcId }),
 
     setDialogueWhen: (dialogueId, when) =>
-      withDialogueDraft((dialogue) =>
-        dialogue.id !== dialogueId || dialogue.when === when
-          ? dialogue
-          : { ...dialogue, when: when ?? undefined }
-      ),
+      withDialogueDraft((dialogue) => dialogue.id !== dialogueId || dialogue.when === when
+        ? dialogue : { ...dialogue, when: when ?? undefined }),
 
     setDialogueRootId: (dialogueId, rootId) =>
-      withDialogueDraft((dialogue) =>
-        dialogue.id !== dialogueId || dialogue.rootId === rootId
-          ? dialogue
-          : { ...dialogue, rootId }
-      ),
+      withDialogueDraft((dialogue) => dialogue.id !== dialogueId || dialogue.rootId === rootId
+        ? dialogue : { ...dialogue, rootId }),
 
+    /* Operaciones sobre diálogos */
     removeDialogue: (dialogueId) =>
-      set((s) => {
-        if (!s.nodeDraft) return s;
+      set((state) => {
+        if (!state.nodeDraft) return state;
 
-        const dialogues0 = s.nodeDraft.dialogues ?? [];
-        const dialogues1 = dialogues0.filter((d) => d.id !== dialogueId);
-        if (dialogues1.length === dialogues0.length) return s;
+        const dialogues0 = state.nodeDraft.dialogues ?? [];
+        const dialogues1 = dialogues0.filter((dialogue) => dialogue.id !== dialogueId);
+        if (dialogues1.length === dialogues0.length) return state;
 
-        const isEditing = s.dialogueEditor.selection.selectedDialogueId === dialogueId;
+        const isEditing = state.dialogueEditor.selection.selectedDialogueId === dialogueId;
 
         return {
-          ...s,
+          ...state,
           nodeDraft: {
-            ...s.nodeDraft,
+            ...state.nodeDraft,
             dialogues: dialogues1,
           },
-          dialogueEditor: isEditing ? initialDialogueEditorState : s.dialogueEditor,
+          dialogueEditor: isEditing ? initialDialogueEditorState : state.dialogueEditor
         };
       }),
 
     reorderDialogues: (fromIndex, toIndex) =>
-      set((s) => {
-        if (!s.nodeDraft) return s;
+      set((state) => {
+        if (!state.nodeDraft) return state;
 
-        const dialogues0 = s.nodeDraft.dialogues ?? [];
-        const dialogues1 = reorder(dialogues0, fromIndex, toIndex);
-        if (dialogues1 === dialogues0) return s;
+        const dialogues0 = state.nodeDraft.dialogues ?? [];
+        const dialogues1 = reorderItems(dialogues0, fromIndex, toIndex);
+        if (dialogues1 === dialogues0) return state;
 
         return {
-          ...s,
+          ...state,
           nodeDraft: {
-            ...s.nodeDraft,
+            ...state.nodeDraft,
             dialogues: dialogues1,
           },
         };
       }),
 
+    /* Operaciones sobre líneas */
     addDialogueLine: (dialogueId, args) => {
-      const s = get();
-      const ed = s.dialogueEditor;
-      const dialogue0 = materializeDialogueDraft(ed);
+      const state = get();
+      const dialogue0 = materializeDialogueDraft(state.dialogueEditor);
+
       if (!dialogue0 || dialogue0.id !== dialogueId) return null;
 
       const lineId = generateId.dialogueLine();
       const parentId = args?.parentId ?? dialogue0.rootId;
-      const parent = findNode(dialogue0, parentId);
+      const parent = findDialogueNode(dialogue0, parentId);
       if (!parent) return null;
 
       const line: DialogueLineNode = {
@@ -500,28 +344,29 @@ export function createEditorDialoguesSlice(set: (partial: Partial<Store> | ((s: 
         text: args?.text ?? "",
       };
 
-      const updatedParent: DialogueNode = {
+      const updatedParent = {
         ...parent,
         childrenIds: [...(parent.childrenIds ?? []), lineId],
       };
 
       const withParent = replaceNodeInDialogue(dialogue0, updatedParent);
+
       const dialogue1: Dialogue = {
         ...withParent,
-        nodes: [...withParent.nodes, cloneLine(line)],
+        nodes: [...withParent.nodes, cloneDialogueLine(line)],
       };
 
-      set((st) => ({
-        ...st,
+      set((currentState) => ({
+        ...currentState,
         dialogueEditor: {
-          ...st.dialogueEditor,
+          ...currentState.dialogueEditor,
           selection: {
-            ...st.dialogueEditor.selection,
+            ...currentState.dialogueEditor.selection,
             selectedDialogueId: dialogueId,
             selectedNodeId: lineId,
           },
           dialogueDraft: dialogue1,
-          lineDraft: cloneLine(line),
+          lineDraft: cloneDialogueLine(line),
         },
       }));
 
@@ -529,146 +374,139 @@ export function createEditorDialoguesSlice(set: (partial: Partial<Store> | ((s: 
     },
 
     updateDialogueLine: (dialogueId, lineId, patch) =>
-      set((s) => {
-        const ed = s.dialogueEditor;
-        const dialogueDraft = ed.dialogueDraft;
-        if (!dialogueDraft || dialogueDraft.id !== dialogueId) return s;
+      set((state) => {
+        const editor = state.dialogueEditor;
+        const dialogueDraft = editor.dialogueDraft;
+        if (!dialogueDraft || dialogueDraft.id !== dialogueId) return state;
 
         const { id: _ignoredId, type: _ignoredType, ...rest } = patch;
 
-        if (ed.lineDraft?.id === lineId) {
+        if (editor.lineDraft?.id === lineId) {
           return {
-            ...s,
+            ...state,
             dialogueEditor: {
-              ...ed,
-              lineDraft: { ...ed.lineDraft, ...rest },
+              ...editor,
+              lineDraft: { ...editor.lineDraft, ...rest },
             },
           };
         }
 
         const nodes0 = dialogueDraft.nodes ?? [];
-        const idx = nodes0.findIndex((node) => node.id === lineId && isLineNode(node));
-        if (idx < 0) return s;
+        const index = nodes0.findIndex((node) => node.id === lineId && isDialogueLineNode(node));
+        if (index < 0) return state;
 
-        const current = nodes0[idx];
-        if (!current || !isLineNode(current)) return s;
+        const current = nodes0[index];
+        if (!current || !isDialogueLineNode(current)) return state;
 
         const nodes1 = nodes0.slice();
-        nodes1[idx] = { ...current, ...rest };
+        nodes1[index] = { ...current, ...rest };
 
         return {
-          ...s,
+          ...state,
           dialogueEditor: {
-            ...ed,
+            ...editor,
             dialogueDraft: { ...dialogueDraft, nodes: nodes1 },
           },
         };
       }),
 
     removeDialogueLine: (dialogueId, lineId) =>
-      set((s) => {
-        const ed0 = { ...commitCurrentLineIntoDraft(s) };
-        const dialogueDraft = ed0.dialogueDraft;
-        if (!dialogueDraft || dialogueDraft.id !== dialogueId) return s;
+      set((state) => {
+        const editor0 = commitCurrentLineIntoDialogueEditorState(state.dialogueEditor);
+        const dialogueDraft = editor0.dialogueDraft;
+        if (!dialogueDraft || dialogueDraft.id !== dialogueId) return state;
 
-        const target = findLineNode(dialogueDraft, lineId);
-        if (!target) return s;
+        const target = findDialogueLineNode(dialogueDraft, lineId);
+        if (!target) return state;
 
-        const protectedRootChildren = findRootNode(dialogueDraft)?.childrenIds ?? [];
-        const isLastRootChild =
-          protectedRootChildren.includes(lineId) && protectedRootChildren.length <= 1;
+        const protectedRootChildren = findDialogueRootNode(dialogueDraft)?.childrenIds ?? [];
 
-        if (isLastRootChild) return s;
+        const isLastRootChild = protectedRootChildren.includes(lineId) && protectedRootChildren.length <= 1;
 
-        const subtreeIds = collectSubtreeIds(dialogueDraft, lineId);
+        if (isLastRootChild) return state;
+
+        const subtreeIds = collectDialogueSubtreeIds(dialogueDraft, lineId);
 
         let nodes1 = dialogueDraft.nodes.filter((node) => !subtreeIds.has(node.id));
-        nodes1 = removeIdFromChildren(nodes1, lineId);
+        nodes1 = removeIdFromDialogueChildren(nodes1, lineId);
 
         const nextDialogueDraft: Dialogue = {
           ...dialogueDraft,
           nodes: nodes1,
         };
 
-        const clearSelected = ed0.selection.selectedNodeId != null && subtreeIds.has(ed0.selection.selectedNodeId);
+        const clearSelected = editor0.selection.selectedNodeId != null &&
+          subtreeIds.has(editor0.selection.selectedNodeId);
+
         const nextSelectedLine = clearSelected
-          ? (nextDialogueDraft.nodes.find(isLineNode) ?? null)
-          : findLineNode(nextDialogueDraft, ed0.selection.selectedNodeId);
+          ? nextDialogueDraft.nodes.find(isDialogueLineNode) ?? null
+          : findDialogueLineNode(nextDialogueDraft, editor0.selection.selectedNodeId);
 
         const nextSelection = clearSelected
-          ? {
-            ...ed0.selection,
-            selectedNodeId: nextSelectedLine?.id ?? null,
-          }
-          : ed0.selection;
+          ? { ...editor0.selection, selectedNodeId: nextSelectedLine?.id ?? null }
+          : editor0.selection;
 
         return {
-          ...s,
+          ...state,
           dialogueEditor: {
-            ...ed0,
+            ...editor0,
             selection: nextSelection,
             dialogueDraft: nextDialogueDraft,
             lineDraft: nextSelectedLine
-              ? cloneLine(nextSelectedLine)
+              ? cloneDialogueLine(nextSelectedLine)
               : clearSelected
                 ? null
-                : ed0.lineDraft,
+                : editor0.lineDraft,
           },
         };
       }),
 
     reorderDialogueLines: (dialogueId, parentId, fromIndex, toIndex) =>
-      set((s) => {
-        const ed0 = { ...commitCurrentLineIntoDraft(s) };
-        const dialogueDraft = ed0.dialogueDraft;
-        if (!dialogueDraft || dialogueDraft.id !== dialogueId) return s;
+      set((state) => {
+        const editor0 = commitCurrentLineIntoDialogueEditorState(state.dialogueEditor);
+        const dialogueDraft = editor0.dialogueDraft;
+        if (!dialogueDraft || dialogueDraft.id !== dialogueId) return state;
 
-        const parent = findNode(dialogueDraft, parentId);
-        if (!parent) return s;
+        const parent = findDialogueNode(dialogueDraft, parentId);
+        if (!parent) return state;
 
         const childrenIds0 = parent.childrenIds ?? [];
-        const childrenIds1 = reorder(childrenIds0, fromIndex, toIndex);
+        const childrenIds1 = reorderItems(childrenIds0, fromIndex, toIndex);
 
-        if (childrenIds1 === childrenIds0) return s;
+        if (childrenIds1 === childrenIds0) return state;
 
-        const nextParent: DialogueNode = {
+        const nextParent = {
           ...parent,
           childrenIds: childrenIds1,
         };
 
-        const nextDialogueDraft = replaceNodeInDialogue(dialogueDraft, nextParent);
+        const nextDialogueDraft = replaceNodeInDialogue(
+          dialogueDraft,
+          nextParent
+        );
 
         return {
-          ...s,
+          ...state,
           dialogueEditor: {
-            ...ed0,
+            ...editor0,
             dialogueDraft: nextDialogueDraft,
           },
         };
       }),
 
+    /* Validación */
     validateDialogueDraft: (dialogueId) => {
-      const s = get();
-      const materialized = materializeDialogueDraft(s.dialogueEditor);
+      const state = get();
+      const materialized = materializeDialogueDraft(state.dialogueEditor);
+
       if (!materialized) return { ok: false, error: "No hay diálogo en edición." };
 
-      const targetId = dialogueId ?? s.dialogueEditor.selection.selectedDialogueId;
-      if (!targetId || materialized.id !== targetId) {
-        return { ok: false, error: "No hay diálogo seleccionado." };
-      }
+      const targetId = dialogueId ?? state.dialogueEditor.selection.selectedDialogueId;
 
-      const result = validateDialogue(materialized);
-      if (!result.ok) {
-        const msg =
-          result.errors.title ??
-          result.errors.nodes ??
-          result.errors.rootId ??
-          result.errors.playerId ??
-          result.errors.npcId ??
-          "El diálogo no es válido.";
+      if (!targetId || materialized.id !== targetId) return { ok: false, error: "No hay diálogo seleccionado." };
 
-        return { ok: false, error: msg };
-      }
+      const error = getDialogueValidationError(materialized);
+      if (error) return { ok: false, error };
 
       return { ok: true };
     },

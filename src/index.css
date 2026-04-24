@@ -60,7 +60,7 @@ body {
 
   /* Tarjeta principal de la Home */
   .home-card {
-    @apply max-w-xl w-full px-6 py-10 rounded-2xl bg-slate-800 border-4 border-slate-600;
+    @apply max-w-xl w-full px-6 py-10 rounded-2xl bg-slate-800 border-3 border-slate-600;
   }
 
   /* Overlay oscuro centrado para modales */
@@ -95,7 +95,11 @@ body {
 
   /* Botón primario específico para la aventura (por ejemplo, "Crear aventura" en el modal) */
   .btn-create {
-    @apply border border-fuchsia-400 bg-fuchsia-800 hover:bg-fuchsia-600 text-slate-100 font-semibold;
+    @apply bg-fuchsia-800 hover:bg-fuchsia-600 border-fuchsia-600 text-slate-100 font-semibold;
+  }
+
+  .btn-guardar {
+    @apply bg-fuchsia-950 hover:bg-fuchsia-900 border-fuchsia-600 text-slate-100 font-semibold;
   }
 
   /* Botón secundario genérico (por ejemplo, "Cancelar" en modales) */
@@ -105,7 +109,7 @@ body {
 
   /* Botón danger */
   .btn-danger {
-    @apply border border-red-500 bg-red-800 hover:bg-red-500 text-white;
+    @apply border border-red-600 bg-red-950 hover:bg-red-800 text-white;
   }
 
   /* Botón seleccionar */
@@ -121,7 +125,7 @@ body {
   /* Botón guardar */
   /* base ya la tienes */
   .btn-save {
-    @apply border-2 text-[12px] font-semibold text-white;
+    @apply border-2 text-[12px] text-white;
     border-color: var(--accent-border);
     background-color: var(--accent-bg);
   }
@@ -139,7 +143,7 @@ body {
 
   /* NPC (lime) */
   .btn-save--npc {
-    --accent-border: #84cc16; /* lime-500 */
+    --accent-border: #80c020; /* lime-500 */
     --accent-bg: #365314; /* lime-800 */
     --accent-hover: #4d7c0f; /* lime-700 */
   }
@@ -156,7 +160,7 @@ body {
 
   /* Botón grande de la Home (Crear / Editar / Jugar) */
   .btn-home {
-    @apply relative mx-auto px-4 py-3 rounded-lg font-bold text-white text-[19px] border-2 border-black transition duration-200 shadow-sm hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 text-center;
+    @apply relative mx-auto px-4 py-3 rounded-lg font-bold text-white text-[19px] border-3 border-black transition duration-200 shadow-sm hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 text-center;
     width: 270px;
   }
 
@@ -228,10 +232,12 @@ body {
 } 
 
   /** CONDITIONS */
-  .input-conditions {
-    @apply w-full rounded-md bg-slate-900 border border-slate-700 px-2 py-1 text-xs text-white focus:outline-none focus:ring-2 focus:ring-fuchsia-500;
-  }
-
+.input-conditions {
+  @apply w-full rounded-md bg-slate-950 border-2 border-slate-600 px-2 py-1 text-[13px] text-white
+    focus:outline-none focus:ring-2 focus:ring-fuchsia-500
+    focus:border-transparent
+    focus:bg-transparent active:bg-transparent;
+}
   .btn-add-condition {
     @apply border border-fuchsia-700 bg-fuchsia-950/30 text-white hover:bg-fuchsia-900/40;
   }
@@ -250,6 +256,10 @@ body {
   
   .btn-add-variant {
     @apply border-2 border-cyan-700 bg-cyan-900/60 hover:bg-cyan-800 text-xs text-white;
+  }
+
+  .btn-add-rule {
+    @apply border-2 border-fuchsia-700 bg-fuchsia-900/40 hover:bg-fuchsia-900 text-xs text-white;
   }
 
   .btn:disabled {
@@ -384,17 +394,17 @@ body {
 
   /* Panel izquierdo */
   .scene-editor-panel-left {
-    @apply w-full md:max-w-md bg-slate-800 border border-slate-700 rounded-lg md:h-full min-h-0 md:overflow-y-auto p-3 space-y-3 text-center;
+    @apply w-full md:max-w-md bg-slate-800 border-3 border-cyan-700 rounded-lg md:h-full min-h-0 md:overflow-y-auto p-3 space-y-3 text-center;
   }
 
   /* Panel derecho */
   .scene-editor-panel-right {
-    @apply flex-1 bg-slate-800 border border-slate-700 rounded-lg p-3 flex flex-col min-h-0 overflow-hidden;
+    @apply flex-1 bg-slate-800 border-2 border-cyan-700 rounded-lg p-3 flex flex-col min-h-0 overflow-hidden;
   }
 
   /* Tarjeta de previsualización completa */
   .scene-preview-card {
-    @apply w-full h-full min-h-0 rounded-md border border-slate-700 bg-slate-950/60 overflow-hidden flex flex-col gap-2;
+    @apply w-full h-full min-h-0 rounded-md border border-slate-700 bg-slate-800 overflow-hidden flex flex-col gap-2;
   }
 
   /* Contenedor de la imagen (aspect ratio video) */
@@ -404,7 +414,7 @@ body {
 
   /* Caja de texto de la escena en la preview */
   .scene-preview-text-box {
-    @apply w-full bg-slate-950/85 border-t border-slate-700 px-4 py-3 h-20 md:h-20 min-h-0 overflow-auto;
+    @apply w-full bg-slate-950/85  px-1 py-2 h-20 md:h-20 min-h-0 overflow-auto;
   }
 
   /* Fila de hotspot en el editor */
@@ -419,7 +429,7 @@ body {
 
   /* Contenedor para Inicio / Final */
   .scene-type-toggle-container {
-    @apply mt-2 border border-slate-800 rounded-md bg-slate-950/60 px-3 py-2;
+    @apply mt-2 border-2 border-black rounded-md bg-slate-950 px-3 py-2;
   }
 
   /* =========================

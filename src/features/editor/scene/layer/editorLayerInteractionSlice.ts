@@ -1,8 +1,11 @@
 import type { ID, Node, SceneImageLayer, Hotspot, PlacedItem, PlacedNpc, PlacedPlayer } from "@/domain/types";
+import { appendHotspot, appendPlacedItem, ensureInteractionsArrays, readActiveLayer, removeHotspotFromCollection, removePlacedItemFromCollection,
+  removePlacedNpcFromCollection, removePlacedPlayerFromCollection, reorderHotspotCollection, reorderPlacedItemCollection, updateHotspotInCollection,
+  updatePlacedItemInCollection, upsertPlacedNpcInCollection, upsertPlacedPlayerInCollection } from "@/features/editor/scene/layer/editorLayerInteractionHelpersSlice";
 
-export type InteractionKind = | "hotspot" | "placedItem" | "placedNpc" | "placedPlayer" ;
+export type InteractionKind = "hotspot" | "placedItem" | "placedNpc" | "placedPlayer";
 
-/* Mínimo contrato del store que necesita este slice */
+/* Contrato mínimo del store que necesita este slice */
 type EditorStoreLike = {
   nodeDraft: Node | null;
   activeLayerId: ID | null;
@@ -43,80 +46,36 @@ export interface EditorLayerInteractionsSlice {
 
 type Store = EditorStoreLike & EditorLayerInteractionsSlice;
 
-/* Helpers */
-function reorder<T>(arr: T[], fromIndex: number, toIndex: number): T[] {
-  if (arr.length <= 1) return arr;
-  if (fromIndex === toIndex) return arr;
-  if (fromIndex < 0 || fromIndex >= arr.length) return arr;
-  if (toIndex < 0 || toIndex >= arr.length) return arr;
-
-  const next = arr.slice();
-  const [moved] = next.splice(fromIndex, 1);
-  next.splice(toIndex, 0, moved);
-  return next;
-}
-
-function readActiveLayer(s: EditorStoreLike): SceneImageLayer | null {
-  if (!s.nodeDraft || !s.activeLayerId) return null;
-  return s.nodeDraft.layers?.find((l) => l.id === s.activeLayerId) ?? null;
-}
-
-function ensureInteractionsArrays(layer: SceneImageLayer): SceneImageLayer {
-  let changed = false;
-  const next: SceneImageLayer = { ...layer };
-
-  if (!next.hotspots) {
-    next.hotspots = [];
-    changed = true;
-  }
-  if (!next.placedItems) {
-    next.placedItems = [];
-    changed = true;
-  }
-  if (!next.placedNpcs) {
-    next.placedNpcs = [];
-    changed = true;
-  }
-  if (!next.placedPlayers) {
-    next.placedPlayers = [];
-    changed = true;
-  }
-
-  return changed ? next : layer;
-}
-
-export function createEditorLayerInteractionsSlice(set: ( partial: Partial<Store> | ((state: Store) => Partial<Store> | Store)) => void,
+export function createEditorLayerInteractionsSlice(set: (partial: | Partial<Store> | ((state: Store) => Partial<Store> | Store)) => void,
   get: () => Store): EditorLayerInteractionsSlice {
-
   function withActiveLayer(updater: (layer: SceneImageLayer) => SceneImageLayer): void {
-    set((s) => {
-      if (!s.nodeDraft || !s.activeLayerId) return s;
+    set((state) => {
+      if (!state.nodeDraft || !state.activeLayerId) return state;
 
-      const layers0 = s.nodeDraft.layers ?? [];
-      const idx = layers0.findIndex((l) => l.id === s.activeLayerId);
-      if (idx < 0) return s;
+      const layers0 = state.nodeDraft.layers ?? [];
+      const index = layers0.findIndex((layer) => layer.id === state.activeLayerId);
+      if (index < 0) return state;
 
-      const prev0 = layers0[idx]!;
+      const prev0 = layers0[index]!;
       const prev = ensureInteractionsArrays(prev0);
       const next = updater(prev);
 
-      if (next === prev0 || next === prev) return s;
+      if (next === prev0 || next === prev) return state;
 
       const layers1 = layers0.slice();
-      layers1[idx] = next;
+      layers1[index] = next;
 
-      return { ...s, nodeDraft: { ...s.nodeDraft, layers: layers1 } };
+      return { ...state, nodeDraft: { ...state.nodeDraft, layers: layers1 }};
     });
   }
 
   return {
     selectedInteractionKind: null,
-    
     selectedInteractionId: null,
 
     setSelectedInteractionKind: (kind) =>
-      set((s) => ({
-        ...s,
+      set((state) => ({
+        ...state,
         selectedInteractionKind: kind,
         selectedInteractionId: null,
       })),
@@ -131,43 +90,45 @@ export function createEditorLayerInteractionsSlice(set: ( partial: Partial<Store
 
     /* Hotspots */
     addHotspot: (hotspot) => {
-      withActiveLayer((layer) => {
-        const hotspots0 = layer.hotspots ?? [];
-        return { ...layer, hotspots: [...hotspots0, hotspot] };
-      });
+      withActiveLayer((layer) => ({
+        ...layer,
+        hotspots: appendHotspot(layer.hotspots, hotspot),
+      }));
     },
 
     updateHotspot: (hotspotId, patch) => {
       withActiveLayer((layer) => {
-        const hotspots0 = layer.hotspots ?? [];
-        const idx = hotspots0.findIndex((h) => h.id === hotspotId);
-        if (idx < 0) return layer;
+        const nextHotspots = updateHotspotInCollection(layer.hotspots, hotspotId, patch);
+        if (!nextHotspots) return layer;
 
-        const prev = hotspots0[idx]!;
-        const next = { ...prev, ...patch };
-
-        const hotspots1 = hotspots0.slice();
-        hotspots1[idx] = next;
-
-        return { ...layer, hotspots: hotspots1 };
+        return {
+          ...layer,
+          hotspots: nextHotspots,
+        };
       });
     },
 
     removeHotspot: (hotspotId) => {
       withActiveLayer((layer) => {
-        const hotspots0 = layer.hotspots ?? [];
-        const next = hotspots0.filter((h) => h.id !== hotspotId);
-        if (next.length === hotspots0.length) return layer;
-        return { ...layer, hotspots: next };
+        const nextHotspots = removeHotspotFromCollection(layer.hotspots, hotspotId);
+        if (!nextHotspots) return layer;
+
+        return {
+          ...layer,
+          hotspots: nextHotspots,
+        };
       });
     },
 
     reorderHotspots: (fromIndex, toIndex) => {
       withActiveLayer((layer) => {
-        const hotspots0 = layer.hotspots ?? [];
-        const next = reorder(hotspots0, fromIndex, toIndex);
-        if (next === hotspots0) return layer;
-        return { ...layer, hotspots: next };
+        const nextHotspots = reorderHotspotCollection(layer.hotspots, fromIndex, toIndex);
+        if (!nextHotspots) return layer;
+
+        return {
+          ...layer,
+          hotspots: nextHotspots,
+        };
       });
     },
 
@@ -185,43 +146,45 @@ export function createEditorLayerInteractionsSlice(set: ( partial: Partial<Store
 
     /* Placed items */
     addPlacedItem: (placedItem) => {
-      withActiveLayer((layer) => {
-        const items0 = layer.placedItems ?? [];
-        return { ...layer, placedItems: [...items0, placedItem] };
-      });
+      withActiveLayer((layer) => ({
+        ...layer,
+        placedItems: appendPlacedItem(layer.placedItems, placedItem),
+      }));
     },
 
     updatePlacedItem: (placedItemId, patch) => {
       withActiveLayer((layer) => {
-        const items0 = layer.placedItems ?? [];
-        const idx = items0.findIndex((p) => p.id === placedItemId);
-        if (idx < 0) return layer;
+        const nextPlacedItems = updatePlacedItemInCollection(layer.placedItems, placedItemId, patch);
+        if (!nextPlacedItems) return layer;
 
-        const prev = items0[idx]!;
-        const next = { ...prev, ...patch };
-
-        const items1 = items0.slice();
-        items1[idx] = next;
-
-        return { ...layer, placedItems: items1 };
+        return {
+          ...layer,
+          placedItems: nextPlacedItems,
+        };
       });
     },
 
     removePlacedItem: (placedItemId) => {
       withActiveLayer((layer) => {
-        const items0 = layer.placedItems ?? [];
-        const next = items0.filter((p) => p.id !== placedItemId);
-        if (next.length === items0.length) return layer;
-        return { ...layer, placedItems: next };
+        const nextPlacedItems = removePlacedItemFromCollection(layer.placedItems, placedItemId);
+        if (!nextPlacedItems) return layer;
+
+        return {
+          ...layer,
+          placedItems: nextPlacedItems,
+        };
       });
     },
 
     reorderPlacedItems: (fromIndex, toIndex) => {
       withActiveLayer((layer) => {
-        const items0 = layer.placedItems ?? [];
-        const next = reorder(items0, fromIndex, toIndex);
-        if (next === items0) return layer;
-        return { ...layer, placedItems: next };
+        const nextPlacedItems = reorderPlacedItemCollection(layer.placedItems, fromIndex, toIndex);
+        if (!nextPlacedItems) return layer;
+
+        return {
+          ...layer,
+          placedItems: nextPlacedItems,
+        };
       });
     },
 
@@ -237,36 +200,29 @@ export function createEditorLayerInteractionsSlice(set: ( partial: Partial<Store
       }));
     },
 
-    /* Placed NPC */
+    /* Placed NPCs */
     upsertPlacedNpc: (placedNpc) => {
-      withActiveLayer((layer) => {
-        const npcs0 = layer.placedNpcs ?? [];
-        const idx = npcs0.findIndex((p) => p.npcId === placedNpc.npcId);
-
-        if (idx < 0) return { ...layer, placedNpcs: [...npcs0, placedNpc] };
-
-        const prev = npcs0[idx]!;
-        const next = { ...prev, ...placedNpc };
-
-        const npcs1 = npcs0.slice();
-        npcs1[idx] = next;
-
-        return { ...layer, placedNpcs: npcs1 };
-      });
+      withActiveLayer((layer) => ({
+        ...layer,
+        placedNpcs: upsertPlacedNpcInCollection(layer.placedNpcs, placedNpc),
+      }));
     },
 
     removePlacedNpc: (npcId) => {
       withActiveLayer((layer) => {
-        const npcs0 = layer.placedNpcs ?? [];
-        const next = npcs0.filter((p) => p.npcId !== npcId);
-        if (next.length === npcs0.length) return layer;
-        return { ...layer, placedNpcs: next };
+        const nextPlacedNpcs = removePlacedNpcFromCollection(layer.placedNpcs, npcId);
+        if (!nextPlacedNpcs) return layer;
+
+        return {
+          ...layer,
+          placedNpcs: nextPlacedNpcs,
+        };
       });
     },
 
     getActivePlacedNpcs: () => {
       const layer = readActiveLayer(get());
-      return (layer?.placedNpcs ?? []) as PlacedNpc[];
+      return layer?.placedNpcs ?? []; 
     },
 
     setActivePlacedNpcs: (placedNpcs) => {
@@ -276,36 +232,29 @@ export function createEditorLayerInteractionsSlice(set: ( partial: Partial<Store
       }));
     },
 
-    /* Placed Player */
+    /* Placed Players */
     upsertPlacedPlayer: (placedPlayer) => {
-      withActiveLayer((layer) => {
-        const players0 = layer.placedPlayers ?? [];
-        const idx = players0.findIndex((p) => p.playerId === placedPlayer.playerId);
-
-        if (idx < 0) return { ...layer, placedPlayers: [...players0, placedPlayer] };
-
-        const prev = players0[idx]!;
-        const next = { ...prev, ...placedPlayer };
-
-        const players1 = players0.slice();
-        players1[idx] = next;
-
-        return { ...layer, placedPlayers: players1 };
-      });
+      withActiveLayer((layer) => ({
+        ...layer,
+        placedPlayers: upsertPlacedPlayerInCollection(layer.placedPlayers, placedPlayer),
+      }));
     },
 
     removePlacedPlayer: (playerId) => {
       withActiveLayer((layer) => {
-        const players0 = layer.placedPlayers ?? [];
-        const next = players0.filter((p) => p.playerId !== playerId);
-        if (next.length === players0.length) return layer;
-        return { ...layer, placedPlayers: next };
+        const nextPlacedPlayers = removePlacedPlayerFromCollection(layer.placedPlayers, playerId);
+        if (!nextPlacedPlayers) return layer;
+
+        return {
+          ...layer,
+          placedPlayers: nextPlacedPlayers,
+        };
       });
     },
 
     getActivePlacedPlayers: () => {
       const layer = readActiveLayer(get());
-      return (layer?.placedPlayers ?? []) as PlacedPlayer[];
+      return layer?.placedPlayers ?? [];
     },
 
     setActivePlacedPlayers: (placedPlayers) => {

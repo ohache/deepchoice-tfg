@@ -1,37 +1,51 @@
 import React, { useMemo } from "react";
 import type { ID } from "@/domain/types";
-import { type EnabledLeafCondition, type EnabledLeafType, type LeafCtx, type LeafVarKind, applyLeafPatch, getLeafOptions, getLeafUi,
-  getVarOpOptions, type LeafFieldSpec, getAvailableLeafTypesForFamily, leafFamily } from "@/features/editor/scene/rules/conditions/conditionLeafRegistry";
+import {
+  type EnabledLeafCondition, type EnabledLeafType, type LeafCtx, type LeafVarKind, applyLeafPatch, getLeafOptions, getLeafUi, getVarOpOptions,
+  type LeafFieldSpec, getAvailableLeafTypesForFamily, leafFamily
+} from "@/features/editor/scene/rules/conditions/conditionLeafRegistry";
 import { Select, type Option } from "@/components/Select";
 
-const Field: React.FC<{ label: string; children: React.ReactNode; className?: string }> = ({ label, children, className }) => (
-  <div className={className}>
-    {label ? <div className="text-[12px] text-slate-100 pb-1">{label}</div> : null}
-    {children}
-  </div>
-);
+const booleanOptions: Option<"true" | "false">[] = [
+  { id: "true", label: "true" },
+  { id: "false", label: "false" },
+];
 
-const NumberInput: React.FC<{ value: number; onChange: (v: number) => void; disabled?: boolean }> = ({ value, onChange, disabled }) => (
-  <input
-    type="number"
-    value={Number.isFinite(value) ? value : 0}
-    onChange={(e) => onChange(Number(e.currentTarget.value))}
-    disabled={disabled}
-    className="input-conditions disabled:opacity-50"
-  />
-);
+/* Wrapper visual simple para cada campo */
+function Field({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
+  return (
+    <div className={className}>
+      {label ? <div className="text-[12px] text-slate-100 pb-1">{label}</div> : null}
+      {children}
+    </div>
+  );
+}
 
-const BoolSelect: React.FC<{ value: boolean; onChange: (v: boolean) => void; disabled?: boolean }> = ({ value, onChange, disabled }) => (
-  <select
-    value={String(Boolean(value))}
-    onChange={(e) => onChange(e.currentTarget.value === "true")}
-    disabled={disabled}
-    className="w-full rounded-md bg-slate-900 border border-slate-700 px-2 py-1 text-xs text-white focus:outline-none focus:ring-2 focus:ring-fuchsia-500 disabled:opacity-50"
-  >
-    <option value="true">true</option>
-    <option value="false">false</option>
-  </select>
-);
+/* Input numérico reutilizable */
+function NumberInput({ value, onChange, disabled }: { value: number; onChange: (value: number) => void; disabled?: boolean }) {
+  return (
+    <input
+      type="number"
+      value={Number.isFinite(value) ? value : 0}
+      onChange={(e) => onChange(Number(e.currentTarget.value))}
+      disabled={disabled}
+      className="input-conditions disabled:opacity-50"
+    />
+  );
+}
+
+/* Selector booleano reutilizable */
+function BoolSelect({ value, onChange, disabled }: { value: boolean; onChange: (value: boolean) => void; disabled?: boolean }) {
+  return (
+    <Select<"true" | "false">
+      value={String(Boolean(value)) as "true" | "false"}
+      onChange={(next) => onChange(next === "true")}
+      disabled={disabled}
+      options={booleanOptions}
+      buttonClassName="border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-white focus:outline-none focus:ring-2 focus:ring-fuchsia-500 disabled:opacity-50"
+    />
+  );
+}
 
 type Props = {
   ctx: LeafCtx;
@@ -42,54 +56,66 @@ type Props = {
   onChange: (next: EnabledLeafCondition) => void;
 };
 
+/* Helpers */
 function getFieldValue(cond: EnabledLeafCondition, path: string): unknown {
   return (cond as Record<string, unknown>)[path];
 }
 
 function resolveVarKind(ctx: LeafCtx, cond: EnabledLeafCondition): LeafVarKind {
-  if (cond.type === "playerVar") {
-    const def = ctx.idx.getVarDef("player", cond.playerId, cond.varId);
-    return def ? (def.type === "boolean" ? "boolean" : "number") : "unknown";
-  }
+  switch (cond.type) {
+    case "playerVar": {
+      const def = ctx.idx.getVarDef("player", cond.playerId, cond.varId);
+      return def ? (def.type === "boolean" ? "boolean" : "number") : "unknown";
+    }
 
-  if (cond.type === "npcVar") {
-    const def = ctx.idx.getVarDef("npc", cond.npcId, cond.varId);
-    return def ? (def.type === "boolean" ? "boolean" : "number") : "unknown";
-  }
+    case "npcVar": {
+      const def = ctx.idx.getVarDef("npc", cond.npcId, cond.varId);
+      return def ? (def.type === "boolean" ? "boolean" : "number") : "unknown";
+    }
 
-  if (cond.type === "hotspotVar") {
-    const def = ctx.idx.getVarDef("hotspot", cond.hotspotId, cond.varId);
-    return def ? (def.type === "boolean" ? "boolean" : "number") : "unknown";
-  }
+    case "hotspotVar": {
+      const def = ctx.idx.getVarDef("hotspot", cond.hotspotId, cond.varId);
+      return def ? (def.type === "boolean" ? "boolean" : "number") : "unknown";
+    }
 
-  return "unknown";
+    default:
+      return "unknown";
+  }
 }
+
 
 function isVarCondition(cond: EnabledLeafCondition): cond is Extract<EnabledLeafCondition, { type: "playerVar" | "npcVar" | "hotspotVar" }> {
   return cond.type === "playerVar" || cond.type === "npcVar" || cond.type === "hotspotVar";
 }
 
+/* Indica si la condición ya tiene elegida su entidad primaria */
 function hasSelectedPrimaryEntity(cond: EnabledLeafCondition): boolean {
   switch (cond.type) {
     case "nodeVisited":
       return Boolean(cond.nodeId);
+
     case "mapRegionVisited":
       return Boolean(cond.regionId || cond.mapId);
+
     case "hasItem":
     case "placedItemVisible":
     case "placedItemReachable":
       return Boolean(cond.placedItemId);
+
     case "hotspotVisible":
     case "hotspotReachable":
     case "hotspotVar":
       return Boolean(cond.hotspotId);
+
     case "placedNpcVisible":
     case "placedNpcReachable":
     case "npcVar":
       return Boolean(cond.npcId);
+
     case "placedPlayerVisible":
     case "playerVar":
       return Boolean(cond.playerId);
+
     default:
       return false;
   }
@@ -99,10 +125,16 @@ function isProgressCondition(cond: EnabledLeafCondition): boolean {
   return cond.type === "nodeVisited" || cond.type === "mapRegionVisited";
 }
 
-
+/* Construye un pequeño índice local por key para evitar varios find repetidos */
+function buildFieldMap(fields: LeafFieldSpec[]): Partial<Record<string, LeafFieldSpec>> {
+  return fields.reduce<Partial<Record<string, LeafFieldSpec>>>((acc, field) => {
+    acc[field.key] = field;
+    return acc;
+  }, {});
+}
 
 export function ConditionLeafEditor({ ctx, cond, familyTypeOptions = [], selectedFamily, onChangeType, onChange }: Props) {
-    if (!cond) {
+  if (!cond) {
     const isProgressFamily = selectedFamily === "progress";
 
     return (
@@ -112,9 +144,9 @@ export function ConditionLeafEditor({ ctx, cond, familyTypeOptions = [], selecte
             <Field label="Opción">
               <Select<EnabledLeafType>
                 value=""
-                onChange={(v) => {
-                  if (!v || !onChangeType) return;
-                  onChangeType(v);
+                onChange={(value) => {
+                  if (!value || !onChangeType) return;
+                  onChangeType(value);
                 }}
                 options={familyTypeOptions}
                 placeholder="Selecciona…"
@@ -132,37 +164,43 @@ export function ConditionLeafEditor({ ctx, cond, familyTypeOptions = [], selecte
     );
   }
 
-
   const ui = getLeafUi(cond.type);
 
-  const patch = (p: Partial<EnabledLeafCondition>) => {
-    const next = applyLeafPatch(ctx, cond, p);
+  const fieldMap = useMemo(() => buildFieldMap(ui.fields), [ui.fields]);
+
+  const patch = (partial: Partial<EnabledLeafCondition>) => {
+    const next = applyLeafPatch(ctx, cond, partial);
     onChange(next);
   };
 
   const varKind = useMemo(() => resolveVarKind(ctx, cond), [ctx, cond]);
+
   const varOpOptions = useMemo<Option<string>[]>(() => getVarOpOptions(ctx, cond), [ctx, cond]);
 
   const family = leafFamily(cond.type);
+
+  /* Filtra opciones de subtipo dentro de la familia actual según lo que sea válido en este contexto */
   const filteredFamilyTypeOptions = useMemo<Option<EnabledLeafType>[]>(() => {
     const allowed = new Set(getAvailableLeafTypesForFamily(ctx, family, cond));
-    return familyTypeOptions.filter((opt) => allowed.has(opt.id));
+    return familyTypeOptions.filter((option) => allowed.has(option.id));
   }, [ctx, family, cond, familyTypeOptions]);
 
-  const renderField = (f: LeafFieldSpec) => {
-    if (f.visibleWhen && !f.visibleWhen(ctx, cond)) return null;
+  /* Render de campo genérico*/
+  const renderField = (field?: LeafFieldSpec | null) => {
+    if (!field) return null;
+    if (field.visibleWhen && !field.visibleWhen(ctx, cond)) return null;
 
-    const disabled = f.disabledWhen ? f.disabledWhen(cond) : false;
-    const value = getFieldValue(cond, String(f.path));
-    const options = getLeafOptions(ctx, cond, f);
+    const disabled = field.disabledWhen ? field.disabledWhen(cond) : false;
+    const value = getFieldValue(cond, String(field.path));
+    const options = getLeafOptions(ctx, cond, field);
 
-    switch (f.control) {
+    switch (field.control) {
       case "id-select":
         return (
-          <Field key={f.key} label={f.label} className={f.className}>
+          <Field key={field.key} label={field.label} className={field.className}>
             <Select<ID>
               value={(value as ID) ?? ""}
-              onChange={(v) => patch({ [String(f.path)]: v } as Partial<EnabledLeafCondition>)}
+              onChange={(nextValue) => patch({ [String(field.path)]: nextValue } as Partial<EnabledLeafCondition>)}
               options={options as Option<ID>[]}
               disabled={disabled}
               placeholder="Selecciona…"
@@ -172,32 +210,32 @@ export function ConditionLeafEditor({ ctx, cond, familyTypeOptions = [], selecte
 
       case "bool":
         return (
-          <Field key={f.key} label={f.label} className={f.className}>
+          <Field key={field.key} label={field.label} className={field.className}>
             <BoolSelect
               value={Boolean(value)}
               disabled={disabled}
-              onChange={(v) => patch({ [String(f.path)]: v } as Partial<EnabledLeafCondition>)}
+              onChange={(nextValue) => patch({ [String(field.path)]: nextValue } as Partial<EnabledLeafCondition>)}
             />
           </Field>
         );
 
       case "number":
         return (
-          <Field key={f.key} label={f.label} className={f.className}>
+          <Field key={field.key} label={field.label} className={field.className}>
             <NumberInput
               value={typeof value === "number" ? value : 0}
               disabled={disabled}
-              onChange={(v) => patch({ [String(f.path)]: v } as Partial<EnabledLeafCondition>)}
+              onChange={(nextValue) => patch({ [String(field.path)]: nextValue } as Partial<EnabledLeafCondition>)}
             />
           </Field>
         );
 
       case "var-op-select":
         return (
-          <Field key={f.key} label={f.label} className={f.className}>
+          <Field key={field.key} label={field.label} className={field.className}>
             <Select<string>
               value={String(value ?? "")}
-              onChange={(v) => patch({ [String(f.path)]: v } as Partial<EnabledLeafCondition>)}
+              onChange={(nextValue) => patch({ [String(field.path)]: nextValue } as Partial<EnabledLeafCondition>)}
               options={varOpOptions}
               disabled={disabled || varKind === "unknown"}
               placeholder="Selecciona…"
@@ -207,18 +245,18 @@ export function ConditionLeafEditor({ ctx, cond, familyTypeOptions = [], selecte
 
       case "var-value":
         return (
-          <Field key={f.key} label={f.label} className={f.className}>
+          <Field key={field.key} label={field.label} className={field.className}>
             {varKind === "boolean" ? (
               <BoolSelect
                 value={Boolean(value)}
                 disabled={disabled}
-                onChange={(v) => patch({ [String(f.path)]: v } as Partial<EnabledLeafCondition>)}
+                onChange={(nextValue) => patch({ [String(field.path)]: nextValue } as Partial<EnabledLeafCondition>)}
               />
             ) : (
               <NumberInput
                 value={typeof value === "number" ? value : 0}
                 disabled={disabled}
-                onChange={(v) => patch({ [String(f.path)]: v } as Partial<EnabledLeafCondition>)}
+                onChange={(nextValue) => patch({ [String(field.path)]: nextValue } as Partial<EnabledLeafCondition>)}
               />
             )}
           </Field>
@@ -229,18 +267,16 @@ export function ConditionLeafEditor({ ctx, cond, familyTypeOptions = [], selecte
     }
   };
 
-const shouldShowOptionField =
-  filteredFamilyTypeOptions.length > 1 ||
-  (family === "player" && filteredFamilyTypeOptions.length === 1);
+  /* Selector de subtipo dentro de una familia*/
+  const shouldShowOptionField = filteredFamilyTypeOptions.length > 1 || (family === "player" && filteredFamilyTypeOptions.length === 1);
 
-const optionField =
-  shouldShowOptionField ? (
+  const optionField = shouldShowOptionField ? (
     <Field label="Opción">
       <Select<EnabledLeafType>
         value={cond.type}
-        onChange={(v) => {
-          if (!v || !onChangeType) return;
-          onChangeType(v);
+        onChange={(nextType) => {
+          if (!nextType || !onChangeType) return;
+          onChangeType(nextType);
         }}
         options={filteredFamilyTypeOptions}
         placeholder="Selecciona…"
@@ -249,26 +285,21 @@ const optionField =
     </Field>
   ) : null;
 
+  /*  Casos de layout específicos */
   if (cond.type === "nodeVisited") {
-    const nodeField = ui.fields.find((x) => x.key === "nodeId");
-    const valueField = ui.fields.find((x) => x.key === "value");
-
     return (
       <div className="space-y-3">
         {optionField ? <div className="grid grid-cols-1 gap-2">{optionField}</div> : null}
 
         <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_140px] gap-2">
-          {nodeField ? renderField(nodeField) : null}
-          {valueField ? renderField(valueField) : null}
+          {renderField(fieldMap.nodeId)}
+          {renderField(fieldMap.value)}
         </div>
       </div>
     );
   }
 
   if (cond.type === "mapRegionVisited") {
-    const mapField = ui.fields.find((x) => x.key === "mapId");
-    const regionField = ui.fields.find((x) => x.key === "regionId");
-    const valueField = ui.fields.find((x) => x.key === "value");
     const hasSeveralMaps = ctx.idx.getMapOptions().length > 1;
 
     return (
@@ -282,9 +313,9 @@ const optionField =
               : "grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_140px] gap-2"
           }
         >
-          {hasSeveralMaps && mapField ? renderField(mapField) : null}
-          {regionField ? renderField(regionField) : null}
-          {valueField ? renderField(valueField) : null}
+          {hasSeveralMaps ? renderField(fieldMap.mapId) : null}
+          {renderField(fieldMap.regionId)}
+          {renderField(fieldMap.value)}
         </div>
       </div>
     );
@@ -292,13 +323,7 @@ const optionField =
 
   if (isVarCondition(cond)) {
     const ownerField =
-      ui.fields.find((x) => x.key === "playerId") ??
-      ui.fields.find((x) => x.key === "npcId") ??
-      ui.fields.find((x) => x.key === "hotspotId");
-
-    const varField = ui.fields.find((x) => x.key === "varId");
-    const opField = ui.fields.find((x) => x.key === "op");
-    const valueField = ui.fields.find((x) => x.key === "value");
+      fieldMap.playerId ?? fieldMap.npcId ?? fieldMap.hotspotId ?? null;
 
     return (
       <div className="space-y-3">
@@ -307,21 +332,15 @@ const optionField =
         {optionField ? <div className="grid grid-cols-1 gap-2">{optionField}</div> : null}
 
         <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_160px_140px] gap-2">
-          {varField ? renderField(varField) : null}
-          {opField ? renderField(opField) : null}
-          {valueField ? renderField(valueField) : null}
+          {renderField(fieldMap.varId)}
+          {renderField(fieldMap.op)}
+          {renderField(fieldMap.value)}
         </div>
       </div>
     );
   }
 
-  const entityField =
-    ui.fields.find((x) => x.key === "placedItemId") ??
-    ui.fields.find((x) => x.key === "hotspotId") ??
-    ui.fields.find((x) => x.key === "npcId") ??
-    ui.fields.find((x) => x.key === "playerId");
-
-  const valueField = ui.fields.find((x) => x.key === "value");
+  const entityField = fieldMap.placedItemId ?? fieldMap.hotspotId ?? fieldMap.npcId ?? fieldMap.playerId ?? null;
 
   return (
     <div className="space-y-3">
@@ -329,7 +348,7 @@ const optionField =
 
       <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_140px] gap-2">
         {optionField}
-        {valueField ? renderField(valueField) : null}
+        {renderField(fieldMap.value)}
       </div>
     </div>
   );

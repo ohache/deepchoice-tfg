@@ -9,7 +9,10 @@ const missingRulesError = "El NPC necesita al menos una regla.";
 const duplicateUseItemRuleError = "No puede haber dos reglas onUseItem para el mismo item.";
 
 type PlacedNpcLikeForBusinessRules = {
-  rules?: { onClick?: Array<unknown>; onUseItem?: Array<{ placedItemId: string }> };
+  rules?: {
+    onClick?: Array<unknown>;
+    onUseItem?: Array<{ itemInstanceId: string }>;
+  };
 };
 
 function createPlacedNpcFieldErrors(): PlacedNpcFieldErrors {

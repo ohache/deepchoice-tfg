@@ -195,7 +195,7 @@ z.object({ type: z.literal("combineItems"), sourceItemInstanceId: IdSchema, targ
 
   // Estado del player colocado
   z.object({ type: z.literal("setPlacedPlayerVisible"), nodeId: IdSchema, layerId: IdSchema, playerId: IdSchema, value: z.boolean() }),
-  z.object({ type: z.literal("setPlacedPlayerImage"), nodeId: IdSchema, playerId: IdSchema, imageId: IdSchema }),
+  z.object({ type: z.literal("setPlacedPlayerImage"), nodeId: IdSchema, layerId: IdSchema, playerId: IdSchema, imageId: IdSchema }),
 
   // Estado del npc colocado
   z.object({ type: z.literal("setPlacedNpcVisible"), nodeId: IdSchema, layerId: IdSchema, npcId: IdSchema, value: z.boolean() }),

@@ -28,7 +28,13 @@ type ExtractorMap = {
 /* Mapa declarativo */
 const EXTRACT_REFS: ExtractorMap = {
   nodeVisited: c => ({ nodeIds: [c.nodeId] }),
-  hasItem: c => ({ placedItemIds: [c.placedItemId] }),
+
+  hasItem: c => ({ placedItemIds: [c.itemInstanceId] }),
+
+  npcHasItem: c => ({
+    npcIds: [c.npcId],
+    placedItemIds: [c.itemInstanceId],
+  }),
 
   playerVar: c => ({
     playerIds: [c.playerId],
@@ -55,8 +61,11 @@ const EXTRACT_REFS: ExtractorMap = {
   placedNpcReachable: c => ({ npcIds: [c.npcId] }),
 
   placedPlayerVisible: c => ({ playerIds: [c.playerId] }),
+  placedPlayerImage: c => ({ playerIds: [c.playerId] }),
 
-  mapRegionVisited: c => ({ mapRegions: [{ mapId: c.mapId, regionId: c.regionId }]}),
+  mapRegionVisited: c => ({
+    mapRegions: [{ mapId: c.mapId, regionId: c.regionId }],
+  }),
 };
 
 function mergeRefs(a: ConditionRefs, b: ConditionRefs): ConditionRefs {

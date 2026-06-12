@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { ID, Dialogue, DialogueLineNode, PlayerDef, NpcDef, Project } from "@/domain/types";
+import type { ID, Dialogue, DialogueLineNode, PlayerDef, NpcDef, Project, RulePhrase } from "@/domain/types";
 import type { Effect } from "@/domain/effects";
 import type { Condition } from "@/domain/conditions";
 import { useEditorStore } from "@/store/editorStore";
@@ -145,7 +145,7 @@ export function DialogueEditorModal({ open, dialogueDraft, project, nodeId, pane
     setLineRuleOpen(true);
   };
 
-  const handleSaveLineRule = (rule: {id: ID; when?: Condition; phrase?: string; effects: Effect[] }) => {
+  const handleSaveLineRule = (rule: {id: ID; when?: Condition; phrase?: RulePhrase; effects: Effect[] }) => {
     if (!currentDialogueId || !lineRuleTargetId) return;
 
     updateDialogueLine(currentDialogueId, lineRuleTargetId, {

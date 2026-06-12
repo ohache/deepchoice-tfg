@@ -111,7 +111,7 @@ export function SceneTestView() {
   const canGoNextScene = sceneIndex < viewModel.scenes.length - 1;
 
   const canGoPrevLayer = safeLayerIndex > 0;
-  const canGoNextLayer = !!activeScene && safeLayerIndex < activeScene.layers.length - 1;
+  const canGoNextLayer  = !!activeScene && safeLayerIndex < activeScene.layers.length - 1;
 
   const canGoPrevText = !!activeLayer && safeTextIndex > 0;
   const canGoNextText = !!activeLayer && safeTextIndex < activeLayer.textVariants.length - 1;

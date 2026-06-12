@@ -6,7 +6,6 @@ import { hasDuplicateFileByLinkedAssetId } from "@/validation/genericValidator";
 import type { MapFieldErrors } from "@/features/editor/history/maps/mapValidator";
 import { useImageFileDraft } from "@/features/editor/history/shared/useImageFileDraft";
 import { useAssetDraftPanel } from "@/features/editor/history/shared/useAssetDraftPanel";
-import { DeleteProjectEntityModal } from "@/features/editor/modals/DeleteProjectEntityModal";
 import { HistoryMapRegionsPanel } from "@/features/editor/history/maps/HistoryMapRegionPanel";
 import { MapRegionCanvas } from "@/features/editor/history/maps/MapRegionCanvas";
 import { toast } from "@/shared/toast/toastStore";
@@ -87,8 +86,8 @@ export function HistoryMapsPanel() {
     image.resetImageDraft();
 
     const assetId = map.visual.type === "singleImage"
-        ? map.visual.imageAssetId
-        : map.visual.backgroundAssetId;
+      ? map.visual.imageAssetId
+      : map.visual.backgroundAssetId;
 
     const assetPath = (project?.assets ?? []).find((asset) => asset.kind === "maps" && asset.id === assetId)?.file?.trim() ?? "";
 
@@ -123,8 +122,8 @@ export function HistoryMapsPanel() {
 
   const mode = panel.mode;
   const rightTitle = mode === "edit" && editMode === "region"
-      ? "Editar regiones"
-      : getModeTitle(mode);
+    ? "Editar regiones"
+    : getModeTitle(mode);
 
   const showMapConfig = mode === "new" || (mode === "edit" && editMode === "map");
   const showRegionEditor = mode === "edit" && !!selectedMap && editMode === "region";
@@ -134,9 +133,11 @@ export function HistoryMapsPanel() {
 
     const { ok, errors } = validateMapDraft(
       { name: draftName, file: image.draftFile ?? undefined },
-      { mode: mode === "edit" ? "edit" : "new",
+      {
+        mode: mode === "edit" ? "edit" : "new",
         project,
-        currentMapId: selectedMapId ?? undefined},
+        currentMapId: selectedMapId ?? undefined
+      },
     );
 
     setFieldErrors(errors);
@@ -205,16 +206,9 @@ export function HistoryMapsPanel() {
     if (mode === "edit") handleUpdate();
   };
 
-  const handleConfirmDelete = () => {
-    if (!selectedMapId) {
-      panel.reset();
-      return;
-    }
-
-    const deletedName = selectedMap?.name ?? "Mapa";
+  const handleDeleteMap = () => {
+    if (!selectedMapId) return;
     removeMap(selectedMapId);
-    toast.success("Mapa eliminado", `“${deletedName}”`);
-    cleanupAfterSaveOrDelete();
   };
 
   const handleEditMap = () => {
@@ -222,7 +216,7 @@ export function HistoryMapsPanel() {
     setEditMode("map");
   };
 
-  const handleEnterRegionMode = () => {setEditMode("region")};
+  const handleEnterRegionMode = () => { setEditMode("region") };
 
   if (!project) return null;
 
@@ -268,14 +262,14 @@ export function HistoryMapsPanel() {
                             type="button"
                             onClick={() => panel.handleListClick(map)}
                             className={
-                          "w-full text-left px-6 py-3 text-[15px] border-x border-amber-700 " +
-                          (isFirst ? "border-t " : "") +
-                          (!isLast ? "border-b " : "") +
-                          (isLast && !isSelected ? "rounded-b-lg " : "") +
-                          (isSelected
-                            ? "bg-amber-900/60 text-slate-50"
-                            : "hover:bg-amber-900/60 text-slate-200")
-                        }
+                              "w-full text-left px-6 py-3 text-[15px] border-x border-amber-700 " +
+                              (isFirst ? "border-t " : "") +
+                              (!isLast ? "border-b " : "") +
+                              (isLast && !isSelected ? "rounded-b-lg " : "") +
+                              (isSelected
+                                ? "bg-amber-900/60 text-slate-50"
+                                : "hover:bg-amber-900/60 text-slate-200")
+                            }
                           >
                             <span className="block w-full overflow-hidden text-ellipsis whitespace-nowrap">
                               {map.name}
@@ -345,7 +339,7 @@ export function HistoryMapsPanel() {
                           <button
                             type="button"
                             onClick={() => setDraftVisualType("singleImage")}
-                            className={ "px-3 py-2 rounded-md border text-xs font-medium transition " +
+                            className={"px-3 py-2 rounded-md border text-xs font-medium transition " +
                               (draftVisualType === "singleImage"
                                 ? "bg-amber-800 border-amber-500 text-white"
                                 : "bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800")}
@@ -356,7 +350,7 @@ export function HistoryMapsPanel() {
                           <button
                             type="button"
                             onClick={() => setDraftVisualType("composed")}
-                            className={ "px-3 py-2 rounded-md border text-xs font-medium transition " +
+                            className={"px-3 py-2 rounded-md border text-xs font-medium transition " +
                               (draftVisualType === "composed"
                                 ? "bg-amber-800 border-amber-500 text-white"
                                 : "bg-slate-900 border-slate-700 text-slate-300 hover:bg-slate-800")}
@@ -383,12 +377,12 @@ export function HistoryMapsPanel() {
                       </label>
 
                       <div
-                        className={ "group relative mt-1.5 px-3 py-3.5 rounded-md flex flex-col items-center justify-center text-[12px] " +
+                        className={"group relative mt-1.5 px-3 py-3.5 rounded-md flex flex-col items-center justify-center text-[12px] " +
                           "transition-colors duration-150 border-2 border-dashed cursor-pointer " +
                           (image.isDragging
                             ? "border-amber-400 bg-amber-800"
                             : "border-amber-800 bg-slate-900/40 " +
-                              (image.isHoveringSelectButton ? "" : "hover:bg-amber-900/60"))}
+                            (image.isHoveringSelectButton ? "" : "hover:bg-amber-900/60"))}
                         onDragOver={image.handleDragOver}
                         onDragLeave={image.handleDragLeave}
                         onDrop={image.handleDrop}
@@ -464,7 +458,7 @@ export function HistoryMapsPanel() {
                 <div className="mt-auto flex justify-between pt-5">
                   <button
                     type="button"
-                    onClick={panel.openDelete}
+                    onClick={handleDeleteMap}
                     disabled={!selectedMapId}
                     className="btn btn-danger border-rose-500 bg-rose-800 hover:bg-rose-500 text-[12px] disabled:opacity-40 disabled:cursor-not-allowed"
                   >
@@ -493,14 +487,6 @@ export function HistoryMapsPanel() {
           </div>
         </section>
       </div>
-
-      <DeleteProjectEntityModal
-        open={panel.isDeleteModalOpen}
-        entityName={selectedMap?.name ?? ""}
-        description="Este mapa dejará de estar disponible para las escenas asociadas a él."
-        onConfirm={handleConfirmDelete}
-        onCancel={panel.cancelDelete}
-      />
     </div>
   );
 }

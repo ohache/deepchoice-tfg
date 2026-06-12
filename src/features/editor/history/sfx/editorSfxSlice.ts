@@ -1,17 +1,24 @@
 import type { ID, Project, SoundEffectDef } from "@/domain/types";
+import type { DeleteTarget } from "@/features/editor/delete/deleteTypes";
 import { hasDuplicateName } from "@/validation/genericValidator";
 import { buildAssetPath } from "@/store/assets/assetPath";
 import { generateId } from "@/utils/id";
-import { safeTrim, upsertAsset, upsertAssetFile, removeAsset, removeAssetFile } from "@/features/editor/core/editorGenericSlice";
-import { someEffectsInProject, removeEffectsInProject } from "@/features/editor/core/editorProjectWalkers";
-import { findAssetByIdAndKind, removeById, replaceById } from "@/features/editor/history/shared/assetBackedEntityHelpers";
+import { safeTrim, upsertAsset, upsertAssetFile, removeAssetFile } from "@/features/editor/core/editorGenericSlice";
+import { someEffectsInProject } from "@/features/editor/core/editorProjectWalkers";
+import { findAssetByIdAndKind, replaceById } from "@/features/editor/history/shared/assetBackedEntityHelpers";
 import { effectMatchesTypedId, nextSelectedAfterRemoval } from "@/features/editor/history/shared/genericHelpers";
+import { applyDeleteWithCleanup } from "@/features/editor/delete/deleteReferenceCleaner";
+import type { DeleteApplyFn } from "@/features/editor/delete/editorDeleteSlice";
 
 /* Mínimo contrato del store que necesita este slice */
 type EditorStoreLike = {
   project: Project | null;
   assetFiles: Record<ID, File>;
   selectedSfxId: ID | null;
+  requestDelete: (input: {
+    target: DeleteTarget;
+    apply: DeleteApplyFn;
+  }) => void;
 };
 
 export interface EditorSfxSlice {
@@ -22,6 +29,29 @@ export interface EditorSfxSlice {
   removeSfx: (id: ID) => void;
   isSfxReferenced: (sfxId: ID) => boolean;
 }
+
+const applySfxDeleteTarget = (
+  target: DeleteTarget,
+): DeleteApplyFn => (state) => {
+  if (!state.project) return state;
+
+  const nextProject = applyDeleteWithCleanup(state.project, target);
+
+  let nextAssetFiles = state.assetFiles;
+  let nextSelectedSfxId = state.selectedSfxId;
+
+  if (target.kind === "sfx") {
+    nextAssetFiles = removeAssetFile(nextAssetFiles, target.sfxId).assetFiles;
+    nextSelectedSfxId = nextSelectedAfterRemoval(state.selectedSfxId, target.sfxId);
+  }
+
+  return {
+    ...state,
+    project: nextProject,
+    assetFiles: nextAssetFiles,
+    selectedSfxId: nextSelectedSfxId,
+  };
+};
 
 export function createEditorSfxSlice(set: (partial: | Partial<EditorStoreLike> | ((state: EditorStoreLike) => Partial<EditorStoreLike> | EditorStoreLike)) => void,
   get: () => EditorStoreLike): EditorSfxSlice {
@@ -76,7 +106,7 @@ export function createEditorSfxSlice(set: (partial: | Partial<EditorStoreLike> |
         const nameChanged = Boolean(nextName) && nextName !== prevSfx.name;
 
         if (nameChanged && hasDuplicateName({ list: project.soundEffects, incomingName: nextName, ignoreId: id })) return state;
-        
+
         const nextFile = changes.file instanceof File ? changes.file : null;
         const fileChanged = Boolean(nextFile);
 
@@ -119,27 +149,16 @@ export function createEditorSfxSlice(set: (partial: | Partial<EditorStoreLike> |
       }),
 
     /* Elimina un Sfx */
-    removeSfx: (id) =>
-      set((state) => {
-        if (!state.project) return state;
-        if (!state.project.soundEffects.some((sfx) => sfx.id === id)) return state;
+    removeSfx: (id) => {
+      const { project, requestDelete } = get();
+      if (!project) return;
+      if (!project.soundEffects.some((sfx) => sfx.id === id)) return;
 
-        const projectWithoutEffects = removeEffectsInProject(state.project, (effect) => effectMatchesTypedId(effect, "playSfx", "sfxId", id));
-
-        const assetResult = removeAsset(projectWithoutEffects.assets, { id, kind: "sfx" });
-        const fileResult = removeAssetFile(state.assetFiles, id);
-
-        return {
-          ...state,
-          project: {
-            ...projectWithoutEffects,
-            soundEffects: removeById(projectWithoutEffects.soundEffects, id),
-            assets: assetResult.assets,
-          },
-          assetFiles: fileResult.assetFiles,
-          selectedSfxId: nextSelectedAfterRemoval(state.selectedSfxId, id),
-        };
-      }),
+      requestDelete({
+        target: { kind: "sfx", sfxId: id },
+        apply: applySfxDeleteTarget({ kind: "sfx", sfxId: id }),
+      });
+    },
 
     /* Comprueba si un Sfx está referenciado en efectos */
     isSfxReferenced: (sfxId: ID) => {

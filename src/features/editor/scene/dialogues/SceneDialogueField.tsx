@@ -98,14 +98,12 @@ export function SceneDialogueField({ label = "Diálogos", active, onToggle }: Sc
     setModalOpen(true);
   };
 
-  const handleDeleteDialogue = (dialogueId: ID) => {
-    removeDialogue(dialogueId);
-    setPanelError(null);
+const handleDeleteDialogue = (dialogueId: ID) => {
+  removeDialogue(dialogueId, { withConfirmation: true });
+  setPanelError(null);
 
-    if (editingDialogue?.id === dialogueId) setModalOpen(false);
-
-    toast.success("Diálogo eliminado", "Se ha eliminado correctamente.");
-  };
+  if (editingDialogue?.id === dialogueId) setModalOpen(false);
+};
 
   const handleDeleteAll = () => {
     if (!dialogues.length) return;

@@ -1,4 +1,4 @@
-import type { ID, InteractionRules, PlaceableState, PlacedItem, RegionShape } from "@/domain/types";
+import type { ID, InteractionRules, PlaceableState, PlacedItem, RegionShape, RulePhrase } from "@/domain/types";
 import type { PlacedItemEditorState, PlacedItemRuleChannel } from "@/features/editor/scene/placedItems/placedItemEditorTypes";
 import {
   addRuleToRules, buildContext, buildDraftFromPlacedItem, buildEmptyPlacedItemDraft, defaultPlacedItemChannel, initialPlacedItemEditorState,
@@ -40,7 +40,7 @@ export interface EditorPlacedItemsSlice {
   setPlacedItemDraftInitialState: (patch: Partial<PlaceableState>) => void;
   setPlacedItemDraftRules: (rules: InteractionRules) => void;
 
-  addRuleToSelectedChannel: (args?: { phrase?: string }) => ID | null;
+  addRuleToSelectedChannel: (args?: { phrase?: RulePhrase }) => ID | null;
   deleteRuleFromSelectedChannel: (ruleId: ID) => void;
 
   validatePlacedItemDraft: () => { ok: boolean; error?: string };

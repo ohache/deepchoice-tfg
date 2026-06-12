@@ -1,11 +1,14 @@
 import type { AssetDef, ID, MapRegion, Project, RegionShape } from "@/domain/types";
+import type { DeleteTarget } from "@/features/editor/delete/deleteTypes";
 import type { MapRegionDraft, MapRegionEditorState } from "@/features/editor/history/maps/mapEditorTypes";
 import { validateMapRegion } from "@/features/editor/history/maps/mapRegionValidator";
-import { upsertAsset, upsertAssetFile } from "@/features/editor/core/editorGenericSlice";
+import { removeAssetFile, upsertAsset, upsertAssetFile } from "@/features/editor/core/editorGenericSlice";
 import { buildAssetPath } from "@/store/assets/assetPath";
 import { generateId } from "@/utils/id";
-import { findEntityById, replaceById, removeById } from "@/features/editor/history/shared/assetBackedEntityHelpers";
+import { findEntityById, replaceById } from "@/features/editor/history/shared/assetBackedEntityHelpers";
 import { initialMapRegionEditorState } from "@/features/editor/history/shared/genericHelpers";
+import { applyDeleteWithCleanup } from "@/features/editor/delete/deleteReferenceCleaner";
+import type { DeleteApplyFn } from "@/features/editor/delete/editorDeleteSlice";
 
 /* Mínimo contrato del store que necesita este slice */
 type EditorStoreLike = {
@@ -13,6 +16,10 @@ type EditorStoreLike = {
   selectedMapId: ID | null;
   mapRegionEditor: MapRegionEditorState;
   assetFiles: Record<ID, File>;
+  requestDelete: (input: {
+    target: DeleteTarget;
+    apply: DeleteApplyFn;
+  }) => void;
 };
 
 export interface EditorMapRegionsSlice {
@@ -42,6 +49,42 @@ export interface EditorMapRegionsSlice {
   saveMapRegionDraft: () => ID | null;
   removeMapRegion: (regionId: ID) => void;
 }
+
+const applyMapRegionDeleteTarget = (
+  target: DeleteTarget,
+): DeleteApplyFn => (state) => {
+  if (!state.project) return state;
+
+  const prevProject = state.project;
+  const nextProject = applyDeleteWithCleanup(prevProject, target);
+
+  let nextAssetFiles = state.assetFiles;
+  let nextMapRegionEditor = state.mapRegionEditor;
+
+  if (target.kind === "mapRegion") {
+    const map = prevProject.maps.find((entry) => entry.id === target.mapId);
+    const region = map?.regions.find((entry) => entry.id === target.regionId);
+
+    if (region?.imageAssetId) {
+      nextAssetFiles = removeAssetFile(nextAssetFiles, region.imageAssetId).assetFiles;
+    }
+
+    const shouldResetEditor =
+      state.mapRegionEditor.selection.regionId === target.regionId ||
+      state.mapRegionEditor.draft?.id === target.regionId;
+
+    if (shouldResetEditor) {
+      nextMapRegionEditor = initialMapRegionEditorState;
+    }
+  }
+
+  return {
+    ...state,
+    project: nextProject,
+    assetFiles: nextAssetFiles,
+    mapRegionEditor: nextMapRegionEditor,
+  };
+};
 
 export function createEditorMapRegionsSlice(set: (partial: | Partial<EditorStoreLike> | ((state: EditorStoreLike) => Partial<EditorStoreLike> | EditorStoreLike)) => void,
   get: () => EditorStoreLike): EditorMapRegionsSlice {
@@ -486,35 +529,20 @@ export function createEditorMapRegionsSlice(set: (partial: | Partial<EditorStore
     },
 
     /* Elimina una región del mapa seleccionado */
-    removeMapRegion: (regionId) =>
-      set((state) => {
-        if (!state.project || !state.selectedMapId) return state;
+    removeMapRegion: (regionId) => {
+      const { project, selectedMapId, requestDelete } = get();
+      if (!project || !selectedMapId) return;
 
-        const selectedMap = findEntityById(state.project.maps, state.selectedMapId);
-        if (!selectedMap) return state;
+      const selectedMap = findEntityById(project.maps, selectedMapId);
+      if (!selectedMap) return;
 
-        const exists = selectedMap.regions.some((region) => region.id === regionId);
-        if (!exists) return state;
+      const exists = selectedMap.regions.some((region) => region.id === regionId);
+      if (!exists) return;
 
-        const nextMap = {
-          ...selectedMap,
-          regions: removeById(selectedMap.regions, regionId),
-        };
-
-        const shouldResetEditor =
-          state.mapRegionEditor.selection.regionId === regionId ||
-          state.mapRegionEditor.draft?.id === regionId;
-
-        return {
-          ...state,
-          project: {
-            ...state.project,
-            maps: replaceById(state.project.maps, state.selectedMapId, nextMap),
-          },
-          mapRegionEditor: shouldResetEditor
-            ? initialMapRegionEditorState
-            : state.mapRegionEditor,
-        };
-      }),
+      requestDelete({
+        target: { kind: "mapRegion", mapId: selectedMapId, regionId },
+        apply: applyMapRegionDeleteTarget({ kind: "mapRegion", mapId: selectedMapId, regionId }),
+      });
+    },
   };
 }

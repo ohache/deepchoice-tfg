@@ -87,6 +87,8 @@ export function HistoryViewPanel() {
               y={NODE_SLOT_OFFSET * scale}
               width={NODE_SIZE * scale}
               height={NODE_SIZE * scale}
+              rx={8 * scale}
+              ry={8 * scale}
               fill="none"
               stroke="currentColor"
               className="text-white"

@@ -12,7 +12,7 @@ interface SceneTestInfoCardProps {
 /* Helpers visuales simples */
 function SectionTitle({ children }: { children: ReactNode }) {
   return (
-    <div className="text-[13px] font-semibold text-amber-800">
+    <div className="text-[13px] font-semibold text-slate-100">
       {children}
     </div>
   );
@@ -21,10 +21,10 @@ function SectionTitle({ children }: { children: ReactNode }) {
 function FieldRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="space-y-0.5">
-      <div className="text-[13px] font-semibold tracking-wide text-amber-900/75">
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
         {label}
       </div>
-      <div className="text-[12px] text-amber-950">
+      <div className="text-[12px] text-slate-100">
         {value}
       </div>
     </div>
@@ -33,8 +33,8 @@ function FieldRow({ label, value }: { label: string; value: ReactNode }) {
 
 function InlineFieldRow({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div className="text-[12px] text-amber-950">
-      <span className="font-semibold text-amber-900">{label}: </span>
+    <div className="text-[12px] text-slate-200">
+      <span className="font-semibold text-slate-100">{label}: </span>
       <span>{value}</span>
     </div>
   );
@@ -42,19 +42,19 @@ function InlineFieldRow({ label, value }: { label: string; value: ReactNode }) {
 
 function EmptyBlock({ children }: { children: ReactNode }) {
   return (
-    <div className="rounded-md border border-amber-900/15 bg-amber-50/70 px-3 py-2 text-[12px] text-amber-900/70">
+    <div className="rounded-md border border-slate-700 bg-slate-950/70 px-3 py-2 text-[12px] text-slate-400">
       {children}
     </div>
   );
 }
 
-/*  Render de condiciones / efectos / reglas */
+/* Render de condiciones / efectos / reglas */
 function ConditionBlock({ condition }: { condition?: SceneTestConditionSummary }) {
   if (!condition) return <EmptyBlock>Sin condición.</EmptyBlock>;
 
   return (
     <ul className="space-y-1 list-disc pl-4">
-      <li className="text-[12px] text-amber-950">
+      <li className="text-[12px] text-slate-200">
         {condition.text}
       </li>
     </ul>
@@ -62,12 +62,12 @@ function ConditionBlock({ condition }: { condition?: SceneTestConditionSummary }
 }
 
 function EffectsList({ effects }: { effects: SceneTestEffectSummary[] }) {
-  if (effects.length === 0) return <span className="text-amber-900/70">Sin efectos</span>;
+  if (effects.length === 0) return <span className="text-slate-400">Sin efectos</span>;
 
   return (
     <ul className="space-y-1 list-disc pl-4">
       {effects.map((effect, index) => (
-        <li key={`${effect.text}-${index}`} className="text-[12px] text-amber-950">
+        <li key={`${effect.text}-${index}`} className="text-[12px] text-slate-200">
           {effect.text}
         </li>
       ))}
@@ -77,13 +77,13 @@ function EffectsList({ effects }: { effects: SceneTestEffectSummary[] }) {
 
 function RuleCard({ rule }: { rule: SceneTestRuleSummary }) {
   return (
-    <div className="rounded-md border border-amber-900/15 bg-amber-50/70 px-3 py-2 space-y-2">
-      <div className="text-center text-[12px] font-semibold text-amber-950">
+    <div className="rounded-md border border-slate-700 bg-slate-950/70 px-3 py-2 space-y-2">
+      <div className="text-center text-[12px] font-semibold text-fuchsia-200">
         {rule.channel === "onClick" ? "onClick" : "onUseItem"}
       </div>
 
       {rule.itemLabel && (
-        <div className="text-center text-[11px] text-amber-900/70">
+        <div className="text-center text-[11px] text-slate-400">
           {rule.itemLabel}
         </div>
       )}
@@ -93,14 +93,14 @@ function RuleCard({ rule }: { rule: SceneTestRuleSummary }) {
       )}
 
       <div className="space-y-0.5">
-        <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-900/75">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
           Condición
         </div>
         <ConditionBlock condition={rule.when} />
       </div>
 
       <div className="space-y-0.5">
-        <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-900/75">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
           Efectos
         </div>
         <EffectsList effects={rule.effects} />
@@ -119,36 +119,32 @@ function RulesBlock({ rules }: { rules: SceneTestRulesSummary }) {
     <div className="space-y-3">
       {hasOnClick && (
         <div className="space-y-2">
-          <div className="space-y-2">
-            {rules.onClick.map((rule) => (
-              <RuleCard key={rule.id} rule={rule} />
-            ))}
-          </div>
+          {rules.onClick.map((rule) => (
+            <RuleCard key={rule.id} rule={rule} />
+          ))}
         </div>
       )}
 
       {hasOnUseItem && (
         <div className="space-y-2">
-          <div className="space-y-2">
-            {rules.onUseItem.map((rule) => (
-              <RuleCard key={rule.id} rule={rule} />
-            ))}
-          </div>
+          {rules.onUseItem.map((rule) => (
+            <RuleCard key={rule.id} rule={rule} />
+          ))}
         </div>
       )}
     </div>
   );
 }
 
-/* Render de variables / estado inicial= */
+/* Render de variables / estado inicial */
 function VarsBlock({ vars }: { vars: SceneTestVarEntry[] }) {
   if (vars.length === 0) return <EmptyBlock>No hay variables definidas.</EmptyBlock>;
 
   return (
     <ul className="space-y-1 list-disc pl-4">
       {vars.map((variable) => (
-        <li key={variable.id} className="text-[12px] text-amber-950">
-          <span className="font-semibold">{variable.name}</span>
+        <li key={variable.id} className="text-[12px] text-slate-200">
+          <span className="font-semibold text-slate-100">{variable.name}</span>
           <span>: {variable.type === "boolean" ? "Booleano" : "Número"}</span>
           <span>. Inicial: {variable.initialText}</span>
         </li>
@@ -269,15 +265,21 @@ function PlacedPlayerCard({ target }: { target: SceneTestPlacedPlayerEntry }) {
   );
 }
 
-/* Componente principal*/
-export function SceneTestInfoCard({ target }: SceneTestInfoCardProps) {
+/* Componente principal */
+export function SceneTestInfoCard({ target, pinned }: SceneTestInfoCardProps) {
   return (
-    <aside className="rounded-xl border-2 border-amber-300 bg-amber-100 shadow-sm overflow-hidden">
-      <div className="border-b border-amber-300/80 bg-amber-200/80 px-4 py-3">
+    <aside className="rounded-xl border-2 border-slate-700 bg-slate-900 shadow-xl overflow-hidden">
+      <div className="border-b border-slate-700 bg-slate-950/90 px-4 py-3">
         <div className="text-center">
-          <div className="text-sm font-semibold text-amber-950">
+          <div className="text-sm font-semibold text-slate-100">
             Detalles del componente
           </div>
+
+          {pinned ? (
+            <div className="mt-1 text-[11px] text-amber-300">
+              Fijado
+            </div>
+          ) : null}
         </div>
       </div>
 

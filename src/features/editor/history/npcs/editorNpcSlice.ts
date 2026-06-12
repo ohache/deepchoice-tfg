@@ -1,35 +1,71 @@
-import type { ID, NpcDef, Project, VarDef } from "@/domain/types";
+import type { ID, InventoryItemInstance, NpcDef, Project, VarDef } from "@/domain/types";
+import type { DeleteTarget } from "@/features/editor/delete/deleteTypes";
 import { conditionReferences } from "@/domain/conditionRefs";
-import { effectReferencesNpc, effectReferencesNpcVar } from "@/domain/effectRefs";
+import { effectReferencesNpc } from "@/domain/effectRefs";
 import { hasDuplicateName } from "@/validation/genericValidator";
 import { buildAssetPath } from "@/store/assets/assetPath";
 import { generateId } from "@/utils/id";
-import { removeAsset, removeAssetFile, safeTrim, sameVarDef, upsertAsset, upsertAssetFile } from "@/features/editor/core/editorGenericSlice";
+import { removeAssetFile, safeTrim, sameVarDef, upsertAsset, upsertAssetFile } from "@/features/editor/core/editorGenericSlice";
 import {
-  collectDialogueIds, effectIsStartDialogueForAnyOf, isEntityReferenced, removeConditionsInProject, removeDialogues, removeEffectsInProject,
-  removePlacedNpcs, someDialogue, somePlacedNpc
+  collectDialogueIds,
+  effectIsStartDialogueForAnyOf,
+  isEntityReferenced,
+  someDialogue,
+  somePlacedNpc,
 } from "@/features/editor/core/editorProjectWalkers";
-import { findAssetByIdAndKind, findEntityById, removeById, replaceById } from "@/features/editor/history/shared/assetBackedEntityHelpers";
+import { findAssetByIdAndKind, findEntityById, replaceById } from "@/features/editor/history/shared/assetBackedEntityHelpers";
 import { nextSelectedAfterRemoval } from "@/features/editor/history/shared/genericHelpers";
+import { applyDeleteWithCleanup } from "@/features/editor/delete/deleteReferenceCleaner";
+import type { DeleteApplyFn } from "@/features/editor/delete/editorDeleteSlice";
 
 /* Contrato mínimo del store que necesita este slice */
 type EditorStoreLike = {
   project: Project | null;
   assetFiles: Record<ID, File>;
   selectedNpcId: ID | null;
+  requestDelete: (input: {
+    target: DeleteTarget;
+    apply: DeleteApplyFn;
+  }) => void;
 };
 
 export interface EditorNpcSlice {
   selectedNpcId: ID | null;
   setSelectedNpcId: (id: ID | null) => void;
-  addNpc: (input: { name: string; description?: string; file: File; vars?: VarDef[] }) => ID | null;
+  addNpc: (input: { name: string; description?: string; file: File; vars?: VarDef[], initialInventory?: InventoryItemInstance[]; }) => ID | null;
   updateNpc: (id: ID, changes: { name?: string; description?: string; file?: File | null }) => void;
   addNpcVar: (npcId: ID, variable: VarDef) => void;
   updateNpcVar: (npcId: ID, variable: VarDef) => void;
   removeNpcVar: (npcId: ID, varId: ID) => void;
+  addNpcInventoryItem: (npcId: ID, item: InventoryItemInstance) => void;
+  updateNpcInventoryItem: (npcId: ID, item: InventoryItemInstance) => void;
+  removeNpcInventoryItem: (npcId: ID, itemInstanceId: ID) => void;
   removeNpc: (id: ID) => void;
   isNpcReferenced: (id: ID) => boolean;
 }
+
+const applyNpcDeleteTarget = (
+  target: DeleteTarget,
+): DeleteApplyFn => (state) => {
+  if (!state.project) return state;
+
+  const nextProject = applyDeleteWithCleanup(state.project, target);
+
+  let nextAssetFiles = state.assetFiles;
+  let nextSelectedNpcId = state.selectedNpcId;
+
+  if (target.kind === "npc") {
+    nextAssetFiles = removeAssetFile(nextAssetFiles, target.npcId).assetFiles;
+    nextSelectedNpcId = nextSelectedAfterRemoval(state.selectedNpcId, target.npcId);
+  }
+
+  return {
+    ...state,
+    project: nextProject,
+    assetFiles: nextAssetFiles,
+    selectedNpcId: nextSelectedNpcId,
+  };
+};
 
 export function createEditorNpcSlice(set: (partial: | Partial<EditorStoreLike> | ((state: EditorStoreLike) => Partial<EditorStoreLike> | EditorStoreLike)) => void,
   get: () => EditorStoreLike): EditorNpcSlice {
@@ -60,6 +96,7 @@ export function createEditorNpcSlice(set: (partial: | Partial<EditorStoreLike> |
         name: nextName,
         ...(nextDescription ? { description: nextDescription } : null),
         vars: input.vars ?? [],
+        initialInventory: input.initialInventory ?? [],
       };
 
       const assetResult = upsertAsset(project.assets, { id, kind: "npcs", name: nextName, file: filePath });
@@ -200,74 +237,103 @@ export function createEditorNpcSlice(set: (partial: | Partial<EditorStoreLike> |
       }),
 
     /* Elimina una variable del NPC */
-    removeNpcVar: (npcId, varId) =>
+    /* Elimina una variable del NPC */
+    removeNpcVar: (npcId, varId) => {
+      const { project, requestDelete } = get();
+      if (!project) return;
+
+      const npc = findEntityById(project.npcs, npcId);
+      if (!npc) return;
+
+      const vars = npc.vars ?? [];
+      if (!vars.some((variable) => variable.id === varId)) return;
+
+      requestDelete({
+        target: { kind: "npcVar", npcId, varId },
+        apply: applyNpcDeleteTarget({ kind: "npcVar", npcId, varId }),
+      });
+    },
+
+    addNpcInventoryItem: (npcId, item) =>
       set((state) => {
         if (!state.project) return state;
 
-        let project = state.project;
-        const prevNpc = findEntityById(project.npcs, npcId);
+        const prevNpc = findEntityById(state.project.npcs, npcId);
         if (!prevNpc) return state;
 
-        const prevVars = prevNpc.vars ?? [];
-        const nextVars = prevVars.filter((variable) => variable.id !== varId);
-        if (nextVars.length === prevVars.length) return state;
+        const prevInventory = prevNpc.initialInventory ?? [];
+        if (prevInventory.some((existingItem) => existingItem.itemInstanceId === item.itemInstanceId)) return state;
 
-        const nextNpc: NpcDef = { ...prevNpc, vars: nextVars };
-
-        project = {
-          ...project,
-          npcs: replaceById(project.npcs, npcId, nextNpc),
+        const nextNpc: NpcDef = {
+          ...prevNpc,
+          initialInventory: [...prevInventory, item],
         };
-
-        project = removeConditionsInProject(project,
-          (condition) => condition.type === "npcVar" &&
-            condition.npcId === npcId && condition.varId === varId,
-        );
-
-        project = removeEffectsInProject(project, (effect) => effectReferencesNpcVar(effect, { npcId, varId }));
-
-        return { ...state, project };
-      }),
-
-    /* Elimina un NPC global */
-    removeNpc: (npcId) =>
-      set((state) => {
-        if (!state.project) return state;
-
-        const npc = findEntityById(state.project.npcs, npcId);
-        if (!npc) return state;
-
-        const dialogueIds = collectDialogueIds(state.project, (dialogue) => dialogue.npcId === npcId);
-
-        let project = removeEffectsInProject(state.project, (effect) => {
-          if (effectReferencesNpc(effect, npcId)) return true;
-          if (effectIsStartDialogueForAnyOf(effect, dialogueIds)) return true;
-          return false;
-        });
-
-        project = removeConditionsInProject(project,
-          (condition) => (condition.type === "npcVar" && condition.npcId === npcId) ||
-            (condition.type === "placedNpcVisible" && condition.npcId === npcId) ||
-            (condition.type === "placedNpcReachable" && condition.npcId === npcId),
-        );
-
-        project = removePlacedNpcs(project, (placedNpc) => placedNpc.npcId === npcId);
-        project = removeDialogues(project, (dialogue) => dialogue.npcId === npcId);
-
-        const assetResult = removeAsset(project.assets, { id: npcId, kind: "npcs" });
-        const fileResult = removeAssetFile(state.assetFiles, npcId);
 
         return {
           ...state,
           project: {
-            ...project,
-            npcs: removeById(project.npcs, npcId),
-            assets: assetResult.assets,
+            ...state.project,
+            npcs: replaceById(state.project.npcs, npcId, nextNpc),
           },
-          assetFiles: fileResult.assetFiles,
-          selectedNpcId: nextSelectedAfterRemoval(state.selectedNpcId, npcId),
         };
       }),
+
+    updateNpcInventoryItem: (npcId, item) =>
+      set((state) => {
+        if (!state.project) return state;
+
+        const prevNpc = findEntityById(state.project.npcs, npcId);
+        if (!prevNpc) return state;
+
+        const prevInventory = prevNpc.initialInventory ?? [];
+        if (!prevInventory.some((existingItem) => existingItem.itemInstanceId === item.itemInstanceId)) return state;
+
+        const nextNpc: NpcDef = {
+          ...prevNpc,
+          initialInventory: prevInventory.map((existingItem) =>
+            existingItem.itemInstanceId === item.itemInstanceId ? item : existingItem,
+          ),
+        };
+
+        return {
+          ...state,
+          project: {
+            ...state.project,
+            npcs: replaceById(state.project.npcs, npcId, nextNpc),
+          },
+        };
+      }),
+
+    removeNpcInventoryItem: (npcId, itemInstanceId) => {
+      const { project, requestDelete } = get();
+      if (!project) return;
+
+      const npc = findEntityById(project.npcs, npcId);
+      if (!npc) return;
+
+      const inventory = npc.initialInventory ?? [];
+      if (!inventory.some((item) => item.itemInstanceId === itemInstanceId)) return;
+
+      requestDelete({
+        target: { kind: "npcInventoryItem", npcId, itemInstanceId },
+        apply: applyNpcDeleteTarget({ kind: "npcInventoryItem", npcId, itemInstanceId }),
+      });
+    },
+
+    /* Elimina un NPC global */
+    /* Elimina un NPC global */
+    removeNpc: (npcId) => {
+      const { project, requestDelete } = get();
+      if (!project) return;
+
+      const npc = findEntityById(project.npcs, npcId);
+      if (!npc) return;
+
+      requestDelete({
+        target: { kind: "npc", npcId },
+        apply: applyNpcDeleteTarget({ kind: "npc", npcId }),
+      });
+    },
 
     /* Comprueba si un NPC está referenciado */
     isNpcReferenced: (npcId: ID) => {

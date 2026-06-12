@@ -20,7 +20,8 @@ export type Condition =
   | { type: "not"; cond: Condition }
 
   | { type: "nodeVisited"; nodeId: ID; op: BoolOp; value: boolean }
-  | { type: "hasItem"; placedItemId: ID; op: BoolOp; value: boolean }
+  | { type: "hasItem"; playerId: ID; itemInstanceId: ID; op: BoolOp; value: boolean }
+  | { type: "npcHasItem"; npcId: ID; itemInstanceId: ID; op: BoolOp; value: boolean }
 
   | ({ type: "playerVar"; playerId: ID; varId: ID } & VarPredicate)
   | ({ type: "npcVar"; npcId: ID; varId: ID } & VarPredicate)
@@ -32,10 +33,11 @@ export type Condition =
   | { type: "placedItemVisible"; placedItemId: ID; op: BoolOp; value: boolean }
   | { type: "placedItemReachable"; placedItemId: ID; op: BoolOp; value: boolean }
 
-  | { type: "placedNpcVisible"; npcId: ID; op: BoolOp; value: boolean }
-  | { type: "placedNpcReachable"; npcId: ID; op: BoolOp; value: boolean }
+  | { type: "placedNpcVisible"; nodeId: ID; layerId: ID; npcId: ID; op: BoolOp; value: boolean }
+  | { type: "placedNpcReachable"; nodeId: ID; layerId: ID; npcId: ID; op: BoolOp; value: boolean }
 
-  | { type: "placedPlayerVisible"; playerId: ID; op: BoolOp; value: boolean }
+  | { type: "placedPlayerVisible"; nodeId: ID; layerId: ID; playerId: ID; op: BoolOp; value: boolean }
+  | { type: "placedPlayerImage"; nodeId: ID; layerId: ID; playerId: ID; imageId: ID; op: BoolOp; value: boolean }
 
   | { type: "mapRegionVisited"; mapId: ID; regionId: ID; op: BoolOp; value: boolean };
 

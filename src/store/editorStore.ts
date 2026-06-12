@@ -20,10 +20,11 @@ import { type EditorPlacedItemsSlice, createEditorPlacedItemsSlice } from "@/fea
 import { type EditorPlacedPlayersSlice, createEditorPlacedPlayersSlice } from "@/features/editor/scene/placedPlayers/editorPlacedPlayerSlice";
 import { type EditorPlacedNpcsSlice, createEditorPlacedNpcsSlice } from "@/features/editor/scene/placedNpcs/editorPlacedNpcSlice";
 import { type EditorDialoguesSlice, createEditorDialoguesSlice } from "@/features/editor/scene/dialogues/editorDialogueSlice";
+import { type EditorDeleteSlice, createEditorDeleteSlice } from "@/features/editor/delete/editorDeleteSlice";
 
 export interface EditorStore extends EditorMusicSlice, EditorSfxSlice, EditorItemsSlice, EditorPlayerSlice, EditorNpcSlice, EditorHistoryViewSlice, EditorNodesSlice,
   EditorLayerSlice, EditorLayerInteractionsSlice, EditorHotspotsSlice, EditorPlacedItemsSlice, EditorPlacedPlayersSlice, EditorPlacedNpcsSlice, EditorDialoguesSlice,
-  EditorMapsSlice, EditorMapRegionsSlice {
+  EditorMapsSlice, EditorMapRegionsSlice, EditorDeleteSlice {
   project: Project | null;
   primaryMode: EditorPrimaryMode;
   secondaryMode: EditorSecondaryMode;
@@ -77,6 +78,8 @@ export const useEditorStore = create<EditorStore>()((set, get) => ({
   ...createEditorDialoguesSlice(set, get),
 
   ...createEditorHistoryViewSlice(set, get),
+
+  ...createEditorDeleteSlice(set, get),
 
   /* Inicializa un proyecto nuevo y reseta el editor al estado base */
   initNewProject: (title: string) => {

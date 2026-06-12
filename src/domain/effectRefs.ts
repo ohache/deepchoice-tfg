@@ -9,6 +9,7 @@ export type EffectRefs = Partial<{
   npcIds: readonly ID[];
   playerIds: readonly ID[];
   nodeIds: readonly ID[];
+  itemIds: readonly ID[];
   dialogueIds: readonly ID[];
   placedItemIds: readonly ID[];
   hotspotIds: readonly ID[];
@@ -31,34 +32,24 @@ const EXTRACT_REFS: ExtractorMap = {
   goToNode: (effect) => ({ nodeIds: [effect.targetNodeId] }),
 
   /* Inventario */
-  addItem: (effect) => ({ placedItemIds: [effect.placedItemId] }),
-  removeItem: (effect) => ({ placedItemIds: [effect.placedItemId] }),
+  addItem: (effect) => ({ placedItemIds: [effect.itemInstanceId] }),
+  removeItem: (effect) => ({ placedItemIds: [effect.itemInstanceId] }),
 
   /* Diálogo / PNJ */
   startDialogue: (effect) => ({ dialogueIds: [effect.nodeDialogueId] }),
   endDialogue: () => ({}),
 
-  giveItemToNpc: (effect) => ({
-    npcIds: [effect.npcId],
-    placedItemIds: [effect.placedItemId],
-  }),
-  receiveItemFromNpc: (effect) => ({
-    npcIds: [effect.npcId],
-    placedItemIds: [effect.placedItemId],
-  }),
+  giveItemToNpc: (effect) => ({ npcIds: [effect.npcId], placedItemIds: [effect.itemInstanceId] }),
+  receiveItemFromNpc: (effect) => ({ npcIds: [effect.npcId], placedItemIds: [effect.itemInstanceId] }),
+  transformItem: (effect) => ({ itemIds: [effect.resultItemId], placedItemIds: [effect.sourceItemInstanceId, effect.resultItemInstanceId]}),
+  combineItems: (effect) => ({ itemIds: [effect.resultItemId], placedItemIds: [effect.sourceItemInstanceId, effect.targetItemInstanceId, effect.resultItemInstanceId]}),
 
   /* Feedback */
   showMessage: () => ({}),
 
   /* Estado de items colocados */
-  setPlacedItemVisible: (effect) => ({
-    nodeIds: [effect.nodeId],
-    placedItemIds: [effect.placedItemId],
-  }),
-  setPlacedItemReachable: (effect) => ({
-    nodeIds: [effect.nodeId],
-    placedItemIds: [effect.placedItemId],
-  }),
+  setPlacedItemVisible: (effect) => ({ nodeIds: [effect.nodeId], placedItemIds: [effect.itemInstanceId] }),
+  setPlacedItemReachable: (effect) => ({ nodeIds: [effect.nodeId], placedItemIds: [effect.itemInstanceId] }),
 
   /* Estado de hotspot */
   setHotspotVisible: (effect) => ({ hotspotIds: [effect.hotspotId] }),
@@ -142,14 +133,17 @@ const EXTRACT_REFS: ExtractorMap = {
   /* Audio */
   playSfx: (effect) => ({ sfxIds: [effect.sfxId] }),
   playMusic: (effect) => ({ musicTrackIds: [effect.trackId] }),
-  pauseMusic: () => ({}),
   stopMusic: () => ({}),
 
   /* Mapa */
   setMapRegionAvailable: (effect) => ({ mapRegions: [{ mapId: effect.mapId, regionId: effect.regionId }] }),
 
   /* Finalizar juego */
-  endGame: () => ({}),
+  endGame: (effect) => ({
+    musicTrackIds: effect.ending?.musicTrackId ? [effect.ending.musicTrackId] : [],
+    playerIds: effect.ending?.lines?.flatMap((line) =>  line.speaker?.kind === "player" ? [line.speaker.playerId] : []),
+    npcIds: effect.ending?.lines?.flatMap((line) => line.speaker?.kind === "npc" ? [line.speaker.npcId] : []),
+  }),
 };
 
 type EffectLeaf = Effect;

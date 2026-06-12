@@ -1,19 +1,19 @@
 import { z } from "zod";
 import { IdSchema, regionShapeSchema, placeableStateSchema } from "@/validation/genericSchemas";
-import { conditionSchema, effectSchema } from "@/validation/rulesSchemas";
+import { conditionSchema, effectSchema, rulePhraseSchema } from "@/validation/rulesSchemas";
 
 export const InteractiveClickRuleSchema = z.object({
   id: IdSchema,
   when: conditionSchema.optional(),
-  phrase: z.string().trim().optional(),
+  phrase: rulePhraseSchema.optional(),
   effects: z.array(effectSchema).default([]),
 });
 
 export const InteractiveUseItemRuleSchema = z.object({
   id: IdSchema,
-  placedItemId: IdSchema,
+  itemInstanceId: IdSchema,
   when: conditionSchema.optional(),
-  phrase: z.string().trim().optional(),
+  phrase:rulePhraseSchema.optional(),
   effects: z.array(effectSchema).default([]),
 });
 

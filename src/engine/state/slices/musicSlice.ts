@@ -1,14 +1,13 @@
 import type { ID } from "@/domain/types";
 
 export type MusicStartAt = "resume" | "restart";
-
-export type MusicPlaybackStatus = "playing" | "paused" | "stopped";
+export type MusicPlaybackStatus = "playing" | "stopped";
 
 export interface MusicRuntimeState {
-    status: MusicPlaybackStatus;
-    currentTrackId?: ID;
-    targetTrackId?: ID;
-    savedPositionByTrackId: Record<ID, number>;
+  status: MusicPlaybackStatus;
+  currentTrackId?: ID;
+  targetTrackId?: ID;
+  savedPositionByTrackId: Record<ID, number>;
 }
 
 export function createInitialMusicRuntime(): MusicRuntimeState {
@@ -16,7 +15,7 @@ export function createInitialMusicRuntime(): MusicRuntimeState {
     status: "stopped",
     currentTrackId: undefined,
     targetTrackId: undefined,
-    savedPositionByTrackId: {}
+    savedPositionByTrackId: {},
   };
 }
 
@@ -29,61 +28,51 @@ export function musicSetTargetTrack(state: MusicRuntimeState, trackId: ID | unde
   };
 }
 
-/* Guarda posición (segundos) para un track concreto */
 export function musicRememberPosition(state: MusicRuntimeState, trackId: ID, seconds: number): MusicRuntimeState {
-  const s = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
+  const safeSeconds = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
+  const previousSeconds = state.savedPositionByTrackId[trackId] ?? 0;
 
-  const prev = state.savedPositionByTrackId[trackId] ?? 0;
-  if (prev === s) return state;
+  if (previousSeconds === safeSeconds) return state;
 
   return {
     ...state,
     savedPositionByTrackId: {
       ...state.savedPositionByTrackId,
-      [trackId]: s,
+      [trackId]: safeSeconds,
     },
   };
 }
 
-/* Reproduce un track */
 export function musicPlay(state: MusicRuntimeState, trackId: ID, opts?: { startAt?: MusicStartAt }): MusicRuntimeState {
-  const startAt: MusicStartAt = opts?.startAt ?? "resume";
+  const startAt = opts?.startAt ?? "resume";
 
   if (state.status === "playing" && state.currentTrackId === trackId) return state;
 
-  const nextPositions = startAt === "restart"
-      ? { ...state.savedPositionByTrackId, [trackId]: 0 }
-      : state.savedPositionByTrackId;
+  const savedPositionByTrackId =
+    startAt === "restart" ? { ...state.savedPositionByTrackId, [trackId]: 0 } : state.savedPositionByTrackId;
 
   return {
     ...state,
     status: "playing",
     currentTrackId: trackId,
-    savedPositionByTrackId: nextPositions,
+    targetTrackId: trackId,
+    savedPositionByTrackId,
   };
 }
 
-/* Pausa la música actual */
-export function musicPause(state: MusicRuntimeState): MusicRuntimeState {
-  if (state.status !== "playing") return state;
-  if (!state.currentTrackId) return { ...state, status: "paused" };
-  return { ...state, status: "paused" };
-}
-
-/* Stop */
 export function musicStop(state: MusicRuntimeState, opts?: { keepLastTrackId?: boolean }): MusicRuntimeState {
-  const keep = opts?.keepLastTrackId === true;
+  const keepLastTrackId = opts?.keepLastTrackId === true;
 
-  if (state.status === "stopped" && (!state.currentTrackId || keep)) return state;
+  if (state.status === "stopped" && (!state.currentTrackId || keepLastTrackId)) return state;
 
   return {
     ...state,
     status: "stopped",
-    currentTrackId: keep ? state.currentTrackId : undefined,
+    currentTrackId: keepLastTrackId ? state.currentTrackId : undefined,
+    targetTrackId: undefined,
   };
 }
 
-/* Selector: posición guardada (segundos) de un track. */
 export function selectSavedTrackPosition(state: MusicRuntimeState, trackId: ID): number {
   return state.savedPositionByTrackId[trackId] ?? 0;
 }

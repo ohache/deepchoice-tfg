@@ -1,4 +1,4 @@
-import type { InteractionRules } from "@/domain/types";
+import type { InteractionRules, RulePhrase } from "@/domain/types";
 import type { Condition } from "@/domain/conditions";
 import type { Effect } from "@/domain/effects";
 import type { SceneTestConditionSummary, SceneTestEffectSummary, SceneTestRuleSummary, SceneTestRulesSummary } from "@/features/editor/scene/test/sceneTestTypes";
@@ -8,6 +8,7 @@ import { isEmptyCondition } from "@/features/editor/core/editorGenericSlice";
 export interface SceneTestFormatContext {
   nodeNamesById?: Record<string, string>;
   placedItemNamesById?: Record<string, string>;
+  itemNameById?: Record<string, string>;
   itemNamesById?: Record<string, string>;
   npcNamesById?: Record<string, string>;
   playerNamesById?: Record<string, string>;
@@ -45,7 +46,7 @@ function conditionToText(condition: Condition, ctx?: SceneTestFormatContext): st
       return `Nodo ${resolveNodeName(condition.nodeId, ctx)} ${opToText(condition.op)} ${boolToText(condition.value)}`;
 
     case "hasItem":
-      return `Tiene item ${resolvePlacedItemName(condition.placedItemId, ctx)} ${opToText(condition.op)} ${boolToText(condition.value)}`;
+      return `Tiene item ${resolvePlacedItemName(condition.itemInstanceId, ctx)} ${opToText(condition.op)} ${boolToText(condition.value)}`;
 
     case "playerVar":
       return `PlayerVar ${resolvePlayerName(condition.playerId, ctx)}.${resolvePlayerVarName(condition.playerId, condition.varId, ctx)} ${opToText(condition.op)} ${valueToText(condition.value)}`;
@@ -96,10 +97,27 @@ function effectToText(effect: Effect, ctx?: SceneTestFormatContext): string {
       return `Ir a nodo ${resolveNodeName(effect.targetNodeId, ctx)}`;
 
     case "addItem":
-      return `Añadir item ${resolvePlacedItemName(effect.placedItemId, ctx)}`;
+      return `Añadir item ${resolvePlacedItemName(effect.itemInstanceId, ctx)}`;
 
     case "removeItem":
-      return `Eliminar item ${resolvePlacedItemName(effect.placedItemId, ctx)}`;
+      return `Eliminar item ${resolvePlacedItemName(effect.itemInstanceId, ctx)}`;
+
+        case "transformItem": {
+      const source = resolvePlacedItemName(effect.sourceItemInstanceId, ctx);
+      const resultType = resolveItemName(effect.resultItemId, ctx);
+      const resultLabel = effect.resultItemLabel?.trim() || resultType;
+
+      return `Transformar item ${source} en ${resultLabel} (${resultType})`;
+    }
+
+    case "combineItems": {
+      const source = resolvePlacedItemName(effect.sourceItemInstanceId, ctx);
+      const target = resolvePlacedItemName(effect.targetItemInstanceId, ctx);
+      const resultType = resolveItemName(effect.resultItemId, ctx);
+      const resultLabel = effect.resultItemLabel?.trim() || resultType;
+
+      return `Combinar ${source} + ${target} → ${resultLabel} (${resultType})`;
+    }
 
     case "startDialogue":
       return `Iniciar diálogo ${resolveDialogueName(effect.nodeDialogueId, ctx)}`;
@@ -108,19 +126,19 @@ function effectToText(effect: Effect, ctx?: SceneTestFormatContext): string {
       return "Finalizar diálogo";
 
     case "giveItemToNpc":
-      return `Dar item ${resolvePlacedItemName(effect.placedItemId, ctx)} a NPC ${resolveNpcName(effect.npcId, ctx)}`;
+      return `Dar item ${resolvePlacedItemName(effect.itemInstanceId, ctx)} a NPC ${resolveNpcName(effect.npcId, ctx)}`;
 
     case "receiveItemFromNpc":
-      return `Recibir item ${resolvePlacedItemName(effect.placedItemId, ctx)} de NPC ${resolveNpcName(effect.npcId, ctx)}`;
+      return `Recibir item ${resolvePlacedItemName(effect.itemInstanceId, ctx)} de NPC ${resolveNpcName(effect.npcId, ctx)}`;
 
     case "showMessage":
       return "Mostrar mensaje";
 
     case "setPlacedItemVisible":
-      return `Set placedItem ${resolveNodeName(effect.nodeId, ctx)}.${resolvePlacedItemName(effect.placedItemId, ctx)} visible = ${boolToText(effect.value)}`;
+      return `Set placedItem ${resolveNodeName(effect.nodeId, ctx)}.${resolvePlacedItemName(effect.itemInstanceId, ctx)} visible = ${boolToText(effect.value)}`;
 
     case "setPlacedItemReachable":
-      return `Set placedItem ${resolveNodeName(effect.nodeId, ctx)}.${resolvePlacedItemName(effect.placedItemId, ctx)} reachable = ${boolToText(effect.value)}`;
+      return `Set placedItem ${resolveNodeName(effect.nodeId, ctx)}.${resolvePlacedItemName(effect.itemInstanceId, ctx)} reachable = ${boolToText(effect.value)}`;
 
     case "setHotspotVisible":
       return `Set hotspot ${resolveHotspotName(effect.hotspotId, ctx)} visible = ${boolToText(effect.value)}`;
@@ -182,9 +200,6 @@ function effectToText(effect: Effect, ctx?: SceneTestFormatContext): string {
     case "playMusic":
       return `Reproducir música ${resolveMusicName(effect.trackId, ctx)}`;
 
-    case "pauseMusic":
-      return "Pausar música";
-
     case "stopMusic":
       return "Detener música";
 
@@ -207,6 +222,10 @@ export function formatRules(rules?: InteractionRules, ctx?: SceneTestFormatConte
   };
 }
 
+function formatRulePhrase(phrase?: RulePhrase): string | undefined {
+  return phrase?.text;
+}
+
 function formatRuleList(rules: InteractionRules["onClick"] | InteractionRules["onUseItem"] | undefined,
   channel: "onClick" | "onUseItem", ctx?: SceneTestFormatContext): SceneTestRuleSummary[] {
   if (!rules || rules.length === 0) return [];
@@ -214,10 +233,11 @@ function formatRuleList(rules: InteractionRules["onClick"] | InteractionRules["o
   return rules.map((rule) => ({
     id: rule.id,
     channel,
-    phrase: rule.phrase,
+    phrase: formatRulePhrase(rule.phrase),
     when: formatCondition(rule.when, ctx),
     effects: (rule.effects ?? []).map((effect) => formatEffect(effect, ctx)),
-    itemLabel: channel === "onUseItem" && "placedItemId" in rule ? resolvePlacedItemName(rule.placedItemId, ctx) : undefined,
+    itemLabel: channel === "onUseItem" && "itemInstanceId" in rule && typeof rule.itemInstanceId === "string"
+    ? resolvePlacedItemName(rule.itemInstanceId, ctx) : undefined,
   }));
 }
 
@@ -259,6 +279,10 @@ function resolveNodeName(id: string, ctx?: SceneTestFormatContext): string {
 
 function resolvePlacedItemName(id: string, ctx?: SceneTestFormatContext): string {
   return resolveFromIndex(ctx?.placedItemNamesById ?? ctx?.itemNamesById, id, "Item");
+}
+
+function resolveItemName(id: string, ctx?: SceneTestFormatContext): string {
+  return resolveFromIndex(ctx?.itemNameById ?? ctx?.itemNamesById, id, "Item");
 }
 
 function resolveNpcName(id: string, ctx?: SceneTestFormatContext): string {

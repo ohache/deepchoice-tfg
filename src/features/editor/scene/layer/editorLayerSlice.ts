@@ -5,12 +5,17 @@ import type { HotspotEditorState } from "@/features/editor/scene/hotspots/hotspo
 import type { PlacedItemEditorState } from "@/features/editor/scene/placedItems/placedItemEditorTypes";
 import type { PlacedNpcEditorState } from "@/features/editor/scene/placedNpcs/placedNpcEditorTypes";
 import type { PlacedPlayerEditorState } from "@/features/editor/scene/placedPlayers/placedPlayerEditorTypes";
-import { initialHotspotEditorState, initialPlacedItemEditorState, initialPlacedNpcEditorState,
-  initialPlacedPlayerEditorState } from "@/features/editor/scene/interactiveComponents/interactiveEditorHelpers";
+import {
+  initialHotspotEditorState, initialPlacedItemEditorState, initialPlacedNpcEditorState,
+  initialPlacedPlayerEditorState
+} from "@/features/editor/scene/interactiveComponents/interactiveEditorHelpers";
 import { removeAsset, removeAssetFile, safeTrim } from "@/features/editor/core/editorGenericSlice";
 import { createNodeLayer, patchNodeLayer, reorderNodeLayersList, sameLayer } from "@/features/editor/scene/node/editorNodeHelpersSlice";
 import type { LayerToggleFieldId } from "@/features/editor/scene/SceneCommon";
 import { buildAssetPath } from "@/store/assets/assetPath";
+import type { DeleteApplyFn } from "@/features/editor/delete/editorDeleteSlice";
+import type { DeleteTarget } from "@/features/editor/delete/deleteTypes";
+import { applyDeleteWithCleanup } from "../../delete/deleteReferenceCleaner";
 
 type EditorStoreLike = {
   project: Project | null;
@@ -32,6 +37,11 @@ type EditorStoreLike = {
   clearInteractionSelection: () => void;
   nodeIssues?: { path: string; message: string }[];
   pendingInteractiveOpen: { kind: "hotspot" | "placedItem" | "placedNpc" | "placedPlayer"; id: ID } | null;
+  removeNodeLayer: (layerId: ID, options?: { withConfirmation?: boolean }) => void;
+  requestDelete: (input: {
+    target: DeleteTarget;
+    apply: DeleteApplyFn;
+  }) => void;
 };
 
 type LayerEditSession =
@@ -61,7 +71,7 @@ export interface EditorLayerSlice {
 
   addNodeLayer: (args?: { id?: ID; label?: string; assetId?: ID; when?: Condition; dock?: SceneImageLayer["dock"] }) => ID | null;
   updateNodeLayer: (layerId: ID, patch: Partial<SceneImageLayer>) => void;
-  removeNodeLayer: (layerId: ID) => void;
+  removeNodeLayer: (layerId: ID, options?: { withConfirmation?: boolean }) => void;
   reorderNodeLayers: (fromIndex: number, toIndex: number) => void;
 
   upsertBackgroundAsset: (assetId: ID, file: File) => void;
@@ -181,7 +191,7 @@ export function createEditorLayerSlice(set: (partial: | Partial<EditorStoreLike>
 
     patchActiveLayer: (patcher) => { withActiveLayer((layer) => patcher(layer)) },
 
-        setActiveTextEntryId: (entryId) =>
+    setActiveTextEntryId: (entryId) =>
       set((state) => {
         if (state.activeTextEntryId === entryId) return state;
 
@@ -299,47 +309,130 @@ export function createEditorLayerSlice(set: (partial: | Partial<EditorStoreLike>
         };
       }),
 
-    removeNodeLayer: (layerId) =>
-      set((state) => {
-        if (!state.nodeDraft) return state;
+    removeNodeLayer: (layerId, options) => {
+  const withConfirmation = options?.withConfirmation ?? false;
 
-        const layers0 = state.nodeDraft.layers ?? [];
-        const nextLayers = layers0.filter((layer) => layer.id !== layerId);
-        if (nextLayers.length === layers0.length) return state;
+  if (withConfirmation) {
+  const nodeId = get().nodeDraft?.id;
+  const project = get().project;
 
-        const removedActiveLayer = state.activeLayerId === layerId;
+  if (!nodeId || !project) return;
 
-        const removedHotspotLayer = state.hotspotEditor.context?.layerId === layerId;
-        const removedPlacedItemLayer = state.placedItemEditor.context?.layerId === layerId;
-        const removedPlacedNpcLayer = state.placedNpcEditor.context?.layerId === layerId;
-        const removedPlacedPlayerLayer = state.placedPlayerEditor.context?.layerId === layerId;
+  get().requestDelete({
+    target: { kind: "layer", nodeId, layerId },
+    apply: (state) => {
+      if (!state.project || !state.nodeDraft) return state;
 
-        const removedLayerEditSession = state.layerEditSession.mode === "editing" && state.layerEditSession.layerId === layerId;
+      const nextProject = applyDeleteWithCleanup(state.project, {
+        kind: "layer",
+        nodeId,
+        layerId,
+      });
 
-        const shouldResetHotspotEditor = removedActiveLayer || removedHotspotLayer;
-        const shouldResetPlacedItemEditor = removedActiveLayer || removedPlacedItemLayer;
-        const shouldResetPlacedNpcEditor = removedActiveLayer || removedPlacedNpcLayer;
-        const shouldResetPlacedPlayerEditor = removedActiveLayer || removedPlacedPlayerLayer;
+      const nextNodeDraft =
+        state.nodeDraft.id === nodeId
+          ? nextProject.nodes.find((node) => node.id === nodeId) ?? state.nodeDraft
+          : state.nodeDraft;
 
-        const shouldClearSelection = shouldResetHotspotEditor || shouldResetPlacedItemEditor || shouldResetPlacedNpcEditor || shouldResetPlacedPlayerEditor;
+      const nextLayers = nextNodeDraft.layers ?? [];
+      const removedActiveLayer = state.activeLayerId === layerId;
 
-        return {
-          ...state,
-          nodeDraft: { ...state.nodeDraft, layers: nextLayers },
-          nodeIssues: [],
-          activeLayerId: removedActiveLayer ? (nextLayers[0]?.id ?? null) : state.activeLayerId,
-          activeTextEntryId: removedActiveLayer ? (nextLayers[0]?.text?.[0]?.id ?? null) : state.activeTextEntryId,
-          activeLayerField: removedActiveLayer ? null : state.activeLayerField,
-          layerEditSession: removedLayerEditSession ? { mode: "idle" } : state.layerEditSession,
-          hotspotEditor: shouldResetHotspotEditor ? initialHotspotEditorState : state.hotspotEditor,
-          placedItemEditor: shouldResetPlacedItemEditor ? initialPlacedItemEditorState : state.placedItemEditor,
-          placedNpcEditor: shouldResetPlacedNpcEditor ? initialPlacedNpcEditorState : state.placedNpcEditor,
-          placedPlayerEditor: shouldResetPlacedPlayerEditor ? initialPlacedPlayerEditorState : state.placedPlayerEditor,
-          selectedInteractionKind: shouldClearSelection ? null : state.selectedInteractionKind,
-          selectedInteractionId: shouldClearSelection ? null : state.selectedInteractionId,
-          pendingInteractiveOpen: shouldClearSelection ? null : state.pendingInteractiveOpen,
-        };
-      }),
+      return {
+        ...state,
+        project: nextProject,
+        nodeDraft: nextNodeDraft,
+        nodeIssues: [],
+        activeLayerId: removedActiveLayer ? nextLayers[0]?.id ?? null : state.activeLayerId,
+        activeTextEntryId: removedActiveLayer ? nextLayers[0]?.text?.[0]?.id ?? null : state.activeTextEntryId,
+        activeLayerField: removedActiveLayer ? null : state.activeLayerField,
+        layerEditSession: { mode: "idle" },
+        hotspotEditor: initialHotspotEditorState,
+        placedItemEditor: initialPlacedItemEditorState,
+        placedNpcEditor: initialPlacedNpcEditorState,
+        placedPlayerEditor: initialPlacedPlayerEditorState,
+        selectedInteractionKind: null,
+        selectedInteractionId: null,
+        pendingInteractiveOpen: null,
+      };
+    },
+  });
+
+  return;
+}
+
+  set((state) => {
+    if (!state.nodeDraft) return state;
+
+    const layers0 = state.nodeDraft.layers ?? [];
+    const nextLayers = layers0.filter((layer) => layer.id !== layerId);
+
+    if (nextLayers.length === layers0.length) return state;
+
+    const removedActiveLayer = state.activeLayerId === layerId;
+
+    const removedHotspotLayer = state.hotspotEditor.context?.layerId === layerId;
+    const removedPlacedItemLayer = state.placedItemEditor.context?.layerId === layerId;
+    const removedPlacedNpcLayer = state.placedNpcEditor.context?.layerId === layerId;
+    const removedPlacedPlayerLayer = state.placedPlayerEditor.context?.layerId === layerId;
+
+    const removedLayerEditSession =
+      state.layerEditSession.mode === "editing" &&
+      state.layerEditSession.layerId === layerId;
+
+    const shouldResetHotspotEditor = removedActiveLayer || removedHotspotLayer;
+    const shouldResetPlacedItemEditor = removedActiveLayer || removedPlacedItemLayer;
+    const shouldResetPlacedNpcEditor = removedActiveLayer || removedPlacedNpcLayer;
+    const shouldResetPlacedPlayerEditor = removedActiveLayer || removedPlacedPlayerLayer;
+
+    const shouldClearSelection =
+      shouldResetHotspotEditor ||
+      shouldResetPlacedItemEditor ||
+      shouldResetPlacedNpcEditor ||
+      shouldResetPlacedPlayerEditor;
+
+    return {
+      ...state,
+      nodeDraft: {
+        ...state.nodeDraft,
+        layers: nextLayers,
+      },
+      nodeIssues: [],
+      activeLayerId: removedActiveLayer
+        ? nextLayers[0]?.id ?? null
+        : state.activeLayerId,
+      activeTextEntryId: removedActiveLayer
+        ? nextLayers[0]?.text?.[0]?.id ?? null
+        : state.activeTextEntryId,
+      activeLayerField: removedActiveLayer
+        ? null
+        : state.activeLayerField,
+      layerEditSession: removedLayerEditSession
+        ? { mode: "idle" }
+        : state.layerEditSession,
+      hotspotEditor: shouldResetHotspotEditor
+        ? initialHotspotEditorState
+        : state.hotspotEditor,
+      placedItemEditor: shouldResetPlacedItemEditor
+        ? initialPlacedItemEditorState
+        : state.placedItemEditor,
+      placedNpcEditor: shouldResetPlacedNpcEditor
+        ? initialPlacedNpcEditorState
+        : state.placedNpcEditor,
+      placedPlayerEditor: shouldResetPlacedPlayerEditor
+        ? initialPlacedPlayerEditorState
+        : state.placedPlayerEditor,
+      selectedInteractionKind: shouldClearSelection
+        ? null
+        : state.selectedInteractionKind,
+      selectedInteractionId: shouldClearSelection
+        ? null
+        : state.selectedInteractionId,
+      pendingInteractiveOpen: shouldClearSelection
+        ? null
+        : state.pendingInteractiveOpen,
+    };
+  });
+},
 
     reorderNodeLayers: (fromIndex, toIndex) =>
       set((state) => {

@@ -51,12 +51,6 @@ function isSameRef(a: SceneTestInspectableRef | null | undefined, b: SceneTestIn
   return !!a && !!b && a.type === b.type && a.id === b.id;
 }
 
-function buildTextLayoutClass(hasText: boolean, dock: TextDock) {
-  if (!hasText) return "flex-col";
-  if (dock === "left" || dock === "right") return "flex-row";
-  return "flex-col";
-}
-
 function isTextFirst(hasText: boolean, dock: TextDock) {
   if (!hasText) return false;
   return dock === "top" || dock === "left";
@@ -74,19 +68,17 @@ function getRectSize(style: CSSProperties | null) {
 function baseOverlayStyle(isHovered: boolean, isPinned: boolean): CSSProperties | undefined {
   if (isPinned) {
     return {
-      boxShadow: "0 0 0 2px rgba(250,204,21,0.95), 0 0 26px rgba(250,204,21,0.42), inset 0 0 0 2px rgba(250,204,21,0.28)",
-      background: "rgba(250,204,21,0.10)",
+      boxShadow: "0 0 0 2px rgba(250,204,21,0.95), 0 0 26px rgba(250,204,21,0.42), inset 0 0 0 2px rgba(250,204,21,0.22)",
+      background: "rgba(250,204,21,0.08)",
       borderRadius: 12,
-      backdropFilter: "blur(1px)",
     };
   }
 
   if (isHovered) {
     return {
-      boxShadow: "0 0 0 2px rgba(217,119,6,0.85), 0 0 20px rgba(217,119,6,0.30), inset 0 0 0 2px rgba(217,119,6,0.22)",
-      background: "rgba(245,158,11,0.08)",
+      boxShadow: "0 0 0 2px rgba(217,119,6,0.85), 0 0 20px rgba(217,119,6,0.28), inset 0 0 0 2px rgba(217,119,6,0.18)",
+      background: "rgba(245,158,11,0.06)",
       borderRadius: 12,
-      backdropFilter: "blur(1px)",
     };
   }
 
@@ -99,10 +91,10 @@ function InlineNavButton({ children, disabled = false, onClick }: { children: st
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className={"rounded-md border px-2 py-1 text-xs transition-colors " +
+      className={"rounded-md border px-2.5 py-1 text-xs transition-colors " +
         (disabled
           ? "border-slate-700 bg-slate-900/50 text-slate-500 cursor-not-allowed"
-          : "border-slate-600 bg-slate-950 text-slate-100 hover:border-fuchsia-700 hover:bg-slate-900")}
+          : "border-slate-600 bg-slate-950/90 text-slate-100 hover:border-fuchsia-700 hover:bg-slate-900")}
     >
       {children}
     </button>
@@ -185,7 +177,6 @@ export function SceneTest({ title, imageAssetId, text, textLabel, textDock = "bo
   const showTextHeader = Boolean(effectiveTextLabel) || showTextNav;
   const effectiveTextDock: TextDock = textDock === "top" || textDock === "left" || textDock === "right" || textDock === "bottom"
       ? textDock : "bottom";
-  const layoutClass = buildTextLayoutClass(hasText, effectiveTextDock);
   const textFirst = isTextFirst(hasText, effectiveTextDock);
 
   const parts = useMemo(() => resolveTextTokensToParts(effectiveText, project), [effectiveText, project]);
@@ -277,49 +268,50 @@ export function SceneTest({ title, imageAssetId, text, textLabel, textDock = "bo
     );
   };
 
-  const renderTextPanel = () => (
-    <div
-      className={"bg-slate-950/90 overflow-hidden shrink-0 min-h-0s" +
-        (effectiveTextDock === "left"
-          ? "h-full w-[320px] border-r border-slate-800"
-          : effectiveTextDock === "right"
-            ? "h-full w-[320px] border-l border-slate-800"
-            : effectiveTextDock === "top"
-              ? "w-full h-[180px] border-b border-slate-800"
-              : "w-full h-[180px] border-t border-slate-800")}
-    >
-      <div className="h-full min-h-0 flex flex-col px-4 py-3">
-        {showTextHeader && (
-          <div className="grid grid-cols-[auto_1fr_auto] items-center gap-3 mb-3 shrink-0">
-            <div className="justify-self-start">
-              {showTextNav ? (
-                <InlineNavButton disabled={!canGoPrevText} onClick={onPrevText}>
-                  Anterior
-                </InlineNavButton>
-              ) : (
-                <div />
-              )}
-            </div>
+const renderTextPanel = () => (
+  <div
+    className={"bg-[#0a0a0a] overflow-hidden shrink-0 min-h-0 flex items-center justify-center" +
+  (effectiveTextDock === "left"
+    ? " h-full w-[280px] border-r border-slate-800"
+    : effectiveTextDock === "right"
+      ? " h-full w-[280px] border-l border-slate-800"
+      : effectiveTextDock === "top"
+        ? " w-full h-40 border-b border-slate-800"
+        : " w-full h-40 border-t border-slate-800")}
+  >
+    <div className="h-full min-h-0 w-full flex flex-col px-5 py-4">
+      {showTextHeader && (
+        <div className="grid grid-cols-[auto_1fr_auto] items-center gap-3 mb-3 shrink-0">
+          <div className="justify-self-start">
+            {showTextNav ? (
+              <InlineNavButton disabled={!canGoPrevText} onClick={onPrevText}>
+                Anterior
+              </InlineNavButton>
+            ) : (
+              <div />
+            )}
+          </div>
 
-            <div className="min-w-0 text-center">
-              <div className="text-sm font-semibold text-slate-100 truncate">
-                {effectiveTextLabel}
-              </div>
-            </div>
-
-            <div className="justify-self-end">
-              {showTextNav ? (
-                <InlineNavButton disabled={!canGoNextText} onClick={onNextText}>
-                  Siguiente
-                </InlineNavButton>
-              ) : (
-                <div />
-              )}
+          <div className="min-w-0 text-center">
+            <div className="text-sm font-semibold text-slate-100 truncate">
+              {effectiveTextLabel}
             </div>
           </div>
-        )}
 
-        <div className="min-h-0 flex-1 overflow-auto">
+          <div className="justify-self-end">
+            {showTextNav ? (
+              <InlineNavButton disabled={!canGoNextText} onClick={onNextText}>
+                Siguiente
+              </InlineNavButton>
+            ) : (
+              <div />
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="min-h-0 flex-1 overflow-auto flex items-center justify-center">
+        <div className="w-full max-w-3xl">
           {brokenCount > 0 ? (
             <div className="mb-2 rounded-md border border-rose-500/40 bg-rose-950/30 px-2 py-1 text-[11px] text-rose-200">
               Hay {brokenCount} referencia{brokenCount === 1 ? "" : "s"} rota
@@ -330,7 +322,7 @@ export function SceneTest({ title, imageAssetId, text, textLabel, textDock = "bo
           <ResolvedTextRenderer
             parts={parts}
             emptyText="Esta capa no tiene texto para la variante seleccionada."
-            wrapperClassName="wrap-break-word whitespace-pre-wrap text-sm text-slate-100 leading-relaxed"
+            wrapperClassName="wrap-break-word whitespace-pre-wrap text-center text-sm leading-relaxed text-slate-100"
             resolvedTokenClassName="font-mono text-sm text-fuchsia-200"
             brokenTokenClassName="font-mono text-sm text-red-200"
             brokenTokenTitle="Referencia rota"
@@ -338,14 +330,21 @@ export function SceneTest({ title, imageAssetId, text, textLabel, textDock = "bo
         </div>
       </div>
     </div>
-  );
+  </div>
+);
 
-  return (
-    <div className="rounded-xl border-2 border-slate-700 bg-slate-900 overflow-hidden min-h-[620px]">
-      <div className={`w-full h-full min-h-[620px] ${effectiveTextDock === "left" || effectiveTextDock === "right" ? `flex ${layoutClass}` : "flex flex-col"}`}>
+return (
+  <div className="rounded-xl border-2 border-slate-800 bg-black overflow-hidden min-h-[620px] shadow-2xl">
+    <div
+  className={
+    effectiveTextDock === "left" || effectiveTextDock === "right"
+      ? "w-full h-[620px] flex flex-row"
+      : "w-full h-[620px] flex flex-col"
+  }
+>
         {textFirst && renderTextPanel()}
 
-        <div className="relative flex-1 min-h-0 bg-slate-900 flex flex-col">
+        <div className="relative flex-1 min-h-0 bg-black flex flex-col">
           {showLayerNav && (
             <div className="relative z-30 shrink-0 flex items-center justify-between gap-3 border-b border-slate-800 bg-slate-950/85 px-3 py-1.5">
               <InlineNavButton disabled={!canGoPrevLayer} onClick={onPrevLayer}>
@@ -363,23 +362,14 @@ export function SceneTest({ title, imageAssetId, text, textLabel, textDock = "bo
           )}
 
           {imageSrc ? (
-            <div className="relative flex-1 min-h-0 w-full overflow-hidden">
-              <div className="absolute inset-0 overflow-hidden">
-                <img
-                  src={imageSrc}
-                  alt=""
-                  aria-hidden="true"
-                  className="absolute inset-0 w-full h-full object-cover blur-lg scale-110 opacity-60"
-                  draggable={false}
-                />
-              </div>
+            <div className="relative flex-1 min-h-0 w-full overflow-hidden bg-black">
 
               <div
                 ref={stageRef}
                 tabIndex={0}
                 role="application"
                 aria-label="Escena de prueba"
-                className="relative z-10 w-full h-full flex items-center justify-center outline-none"
+                className="relative z-10 h-full w-full flex items-center justify-center outline-none"
               >
                 <div
                   ref={containerRef}
@@ -389,7 +379,7 @@ export function SceneTest({ title, imageAssetId, text, textLabel, textDock = "bo
                     ref={imgRef}
                     src={imageSrc}
                     alt={title || "Escena"}
-                    className="max-w-full max-h-full object-contain drop-shadow"
+                    className="max-w-full max-h-full object-contain select-none"
                     draggable={false}
                     onLoad={() => setContentRect(getImageContentRect())}
                   />
@@ -552,7 +542,7 @@ export function SceneTest({ title, imageAssetId, text, textLabel, textDock = "bo
               </div>
             </div>
           ) : (
-            <div className="flex h-full w-full items-center justify-center px-4">
+            <div className="flex h-full w-full items-center justify-center bg-black px-4">
               <span className="text-center text-sm text-slate-500">
                 Esta escena no tiene imagen definida.
               </span>

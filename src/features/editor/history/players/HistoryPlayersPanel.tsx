@@ -1,15 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useEditorStore } from "@/store/editorStore";
-import type { PlayerDef, ID, VarDef } from "@/domain/types";
+import type { PlayerDef, ID, VarDef, InventoryItemInstance } from "@/domain/types";
+import { PlayerInventoryItemRulesEditor } from "@/features/editor/history/players/PlayerInventoryItemsRulesEditor";
 import { useResolvedAssetUrl } from "@/features/editor/hooks/useResolvedAssetUrl";
 import { type PlayerFieldErrors, validatePlayerDraft } from "@/features/editor/history/players/playerValidator";
-import { DeleteProjectEntityModal } from "@/features/editor/modals/DeleteProjectEntityModal"; 
 import { ConfirmExitModal } from "@/features/editor/modals/ConfirmExitModal";
-import { toast } from "@/shared/toast/toastStore";
 import { useAssetDraftPanel, type DraftMode } from "@/features/editor/history/shared/useAssetDraftPanel";
 import { VarRowCard } from "@/shared/vars/varRowCard";
 import { usePlayerImagesDraft } from "@/features/editor/history/players/playersImageDraft";
 import { useEntityVarsEditor } from "@/shared/vars/useEntityVarsEditor";
+import { hasDuplicatedItemInstanceLabel } from "@/validation/itemInstanceLabels";
+import { generateId } from "@/utils/id";
+import { Select } from "@/components/Select";
+import { toast } from "@/shared/toast/toastStore";
 
 function getModeTitle(mode: DraftMode) {
   if (mode === "new") return "Nuevo personaje";
@@ -32,10 +35,11 @@ export function HistoryPlayersPanel() {
   const selectedPlayerId = useEditorStore((s) => s.selectedPlayerId);
   const setSelectedPlayerId = useEditorStore((s) => s.setSelectedPlayerId);
 
+  const draftPlayerId = selectedPlayerId ?? "__draft_player__";
+
   const addPlayerDef = useEditorStore((s) => s.addPlayer);
   const updatePlayerDef = useEditorStore((s) => s.updatePlayer);
   const removePlayerDef = useEditorStore((s) => s.removePlayer);
-  const isPlayerReferenceed = useEditorStore((s) => s.isPlayerReferenced);
 
   const addPlayerImage = useEditorStore((s) => s.addPlayerImage);
   const updatePlayerImage = useEditorStore((s) => s.updatePlayerImage);
@@ -46,8 +50,14 @@ export function HistoryPlayersPanel() {
   const updatePlayerVar = useEditorStore((s) => s.updatePlayerVar);
   const removePlayerVar = useEditorStore((s) => s.removePlayerVar);
 
+  const addPlayerInventoryItem = useEditorStore((s) => s.addPlayerInventoryItem);
+  const updatePlayerInventoryItem = useEditorStore((s) => s.updatePlayerInventoryItem);
+  const removePlayerInventoryItem = useEditorStore((s) => s.removePlayerInventoryItem);
+
   const [draftName, setDraftName] = useState("");
   const [draftDescription, setDraftDescription] = useState("");
+  const [draftInventory, setDraftInventory] = useState<InventoryItemInstance[]>([]);
+  const [openInventoryItemId, setOpenInventoryItemId] = useState<ID | null>(null);
   const [fieldErrors, setFieldErrors] = useState<PlayerFieldErrors>({});
   const [replaceTargetUiId, setReplaceTargetUiId] = useState<ID | null>(null);
   const [isExitModalOpen, setIsExitModalOpen] = useState(false);
@@ -68,6 +78,8 @@ export function HistoryPlayersPanel() {
     onLoadDraftFieldsFromSelected: (player) => {
       setDraftName(player.name ?? "");
       setDraftDescription(player.description ?? "");
+      setDraftInventory(player.initialInventory ?? []);
+      setOpenInventoryItemId(null);
       setFieldErrors({});
       images.loadFromPlayer(player);
     },
@@ -75,6 +87,8 @@ export function HistoryPlayersPanel() {
     onResetDraftFields: () => {
       setDraftName("");
       setDraftDescription("");
+      setDraftInventory([]);
+      setOpenInventoryItemId(null);
       setFieldErrors({});
       images.resetDraft();
     },
@@ -104,7 +118,7 @@ export function HistoryPlayersPanel() {
       },
     });
 
-    useEffect(() => () => setSelectedPlayerId(null), [setSelectedPlayerId]);
+  useEffect(() => () => setSelectedPlayerId(null), [setSelectedPlayerId]);
 
   useEffect(() => {
     syncFromVars(selectedPlayer?.vars ?? []);
@@ -154,7 +168,8 @@ export function HistoryPlayersPanel() {
           file: image.file ?? undefined,
         })),
         defaultImageId,
-        vars: draftVars
+        vars: draftVars,
+        initialInventory: draftInventory,
       },
       {
         mode: mode === "edit" ? "edit" : "new",
@@ -185,6 +200,132 @@ export function HistoryPlayersPanel() {
     return varsOut;
   };
 
+  const toggleInventoryItemOpen = (itemInstanceId: ID) => { setOpenInventoryItemId((current) => current === itemInstanceId ? null : itemInstanceId) };
+
+  const itemOptions = project?.items ?? [];
+
+  const addInventoryRow = () => {
+    const item = itemOptions[0];
+    if (!item) {
+      toast.warning("No hay items", "Crea primero un item global.");
+      return;
+    }
+
+    const itemInstance: InventoryItemInstance = {
+      itemInstanceId: generateId.itemPlaced(),
+      itemId: item.id,
+      label: item.name,
+    };
+
+    setDraftInventory((prev) => [...prev, itemInstance]);
+    setOpenInventoryItemId(itemInstance.itemInstanceId);
+  };
+
+  const updateInventoryRow = (itemInstanceId: ID, patch: Partial<InventoryItemInstance>) => {
+    setDraftInventory((prev) =>
+      prev.map((item) =>
+        item.itemInstanceId === itemInstanceId ? { ...item, ...patch } : item,
+      ),
+    );
+  };
+
+  const removeInventoryRow = (itemInstanceId: ID) => {
+    setDraftInventory((prev) => prev.filter((item) => item.itemInstanceId !== itemInstanceId));
+    setOpenInventoryItemId((current) => current === itemInstanceId ? null : current);
+
+    if (mode === "edit" && selectedPlayerId) {
+      removePlayerInventoryItem(selectedPlayerId, itemInstanceId);
+    }
+  };
+
+  const setInventoryItemError = (itemInstanceId: ID, message: string) => {
+    setFieldErrors((prev) => ({
+      ...prev,
+      inventoryItemById: {
+        ...(prev.inventoryItemById ?? {}),
+        [itemInstanceId]: message,
+      },
+    }));
+  };
+
+  const clearInventoryItemError = (itemInstanceId: ID) => {
+    setFieldErrors((prev) => {
+      const nextById = { ...(prev.inventoryItemById ?? {}) };
+      delete nextById[itemInstanceId];
+
+      return {
+        ...prev,
+        inventoryItemById: Object.keys(nextById).length > 0 ? nextById : undefined,
+      };
+    });
+  };
+
+  const saveInventoryRow = (item: InventoryItemInstance) => {
+    if (!project) return;
+
+    clearInventoryItemError(item.itemInstanceId);
+
+    if (!item.itemId) {
+      setInventoryItemError(item.itemInstanceId, "Selecciona un tipo de item.");
+      toast.warning("Item incompleto", "Selecciona un tipo de item.");
+      return;
+    }
+
+    const label = item.label.trim();
+
+    if (!label) {
+      setInventoryItemError(item.itemInstanceId, "El item necesita una etiqueta.");
+      toast.warning("Etiqueta obligatoria", "El item necesita una etiqueta.");
+      return;
+    }
+
+    if (label.length > 60) {
+      toast.warning("Nombre demasiado largo", "La etiqueta no puede superar 60 caracteres.");
+      return;
+    }
+
+    const duplicatedInDraft = draftInventory.some(
+      (other) =>
+        other.itemInstanceId !== item.itemInstanceId &&
+        other.label.trim().toLowerCase() === label.toLowerCase(),
+    );
+
+    if (duplicatedInDraft) {
+      setInventoryItemError(item.itemInstanceId, "Ya hay otro item del inventario con ese nombre.");
+      toast.warning("Nombre repetido", "Ya hay otro item del inventario con ese nombre.");
+      return;
+    }
+
+    if (hasDuplicatedItemInstanceLabel(project, label, item.itemInstanceId)) {
+      setInventoryItemError(item.itemInstanceId, "Ya existe otro item instanciado con ese nombre.");
+      toast.warning("Nombre repetido", "Ya existe otro item instanciado con ese nombre.");
+      return;
+    }
+
+    const cleanItem: InventoryItemInstance = {
+      ...item,
+      label,
+    };
+
+    setDraftInventory((prev) =>
+      prev.map((current) =>
+        current.itemInstanceId === cleanItem.itemInstanceId ? cleanItem : current,
+      ),
+    );
+
+    if (mode === "edit" && selectedPlayerId) {
+      const existedBefore = selectedPlayer?.initialInventory?.some(
+        (existing) => existing.itemInstanceId === cleanItem.itemInstanceId,
+      );
+
+      if (existedBefore) updatePlayerInventoryItem(selectedPlayerId, cleanItem);
+      else addPlayerInventoryItem(selectedPlayerId, cleanItem);
+    }
+
+    setOpenInventoryItemId(null);
+    toast.success("Item guardado", `“${cleanItem.label}”`);
+  };
+
   const handleCreate = (): boolean => {
     const varsOut = buildValidatedVars();
     if (!varsOut) return false;
@@ -203,6 +344,7 @@ export function HistoryPlayersPanel() {
       name,
       description,
       vars: varsOut,
+      initialInventory: draftInventory,
       images: imagesWithFile.map((image) => {
         const imageId = (image.imageId ?? (image.uiId as ID)) as ID;
         return {
@@ -266,6 +408,27 @@ export function HistoryPlayersPanel() {
 
     void varsOut;
 
+    for (const item of draftInventory) {
+      const existedBefore = selectedPlayer?.initialInventory?.some(
+        (existing) => existing.itemInstanceId === item.itemInstanceId,
+      );
+
+      if (existedBefore) updatePlayerInventoryItem(selectedPlayerId, item);
+      else addPlayerInventoryItem(selectedPlayerId, item);
+    }
+
+    const currentInventoryIds = new Set(
+      (selectedPlayer?.initialInventory ?? []).map((item) => item.itemInstanceId),
+    );
+
+    const keptInventoryIds = new Set(draftInventory.map((item) => item.itemInstanceId));
+
+    for (const itemInstanceId of currentInventoryIds) {
+      if (!keptInventoryIds.has(itemInstanceId)) {
+        removePlayerInventoryItem(selectedPlayerId, itemInstanceId);
+      }
+    }
+
     toast.success("Personaje actualizado", `“${name}”`);
     panel.reset();
     return true;
@@ -292,18 +455,13 @@ export function HistoryPlayersPanel() {
     if (ok) setIsExitModalOpen(false);
   };
 
-  const handleConfirmDelete = () => {
-    if (selectedPlayerId) {
-      const deletedName = selectedPlayer?.name ?? "Personaje";
-      removePlayerDef(selectedPlayerId);
-      toast.success("Personaje eliminado", `“${deletedName}”`);
-    }
-    panel.reset();
+  const handleDeletePlayer = () => {
+    if (!selectedPlayerId) return;
+    removePlayerDef(selectedPlayerId);
   };
 
   if (!project) return null;
 
-  const referenced = selectedPlayerId ? isPlayerReferenceed(selectedPlayerId) : false;
   const disableAddVar = mode === "none" || openVarId !== null;
 
   return (
@@ -327,7 +485,7 @@ export function HistoryPlayersPanel() {
               <ul className="divide-y-2 divide-slate-700">
                 {playerList.map((player, index) => {
                   const isSelected = player.id === selectedPlayerId;
-                                    const isFirst = index === 0;
+                  const isFirst = index === 0;
                   const isLast = index === playerList.length - 1;
 
                   return (
@@ -413,12 +571,12 @@ export function HistoryPlayersPanel() {
                   <h5 className="text-[14px] text-slate-100 m-0 text-center">Imágenes</h5>
 
                   <div
-                    className={ "group relative mt-1.5 px-3 py-3.5 rounded-md flex flex-col items-center justify-center text-[12px] " +
+                    className={"group relative mt-1.5 px-3 py-3.5 rounded-md flex flex-col items-center justify-center text-[12px] " +
                       "transition-colors duration-150 border-2 border-dashed cursor-pointer " +
                       (images.isDragging
                         ? "border-emerald-400 bg-emerald-800"
                         : "border-emerald-800 bg-slate-900/40 " +
-                          (images.isHoveringSelectButton ? "" : "hover:bg-emerald-900/60"))}
+                        (images.isHoveringSelectButton ? "" : "hover:bg-emerald-900/60"))}
                     onDragOver={images.handleDragOver}
                     onDragLeave={images.handleDragLeave}
                     onDrop={images.handleDrop}
@@ -590,52 +748,176 @@ export function HistoryPlayersPanel() {
 
                   {fieldErrors.vars && <p className="form-field-error mt-2 text-center">{fieldErrors.vars}</p>}
 
+                  <div className="space-y-2 mt-3">
+                    {draftVars.map((row, idx) => {
+                      const isOpen = row.id === openVarId;
+                      const errors = computeRowErrors(row);
+                      return (
+                        <div key={row.id}>
+                          <VarRowCard
+                            row={row}
+                            index={idx}
+                            isOpen={isOpen}
+                            disabled={!canEdit}
+                            nameInputRef={(el) => { varNameRefs.current[row.id] = el }}
+                            onToggleOpen={() => toggleVarOpen(row.id)}
+                            onChange={(patch) => updateVarRow(row.id, patch)}
+                            onSwitchType={(nextType) => switchVarType(row.id, nextType)}
+                            onSave={() => {
+                              const result = saveVarRow(row);
+                              if (!result.ok) {
+                                toast.warning("Revisa la variable", "Hay campos con errores.");
+                                return;
+                              }
+                              toast.success("Variable guardada", `“${result.variable.name}”`);
+                            }}
+                            onDelete={() => removeVarRow(row.id)}
+                            saveTitle="Guardar"
+                            deleteTitle="Eliminar"
+                            saveVariant="player"
+                            errors={errors}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="mt-4 border-t border-slate-700 pt-4">
+                    <h5 className="text-[14px] text-slate-100 m-0 text-center">Inventario inicial</h5>
+
+                    <div className="mt-2 flex justify-center">
+                      <button
+                        type="button"
+                        onClick={addInventoryRow}
+                        className="btn btn-add-variant bg-rose-800 border-rose-600 text-[12px] disabled:opacity-40 disabled:cursor-not-allowed mt-1 mb-1"
+                        disabled={!canEdit || openInventoryItemId !== null}
+                        title={openInventoryItemId ? "Termina la edición del item abierto." : "Añadir item"}
+                      >
+                        + Añadir item
+                      </button>
+                    </div>
+
+                    {fieldErrors.initialInventory && (
+                      <p className="form-field-error mt-2 text-center">{fieldErrors.initialInventory}</p>
+                    )}
+
                     <div className="space-y-2 mt-3">
-                      {draftVars.map((row, idx) => {
-                        const isOpen = row.id === openVarId;
-                        const errors = computeRowErrors(row);
+                      {draftInventory.map((item) => {
+
+                        const isOpen = item.itemInstanceId === openInventoryItemId;
+                        const itemDef = itemOptions.find((option) => option.id === item.itemId);
+
                         return (
-                          <div key={row.id}>
-                            <VarRowCard
-                              row={row}
-                              index={idx}
-                              isOpen={isOpen}
-                              disabled={!canEdit}
-                              nameInputRef={(el) => { varNameRefs.current[row.id] = el }}
-                              onToggleOpen={() => toggleVarOpen(row.id)}
-                              onChange={(patch) => updateVarRow(row.id, patch)}
-                              onSwitchType={(nextType) => switchVarType(row.id, nextType)}
-                              onSave={() => {
-                                const result = saveVarRow(row);
-                                if (!result.ok) {
-                                  toast.warning("Revisa la variable", "Hay campos con errores.");
-                                  return;
-                                }
-                                toast.success("Variable guardada", `“${result.variable.name}”`);
-                              }}
-                              onDelete={() => removeVarRow(row.id)}
-                              saveTitle="Guardar"
-                              deleteTitle="Eliminar"
-                              saveVariant="player"
-                              errors={errors}
-                            />
+                          <div
+                            key={item.itemInstanceId}
+                            className={
+                              "rounded-md border-2 border-slate-700 bg-slate-950 p-2 " +
+                              (!isOpen ? "hover:bg-slate-900" : "")
+                            }
+                          >
+                            <button
+                              type="button"
+                              onClick={() => toggleInventoryItemOpen(item.itemInstanceId)}
+                              className="w-full text-left text-[13px] text-slate-100"
+                            >
+                              <span className="ml-1 font-semibold">{item.label || "Item sin nombre"}</span>
+                              <span className="text-slate-300"> · {itemDef?.name ?? "Item desconocido"}</span>
+                            </button>
+
+                            {isOpen && (
+                              <div className="-mx-2 mt-3 border-t border-slate-600 px-2 pt-3 space-y-2">
+                                <div>
+                                  <label className="block text-[12px] text-center text-slate-100 mt-2 mb-2">
+                                    Tipo de item
+                                  </label>
+
+                                  <Select<ID>
+                                    value={item.itemId}
+                                    disabled={!canEdit}
+                                    placeholder="Selecciona item…"
+                                    options={itemOptions.map((option) => ({
+                                      id: option.id,
+                                      label: option.name,
+                                    }))}
+                                    onChange={(nextItemId) => {
+                                      if (!nextItemId) return;
+                                      updateInventoryRow(item.itemInstanceId, { itemId: nextItemId });
+                                    }}
+                                    buttonClassName="border-2 border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-slate-100 focus:ring-emerald-500"
+                                    menuClassName="border-slate-700 bg-slate-900"
+                                    optionClassName="hover:bg-emerald-900"
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="block text-[12px] text-center text-slate-100 mt-3 mb-2">
+                                    Nombre
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={item.label}
+                                    disabled={!canEdit}
+                                    onChange={(e) => {
+                                      clearInventoryItemError(item.itemInstanceId);
+                                      updateInventoryRow(item.itemInstanceId, { label: e.target.value });
+                                    }}
+                                    className="w-full rounded-md bg-slate-950 border-2 border-slate-700 px-2 py-1.5 text-xs text-slate-100
+                                      focus:outline-none focus:border-transparent focus:ring-2 focus:ring-emerald-500 disabled:opacity-50"
+                                    placeholder="Ej: Objeto oxidado"
+                                  />
+                                </div>
+
+                                {fieldErrors.inventoryItemById?.[item.itemInstanceId] && (
+                                  <p className="form-field-error mt-1">
+                                    {fieldErrors.inventoryItemById[item.itemInstanceId]}
+                                  </p>
+                                )}
+
+
+                                <PlayerInventoryItemRulesEditor
+                                  project={project}
+                                  playerId={draftPlayerId}
+                                  item={item}
+                                  canEdit={canEdit}
+                                  onChange={(patch) => updateInventoryRow(item.itemInstanceId, patch)}
+                                />
+
+                                <div className="flex justify-end gap-2 panel--players">
+                                  <button
+                                    type="button"
+                                    onClick={() => saveInventoryRow(item)}
+                                    className="btn btn-save text-[11px]"
+                                  >
+                                    Guardar
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => removeInventoryRow(item.itemInstanceId)}
+                                    className="btn btn-danger text-[11px]"
+                                  >
+                                    Eliminar
+                                  </button>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         );
                       })}
                     </div>
-                  
+                  </div>
                 </div>
 
                 <div className="mt-auto flex justify-between pt-6">
                   <div className="flex gap-3">
                     <button
-                    type="button"
-                    onClick={panel.openDelete}
-                    disabled={!selectedPlayerId}
-                    className="btn btn-danger text-[12px] disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    Eliminar Player
-                  </button>
+                      type="button"
+                      onClick={handleDeletePlayer}
+                      disabled={!selectedPlayerId}
+                      className="btn btn-danger text-[12px] disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      Eliminar Player
+                    </button>
                   </div>
 
                   <div className="flex gap-3 panel--players">
@@ -661,16 +943,6 @@ export function HistoryPlayersPanel() {
           </div>
         </section>
       </div>
-
-      <DeleteProjectEntityModal
-        open={panel.isDeleteModalOpen}
-        entityName={selectedPlayer?.name ?? ""}
-        description={ referenced
-            ? "Este Player está referenciado en el proyecto. Si lo eliminas, se borrará de los lugares donde aparezca."
-            : "El Player dejará de estar disponible para las escenas que lo usen." }
-        onConfirm={handleConfirmDelete}
-        onCancel={panel.cancelDelete}
-      />
 
       <ConfirmExitModal
         open={isExitModalOpen}

@@ -172,10 +172,17 @@ export function reconcileNodeMapEntries(nodes: Node[], nodeId: ID, prevLoc?: Nod
 }
 
 /* Repara la entrada de región cuando se elimina una escena */
-export function reconcileRegionEntryAfterNodeDeletion(nodes: Node[], deletedLoc?: NodeMapLocation): Node[] {
-  if (!deletedLoc?.isEntry) return nodes;
+export function reconcileRegionEntryAfterNodeMapRemoval(
+  nodes: Node[],
+  removedLoc?: NodeMapLocation,
+): Node[] {
+  if (!removedLoc?.isEntry) return nodes;
 
-  const peers = nodes.filter((node) => node.mapLocation?.mapId === deletedLoc.mapId && node.mapLocation?.regionId === deletedLoc.regionId);
+  const peers = nodes.filter(
+    (node) =>
+      node.mapLocation?.mapId === removedLoc.mapId &&
+      node.mapLocation?.regionId === removedLoc.regionId,
+  );
 
   const alreadyHasEntry = peers.some((node) => Boolean(node.mapLocation?.isEntry));
   if (alreadyHasEntry || peers.length === 0) return nodes;
@@ -183,7 +190,10 @@ export function reconcileRegionEntryAfterNodeDeletion(nodes: Node[], deletedLoc?
   const promotedId = peers[0]!.id;
 
   return nodes.map((node) => {
-    if (node.mapLocation?.mapId === deletedLoc.mapId && node.mapLocation?.regionId === deletedLoc.regionId) {
+    if (
+      node.mapLocation?.mapId === removedLoc.mapId &&
+      node.mapLocation?.regionId === removedLoc.regionId
+    ) {
       return setNodeEntryFlag(node, node.id === promotedId);
     }
 

@@ -9,26 +9,40 @@ type UiMessageState = {
 };
 
 const DEFAULT_DURATION_MS = 3200;
+const MAX_MESSAGES = 5;
 
 export const useUiMessageStore = create<UiMessageState>((set, get) => ({
   queue: [],
 
   push: (input) => {
-    const msg = createRuntimeMessage(input);
-    set((s) => ({ ...s, queue: [msg, ...s.queue].slice(0, 5) }));
+    const message = createRuntimeMessage(input);
 
-    const ttl = msg.durationMs ?? DEFAULT_DURATION_MS;
+    set((state) => ({
+      ...state,
+      queue: [message, ...state.queue].slice(0, MAX_MESSAGES),
+    }));
+
+    const ttl = message.durationMs ?? DEFAULT_DURATION_MS;
+
     if (ttl > 0) {
       window.setTimeout(() => {
-        const stillExists = get().queue.some((m) => m.id === msg.id);
-        if (stillExists) get().dismiss(msg.id);
+        const exists = get().queue.some((m) => m.id === message.id);
+        if (exists) get().dismiss(message.id);
       }, ttl);
     }
 
-    return msg.id;
+    return message.id;
   },
 
-  dismiss: (id) => set((s) => ({ ...s, queue: s.queue.filter((m) => m.id !== id) })),
+  dismiss: (id) =>
+    set((state) => ({
+      ...state,
+      queue: state.queue.filter((m) => m.id !== id),
+    })),
 
-  clear: () => set((s) => ({ ...s, queue: [] })),
+  clear: () =>
+    set((state) => ({
+      ...state,
+      queue: [],
+    })),
 }));

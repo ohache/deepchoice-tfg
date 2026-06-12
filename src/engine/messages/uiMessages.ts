@@ -2,11 +2,7 @@ import type { ID } from "@/domain/types";
 
 export type MessageChannel = "toast" | "bubble" | "modal";
 
-export type MessageSpeaker =
-  | { kind: "narrator" }
-  | { kind: "player"; playerId: ID }
-  | { kind: "npc"; npcId: ID }
-  | { kind: "system" };
+export type MessageSpeaker = { kind: "narrator" } | { kind: "player"; playerId: ID } | { kind: "npc"; npcId: ID } | { kind: "system" };
 
 export type RuntimeMessage = {
   id: string;
@@ -19,9 +15,13 @@ export type RuntimeMessage = {
 
 export type RuntimeMessageInput = Omit<RuntimeMessage, "id" | "createdAt">;
 
+function generateMessageId(): string {
+  return `${Date.now().toString(36)}-${crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)}`;
+}
+
 export function createRuntimeMessage(input: RuntimeMessageInput): RuntimeMessage {
   return {
-    id: `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`,
+    id: generateMessageId(),
     text: input.text,
     speaker: input.speaker,
     preferredChannel: input.preferredChannel,

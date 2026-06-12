@@ -52,6 +52,10 @@ export function SceneNodeCard({ node, pos, scale, onPointerDown, onDoubleClick }
   const title = truncateForNodeTitle(node.title, scale);
   const tone = getNodeTone(node);
 
+  const hasErrors = (node.errorCount ?? 0) > 0;
+  const hasWarnings = (node.warningCount ?? 0) > 0;
+  const showIssueBadge = hasErrors || hasWarnings;
+
   return (
     <g
       data-story-node="true"
@@ -79,6 +83,34 @@ export function SceneNodeCard({ node, pos, scale, onPointerDown, onDoubleClick }
       >
         {title}
       </text>
+
+      {showIssueBadge && (
+        <g transform={`translate(${w - 6 * scale} ${6 * scale})`}>
+          <title>
+            {hasErrors
+              ? `${node.errorCount} error${node.errorCount === 1 ? "" : "es"} en esta escena`
+              : `${node.warningCount} aviso${node.warningCount === 1 ? "" : "s"} en esta escena`}
+          </title>
+
+          <circle
+            r={9 * scale}
+            className={hasErrors ? "fill-red-500" : "fill-amber-400"}
+          />
+
+          <path
+            d={`
+        M ${-4 * scale} ${-4 * scale}
+        L ${4 * scale} ${4 * scale}
+        M ${4 * scale} ${-4 * scale}
+        L ${-4 * scale} ${4 * scale}
+      `}
+            stroke="white"
+            strokeWidth={2 * scale}
+            strokeLinecap="round"
+          />
+        </g>
+      )}
+
     </g>
   );
 }

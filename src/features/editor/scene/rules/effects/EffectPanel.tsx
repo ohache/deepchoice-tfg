@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { buildInlineErrorMapByPath } from "@/shared/zodIssues";
 import { effectSchema } from "@/validation/rulesSchemas";
-import { type FactoryCtx, effectFamilyOf, effectLabel, createDefaultEffect, summarizeEffect,
-  type EnabledEffect, type EnabledEffectType } from "@/features/editor/scene/rules/effects/effectFactory";
+import {
+  type FactoryCtx, effectFamilyOf, effectLabel, createDefaultEffect, summarizeEffect,
+  type EnabledEffect, type EnabledEffectType
+} from "@/features/editor/scene/rules/effects/effectFactory";
 import { getAvailableEffectFamilies, type EffectFamilyId } from "@/features/editor/scene/rules/effects/effectFamilies";
 import { EffectLeafEditor } from "@/features/editor/scene/rules/effects/EffectLeafEditor";
 import { Select, type Option } from "@/components/Select";
 import { Pencil, Trash2 } from "lucide-react";
 import { toast } from "@/shared/toast/toastStore";
+import { hasDuplicatedItemInstanceLabel } from "@/validation/itemInstanceLabels";
 
 type Props = {
   factory: FactoryCtx;
@@ -19,20 +22,20 @@ type Props = {
 
 type ActiveEditorState =
   | {
-      mode: "create";
-      family: EffectFamilyId | "";
-      draft: EnabledEffect | null;
-      showErrors: boolean;
-      typeTouched: boolean;
-    }
+    mode: "create";
+    family: EffectFamilyId | "";
+    draft: EnabledEffect | null;
+    showErrors: boolean;
+    typeTouched: boolean;
+  }
   | {
-      mode: "edit";
-      index: number;
-      family: EffectFamilyId;
-      draft: EnabledEffect | null;
-      showErrors: boolean;
-      typeTouched: boolean;
-    }
+    mode: "edit";
+    index: number;
+    family: EffectFamilyId;
+    draft: EnabledEffect | null;
+    showErrors: boolean;
+    typeTouched: boolean;
+  }
   | null;
 
 /* Helpers */
@@ -57,17 +60,108 @@ function removePrefixedErrors(map: Record<string, string>, prefix: string): Reco
   return next;
 }
 
+function isItemCreationEffect(effect: EnabledEffect): effect is Extract<EnabledEffect, { type: "combineItems" | "transformItem" }> {
+  return effect.type === "combineItems" || effect.type === "transformItem";
+}
+
+function normalizeLabel(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function validateEffectWithContext(factory: FactoryCtx, draft: EnabledEffect, errorPrefix: string, siblingEffects: EnabledEffect[], editingIndex?: number): Record<string, string> {
+  const project = factory.ctx.project;
+  if (!project) return {};
+
+  if (!isItemCreationEffect(draft)) return {};
+
+  const label = draft.resultItemLabel?.trim() ?? "";
+
+  if (!label) return { [`${errorPrefix}.resultItemLabel`]: "El nombre del nuevo item no puede estar vacío." };
+
+  if (hasDuplicatedItemInstanceLabel(project, label, draft.resultItemInstanceId)) return { [`${errorPrefix}.resultItemLabel`]: "Ya existe un item instanciado con ese nombre." };
+
+  const normalized = normalizeLabel(label);
+
+  const duplicatedInCurrentDraft = siblingEffects.some((effect, index) => {
+    if (editingIndex !== undefined && index === editingIndex) return false;
+    if (!isItemCreationEffect(effect)) return false;
+    if (effect.resultItemInstanceId === draft.resultItemInstanceId) return false;
+
+    return normalizeLabel(effect.resultItemLabel ?? "") === normalized;
+  });
+
+  if (duplicatedInCurrentDraft) return { [`${errorPrefix}.resultItemLabel`]: "Ya existe otro efecto que crea un item con ese nombre." };
+
+  return {};
+}
+
+function shouldWarnAboutVariableBounds(effect: EnabledEffect): boolean {
+  return (
+    effect.type === "setPlayerVar" ||
+    effect.type === "incPlayerVar" ||
+    effect.type === "decPlayerVar" ||
+    effect.type === "setNpcVar" ||
+    effect.type === "incNpcVar" ||
+    effect.type === "decNpcVar" ||
+    effect.type === "setHotspotVar" ||
+    effect.type === "incHotspotVar" ||
+    effect.type === "decHotspotVar"
+  );
+}
+
+function showVariableBoundsToastIfNeeded(effect: EnabledEffect) {
+  if (!shouldWarnAboutVariableBounds(effect)) return;
+
+  toast.info("Valores limitados", "Durante la partida, el juego respetará el mínimo y el máximo permitidos para esa variable.");
+}
+
 /* Mantiene la selección principal al cambiar de tipo dentro de una misma familia o de familias cercanas */
 function carryOverCommonFields(prev: EnabledEffect | null, next: EnabledEffect): EnabledEffect {
   if (!prev) return next;
 
   switch (next.type) {
+    case "showMessage":
+      if (prev.type === "showMessage") {
+        return {
+          ...next,
+          speakerKind: prev.speakerKind,
+          speakerId: prev.speakerId,
+        } as EnabledEffect;
+      }
+      return next;
+
     case "addItem":
     case "removeItem":
     case "setPlacedItemVisible":
     case "setPlacedItemReachable":
-      if (prev.type === "addItem" || prev.type === "removeItem" || prev.type === "setPlacedItemVisible" || prev.type === "setPlacedItemReachable") {
-        return { ...next, placedItemId: prev.placedItemId } as EnabledEffect;
+    case "transformItem":
+    case "combineItems":
+      if (
+        prev.type === "addItem" ||
+        prev.type === "removeItem" ||
+        prev.type === "setPlacedItemVisible" ||
+        prev.type === "setPlacedItemReachable" ||
+        prev.type === "transformItem" ||
+        prev.type === "combineItems"
+      ) {
+        const prevPrimaryItemId =
+          "sourceItemInstanceId" in prev
+            ? prev.sourceItemInstanceId
+            : "itemInstanceId" in prev
+              ? prev.itemInstanceId
+              : "";
+
+        return {
+          ...next,
+
+          ...("itemInstanceId" in next ? { itemInstanceId: prevPrimaryItemId } : {}),
+          ...("sourceItemInstanceId" in next ? { sourceItemInstanceId: prevPrimaryItemId } : {}),
+
+          ...("targetItemInstanceId" in next && "targetItemInstanceId" in prev ? { targetItemInstanceId: prev.targetItemInstanceId } : {}),
+          ...("resultItemId" in next && "resultItemId" in prev ? { resultItemId: prev.resultItemId } : {}),
+          ...("resultItemInstanceId" in next && "resultItemInstanceId" in prev ? { resultItemInstanceId: prev.resultItemInstanceId } : {}),
+          ...("resultItemLabel" in next && "resultItemLabel" in prev ? { resultItemLabel: prev.resultItemLabel } : {}),
+        } as EnabledEffect;
       }
       return next;
 
@@ -101,7 +195,7 @@ function carryOverCommonFields(prev: EnabledEffect | null, next: EnabledEffect):
           ...next,
           npcId: prev.npcId,
           ...("varId" in next && "varId" in prev ? { varId: prev.varId } : {}),
-          ...( "placedItemId" in next && "placedItemId" in prev ? { placedItemId: prev.placedItemId } : {}),
+          ...("itemInstanceId" in next && "itemInstanceId" in prev ? { itemInstanceId: prev.itemInstanceId } : {}),
         } as EnabledEffect;
       }
       return next;
@@ -126,7 +220,7 @@ function carryOverCommonFields(prev: EnabledEffect | null, next: EnabledEffect):
     case "goToNode":
     case "setMapRegionAvailable":
       if (prev.type === "setMapRegionAvailable" && next.type === "setMapRegionAvailable") return { ...next, mapId: prev.mapId, regionId: prev.regionId } as EnabledEffect;
-      
+
       return next;
 
     default:
@@ -137,8 +231,8 @@ function carryOverCommonFields(prev: EnabledEffect | null, next: EnabledEffect):
 function getPreferredTypeForFamily(family: EffectFamilyId, availableTypes: EnabledEffectType[]): EnabledEffectType | undefined {
   const preferredByFamily: Partial<Record<EffectFamilyId, EnabledEffectType>> = {
     message: "showMessage",
-    item: "addItem",
     hotspot: "setHotspotVisible",
+    item: "addItem",
     npc: "setPlacedNpcVisible",
     player: "setPlacedPlayerVisible",
     audio: "playSfx",
@@ -159,7 +253,7 @@ export function EffectPanel({ factory, effects, onChange, inlineErrorsByPath, se
   const availableFamilies = useMemo(() => getAvailableEffectFamilies(factory), [factory]);
 
   const familyOptions = useMemo<Option<EffectFamilyId>[]>(() =>
-      availableFamilies.map((family) => ({ id: family.id, label: family.label })), [availableFamilies]
+    availableFamilies.map((family) => ({ id: family.id, label: family.label })), [availableFamilies]
   );
 
   const [activeEditor, setActiveEditor] = useState<ActiveEditorState>(null);
@@ -172,8 +266,8 @@ export function EffectPanel({ factory, effects, onChange, inlineErrorsByPath, se
   }, [setInlineErrorsByPath]);
 
   const clearEffectErrorsForIndex = useCallback((index: number) => {
-      setInlineErrorsByPath((map) => removePrefixedErrors(map, `effects.${index}`));
-    }, [setInlineErrorsByPath]
+    setInlineErrorsByPath((map) => removePrefixedErrors(map, `effects.${index}`));
+  }, [setInlineErrorsByPath]
   );
 
   const clearActiveEditorErrors = useCallback(() => {
@@ -242,7 +336,7 @@ export function EffectPanel({ factory, effects, onChange, inlineErrorsByPath, se
 
   /* Validation */
   const validateEffectDraft = useCallback(
-    (draft: EnabledEffect, errorPrefix: string) => {
+    (draft: EnabledEffect, errorPrefix: string, editingIndex?: number) => {
       const parsed = effectSchema.safeParse(draft);
 
       if (!parsed.success) {
@@ -253,8 +347,26 @@ export function EffectPanel({ factory, effects, onChange, inlineErrorsByPath, se
         return { ok: false as const };
       }
 
+      const contextErrors = validateEffectWithContext(
+        factory,
+        parsed.data as EnabledEffect,
+        errorPrefix,
+        effects,
+        editingIndex,
+      );
+
+      if (Object.keys(contextErrors).length > 0) {
+        setInlineErrorsByPath((map) => ({
+          ...map,
+          ...contextErrors,
+        }));
+
+        return { ok: false as const };
+      }
+
       return { ok: true as const, data: parsed.data as EnabledEffect };
-    }, [setInlineErrorsByPath]
+    },
+    [factory, effects, setInlineErrorsByPath],
   );
 
   /* Save / create */
@@ -262,24 +374,42 @@ export function EffectPanel({ factory, effects, onChange, inlineErrorsByPath, se
     if (!activeEditor || activeEditor.mode !== "create" || !activeEditor.draft) return;
 
     const result = validateEffectDraft(activeEditor.draft, "newEffect");
-    if (!result.ok) return;
+
+    if (!result.ok) {
+      setActiveEditor((prev) => prev ? { ...prev, showErrors: true } : prev);
+      return;
+    }
 
     clearNewEffectErrors();
     onChange([...(effects ?? []), result.data]);
     setActiveEditor(null);
-    toast.success("Efecto creado", "Se ha añadido el efecto.");
+
+    showVariableBoundsToastIfNeeded(result.data);
+
+    //toast.success("Efecto creado", "Se ha añadido el efecto.");
   }, [activeEditor, validateEffectDraft, clearNewEffectErrors, onChange, effects]);
 
   const handleSaveEdit = useCallback(() => {
     if (!activeEditor || activeEditor.mode !== "edit" || !activeEditor.draft) return;
 
-    const result = validateEffectDraft(activeEditor.draft, `effects.${activeEditor.index}`);
-    if (!result.ok) return;
+    const result = validateEffectDraft(
+      activeEditor.draft,
+      `effects.${activeEditor.index}`,
+      activeEditor.index,
+    );
+
+    if (!result.ok) {
+      setActiveEditor((prev) => prev ? { ...prev, showErrors: true } : prev);
+      return;
+    }
 
     clearEffectErrorsForIndex(activeEditor.index);
     setEffectAt(activeEditor.index, result.data);
     setActiveEditor(null);
-    toast.success("Efecto guardado", "Se ha actualizado el efecto.");
+
+    showVariableBoundsToastIfNeeded(result.data);
+
+    //toast.success("Efecto guardado", "Se ha actualizado el efecto.");
   }, [activeEditor, validateEffectDraft, clearEffectErrorsForIndex, setEffectAt]);
 
   const handleChangeEditorFamily = useCallback(
@@ -289,19 +419,24 @@ export function EffectPanel({ factory, effects, onChange, inlineErrorsByPath, se
       const familySpec = availableFamilies.find((item) => item.id === family);
       const preferredType = getPreferredTypeForFamily(family, familySpec?.effectTypes ?? []);
 
-      const firstDraft = family === "progress" ? null : preferredType ? createDefaultEffect(factory, preferredType) : null;
+      const shouldWaitForTypeSelection =
+        family === "progress" && (familySpec?.effectTypes.length ?? 0) > 1;
+
+      const firstDraft = shouldWaitForTypeSelection
+        ? null
+        : preferredType
+          ? createDefaultEffect(factory, preferredType)
+          : null;
 
       setActiveEditor((prev) => {
         if (!prev) return prev;
-
-        const nextTypeTouched = family === "audio" || family === "progress" ? false : true;
 
         return {
           ...prev,
           family,
           draft: firstDraft,
           showErrors: false,
-          typeTouched: nextTypeTouched,
+          typeTouched: Boolean(firstDraft),
         };
       });
     }, [availableFamilies, clearActiveEditorErrors, factory]
@@ -337,7 +472,7 @@ export function EffectPanel({ factory, effects, onChange, inlineErrorsByPath, se
   }, []);
 
   const editorErrorPrefix = activeEditor?.mode === "create"
-      ? "newEffect" : activeEditor?.mode === "edit" ? `effects.${activeEditor.index}` : "";
+    ? "newEffect" : activeEditor?.mode === "edit" ? `effects.${activeEditor.index}` : "";
 
   const editorEffect = activeEditor?.draft ?? null;
   const editorFamily = activeEditor?.family ?? "";
@@ -395,7 +530,7 @@ export function EffectPanel({ factory, effects, onChange, inlineErrorsByPath, se
                           familyTypeOptions={editorTypeOptions}
                           onChangeType={handleChangeEditorType}
                           onChange={handleChangeEditorDraft}
-                          errorsByPath={activeEditor.mode === "create" ? activeEditor.showErrors ? inlineErrorsByPath : {} : inlineErrorsByPath }
+                          errorsByPath={activeEditor.mode === "create" ? activeEditor.showErrors ? inlineErrorsByPath : {} : inlineErrorsByPath}
                           errorPrefix={editorErrorPrefix}
                           showLocalErrors={activeEditor.showErrors}
                         />
@@ -465,7 +600,7 @@ export function EffectPanel({ factory, effects, onChange, inlineErrorsByPath, se
                 onClick={() => openEditEffect(index)}
                 role="button"
                 tabIndex={0}
-                onKeyDown={(e) => {if (e.key === "Enter" || e.key === " ") openEditEffect(index)}}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") openEditEffect(index) }}
                 title="Click para editar"
               >
                 <div className="flex items-start justify-between gap-2">

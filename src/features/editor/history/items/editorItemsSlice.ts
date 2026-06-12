@@ -1,19 +1,26 @@
 import type { ID, Project, ItemDef } from "@/domain/types";
+import type { DeleteTarget } from "@/features/editor/delete/deleteTypes";
 import { conditionReferences } from "@/domain/conditionRefs";
 import { effectReferencesPlacedItem } from "@/domain/effectRefs";
 import { hasDuplicateName } from "@/validation/genericValidator";
 import { generateId } from "@/utils/id";
 import { buildAssetPath } from "@/store/assets/assetPath";
-import { safeTrim, upsertAsset, upsertAssetFile, removeAsset, removeAssetFile } from "@/features/editor/core/editorGenericSlice";
-import { removePlacedItems, somePlacedItem, isEntityReferenced, removeEffectsInProject, removeConditionsInProject, collectPlaced } from "@/features/editor/core/editorProjectWalkers";
-import { findAssetByIdAndKind, removeById, replaceById } from "@/features/editor/history/shared/assetBackedEntityHelpers";
+import { safeTrim, upsertAsset, upsertAssetFile, removeAssetFile } from "@/features/editor/core/editorGenericSlice";
+import { somePlacedItem, isEntityReferenced, collectPlaced } from "@/features/editor/core/editorProjectWalkers";
+import { findAssetByIdAndKind, replaceById } from "@/features/editor/history/shared/assetBackedEntityHelpers";
 import { collectIds, someReferenceForIds, nextSelectedAfterRemoval } from "@/features/editor/history/shared/genericHelpers";
+import { applyDeleteWithCleanup } from "@/features/editor/delete/deleteReferenceCleaner";
+import type { DeleteApplyFn } from "@/features/editor/delete/editorDeleteSlice";
 
 /* Mínimo contrato del store que necesita este slice */
 type EditorStoreLike = {
   project: Project | null;
   assetFiles: Record<ID, File>;
   selectedItemId: ID | null;
+  requestDelete: (input: {
+    target: DeleteTarget;
+    apply: DeleteApplyFn;
+  }) => void;
 };
 
 export interface EditorItemsSlice {
@@ -24,6 +31,29 @@ export interface EditorItemsSlice {
   removeItem: (id: ID) => void;
   isItemReferenced: (id: ID) => boolean;
 }
+
+const applyItemDeleteTarget = (
+  target: DeleteTarget,
+): DeleteApplyFn => (state) => {
+  if (!state.project) return state;
+
+  const nextProject = applyDeleteWithCleanup(state.project, target);
+
+  let nextAssetFiles = state.assetFiles;
+  let nextSelectedItemId = state.selectedItemId;
+
+  if (target.kind === "item") {
+    nextAssetFiles = removeAssetFile(nextAssetFiles, target.itemId).assetFiles;
+    nextSelectedItemId = nextSelectedAfterRemoval(state.selectedItemId, target.itemId);
+  }
+
+  return {
+    ...state,
+    project: nextProject,
+    assetFiles: nextAssetFiles,
+    selectedItemId: nextSelectedItemId,
+  };
+};
 
 export function createEditorItemsSlice(set: (partial: Partial<EditorStoreLike> | ((state: EditorStoreLike) => Partial<EditorStoreLike> | EditorStoreLike)) => void,
   get: () => EditorStoreLike): EditorItemsSlice {
@@ -133,39 +163,17 @@ export function createEditorItemsSlice(set: (partial: Partial<EditorStoreLike> |
         };
       }),
 
-    /* Elimina un item */
-    removeItem: (id) =>
-      set((state) => {
-        if (!state.project) return state;
-        if (!state.project.items.some((item) => item.id === id)) return state;
+        /* Elimina un item */
+    removeItem: (id) => {
+      const { project, requestDelete } = get();
+      if (!project) return;
+      if (!project.items.some((item) => item.id === id)) return;
 
-        const placedItemIds = collectIds(collectPlaced(state.project, "placedItems", (placedItem) => placedItem.itemId === id), (placedItem) => placedItem.id);
-
-        let project = removeEffectsInProject(state.project, (effect) => someReferenceForIds(placedItemIds, effect, effectReferencesPlacedItem));
-
-        project = removeConditionsInProject(project,
-          (condition) =>
-            (condition.type === "hasItem" && placedItemIds.has(condition.placedItemId)) ||
-            (condition.type === "placedItemVisible" && placedItemIds.has(condition.placedItemId)) ||
-            (condition.type === "placedItemReachable" && placedItemIds.has(condition.placedItemId)),
-        );
-
-        project = removePlacedItems(project, (placedItem) => placedItem.itemId === id);
-
-        const assetResult = removeAsset(project.assets, { id, kind: "items" });
-        const fileResult = removeAssetFile(state.assetFiles, id);
-
-        return {
-          ...state,
-          project: {
-            ...project,
-            items: removeById(project.items, id),
-            assets: assetResult.assets,
-          },
-          assetFiles: fileResult.assetFiles,
-          selectedItemId: nextSelectedAfterRemoval(state.selectedItemId, id),
-        };
-      }),
+      requestDelete({
+        target: { kind: "item", itemId: id },
+        apply: applyItemDeleteTarget({ kind: "item", itemId: id }),
+      });
+    },
 
     /* Comprueba si un item global está referenciado */
     isItemReferenced: (itemId: ID) => {

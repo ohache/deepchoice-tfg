@@ -1,39 +1,45 @@
 import { useCallback, useRef } from "react";
 
+export type ImageContentRect = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+};
+
 export function useImageContentRect() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
 
-  const getImageContentRect = useCallback(() => {
+  const getImageContentRect = useCallback((): ImageContentRect | null => {
     const container = containerRef.current;
-    const img = imgRef.current;
-    if (!container || !img) return null;
+    const image = imgRef.current;
 
-    const c = container.getBoundingClientRect();
-    const nw = img.naturalWidth;
-    const nh = img.naturalHeight;
-    if (!nw || !nh) return null;
+    if (!container || !image) return null;
 
-    const containerRatio = c.width / c.height;
-    const imgRatio = nw / nh;
+    const containerRect = container.getBoundingClientRect();
+    const naturalWidth = image.naturalWidth;
+    const naturalHeight = image.naturalHeight;
 
-    let w = c.width;
-    let h = c.height;
+    if (!naturalWidth || !naturalHeight || !containerRect.width || !containerRect.height) return null;
+
+    const containerRatio = containerRect.width / containerRect.height;
+    const imageRatio = naturalWidth / naturalHeight;
+
+    let width = containerRect.width;
+    let height = containerRect.height;
     let x = 0;
     let y = 0;
 
-    if (imgRatio > containerRatio) {
-      // “cabe” por ancho, sobran bandas arriba/abajo
-      h = w / imgRatio;
-      y = (c.height - h) / 2;
+    if (imageRatio > containerRatio) {
+      height = width / imageRatio;
+      y = (containerRect.height - height) / 2;
     } else {
-      // “cabe” por alto, sobran bandas izquierda/derecha
-      w = h * imgRatio;
-      x = (c.width - w) / 2;
+      width = height * imageRatio;
+      x = (containerRect.width - width) / 2;
     }
 
-    // OJO: ahora x/y son relativos al contenedor
-    return { x, y, w, h };
+    return { x, y, w: width, h: height };
   }, []);
 
   return { containerRef, imgRef, getImageContentRect };

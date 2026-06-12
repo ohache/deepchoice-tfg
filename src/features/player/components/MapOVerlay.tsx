@@ -1,9 +1,10 @@
-import { useMemo, useRef, useState, useEffect } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import type { ID, Project, WorldMap, MapRegion } from "@/domain/types";
+import type { ID, MapRegion, WorldMap } from "@/domain/types";
 import type { GameState } from "@/engine/state/runtimeState";
 import { useImageContentRect } from "@/features/player/hooks/useImageContentRect";
 import { iconForInteractionKind } from "@/features/player/components/interactionCursors";
+import { buildAssetIdToFile, resolveAssetIdToSrc } from "@/features/player/utils/playerAssetResolution";
 
 type MapOverlayProps = {
   gameState: GameState;
@@ -13,37 +14,15 @@ type MapOverlayProps = {
   onSelectRegion: (regionId: ID) => void;
 };
 
-type RegionImageOverlayProps = {
-  region: MapRegion;
-  assetIdToFile: Map<ID, string>;
-  assetUrls: Record<string, string>;
-  contentRect: { x: number; y: number; w: number; h: number };
-};
+type ContentRect = { x: number; y: number; w: number; h: number };
 
-function buildAssetIdToFile(project: Project): Map<ID, string> {
-  const m = new Map<ID, string>();
-  for (const a of project.assets ?? []) m.set(a.id, a.file);
-  return m;
-}
-
-function resolveAssetIdToSrc(
-  assetId: ID | undefined,
-  assetIdToFile: Map<ID, string>,
-  assetUrls: Record<string, string>
-) {
-  if (!assetId) return undefined;
-
-  const file = assetIdToFile.get(assetId);
-  if (!file) return undefined;
-
-  return assetUrls[file] ?? file;
-}
+const REVEAL_REGIONS_MS = 2000;
 
 function getActiveMap(gameState: GameState): WorldMap | null {
   const activeMapId = gameState.map.activeMapId;
   if (!activeMapId) return null;
 
-  return (gameState.project.maps ?? []).find((map) => map.id === activeMapId) ?? null;
+  return gameState.project.maps.find((map) => map.id === activeMapId) ?? null;
 }
 
 function getVisibleRegionIds(gameState: GameState, mapId: ID): ID[] {
@@ -55,17 +34,10 @@ function getUnlockedRegionIds(gameState: GameState, mapId: ID): ID[] {
 }
 
 function isTravelableRegion(region: MapRegion, visibleRegionIds: ID[], unlockedRegionIds: ID[]): boolean {
-  return (
-    visibleRegionIds.includes(region.id) &&
-    unlockedRegionIds.includes(region.id) &&
-    Boolean(region.entrySceneId)
-  );
+  return (visibleRegionIds.includes(region.id) && unlockedRegionIds.includes(region.id) && Boolean(region.entrySceneId));
 }
 
-function rectStyleFromRegionShape(
-  region: MapRegion,
-  contentRect: { x: number; y: number; w: number; h: number } | null
-): CSSProperties | null {
+function rectStyleFromRegionShape(region: MapRegion, contentRect: ContentRect | null): CSSProperties | null {
   const shape = region.shape;
   if (!shape || shape.type !== "rect" || !contentRect) return null;
 
@@ -77,12 +49,32 @@ function rectStyleFromRegionShape(
   };
 }
 
-function RegionImageOverlay({
-  region,
-  assetIdToFile,
-  assetUrls,
-  contentRect,
-}: RegionImageOverlayProps) {
+function labelStyleFromRegionShape(region: MapRegion, contentRect: ContentRect): CSSProperties | null {
+  const shape = region.shape;
+  if (!shape || shape.type !== "rect") return null;
+
+  return {
+    left: `${contentRect.x + (shape.x + shape.w / 2) * contentRect.w}px`,
+    top: `${contentRect.y + shape.y * contentRect.h}px`,
+  };
+}
+
+function resolveMapImageSrc(map: WorldMap | null, assetIdToFile: Map<ID, string>, assetUrls: Record<string, string>): string | undefined {
+  if (!map) return undefined;
+
+  if (map.visual.type === "singleImage") return resolveAssetIdToSrc(map.visual.imageAssetId, assetIdToFile, assetUrls);
+
+  return resolveAssetIdToSrc(map.visual.backgroundAssetId, assetIdToFile, assetUrls);
+}
+
+function RegionImageOverlay(props: {
+  region: MapRegion;
+  assetIdToFile: Map<ID, string>;
+  assetUrls: Record<string, string>;
+  contentRect: ContentRect;
+}) {
+  const { region, assetIdToFile, assetUrls, contentRect } = props;
+
   const imageSrc = resolveAssetIdToSrc(region.imageAssetId, assetIdToFile, assetUrls);
   const style = rectStyleFromRegionShape(region, contentRect);
 
@@ -99,32 +91,29 @@ function RegionImageOverlay({
   );
 }
 
-export function MapOverlay({
-  gameState,
-  assetUrls,
-  onClose,
-  onTravel,
-  onSelectRegion,
-}: MapOverlayProps) {
-  const assetIdToFile = useMemo(
-    () => buildAssetIdToFile(gameState.project),
-    [gameState.project]
+function EmptyMapOverlay({ onClose }: { onClose: () => void }) {
+  return (
+    <div
+      className="absolute inset-0 z-40 flex items-center justify-center bg-slate-950/90 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-xl rounded-xl border border-slate-700 bg-slate-900/95 p-6 text-center shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="text-lg font-semibold text-slate-100">Mapa</div>
+        <p className="mt-3 text-sm text-slate-300">No hay ningún mapa activo.</p>
+      </div>
+    </div>
   );
+}
 
-  const activeMap = useMemo(
-    () => getActiveMap(gameState),
-    [gameState]
-  );
+export function MapOverlay({ gameState, assetUrls, onClose, onTravel, onSelectRegion }: MapOverlayProps) {
+  const assetIdToFile = useMemo(() => buildAssetIdToFile(gameState.project), [gameState.project]);
 
-  const mapImageSrc = useMemo(() => {
-    if (!activeMap) return undefined;
+  const activeMap = useMemo(() => getActiveMap(gameState), [gameState]);
 
-    if (activeMap.visual.type === "singleImage") {
-      return resolveAssetIdToSrc(activeMap.visual.imageAssetId, assetIdToFile, assetUrls);
-    }
-
-    return resolveAssetIdToSrc(activeMap.visual.backgroundAssetId, assetIdToFile, assetUrls);
-  }, [activeMap, assetIdToFile, assetUrls]);
+  const mapImageSrc = useMemo(() => resolveMapImageSrc(activeMap, assetIdToFile, assetUrls), [activeMap, assetIdToFile, assetUrls]);
 
   const visibleRegionIds = useMemo(() => {
     if (!activeMap) return [];
@@ -137,118 +126,96 @@ export function MapOverlay({
   }, [gameState, activeMap]);
 
   const [revealRegions, setRevealRegions] = useState(false);
-  const revealTimerRef = useRef<number | null>(null);
   const [hoveredRegionId, setHoveredRegionId] = useState<ID | null>(null);
+  const [cursorPos, setCursorPos] = useState({ visible: false, x: 0, y: 0 });
+  const [contentRect, setContentRect] = useState<ContentRect | null>(null);
 
-  const mapCursorIcon = iconForInteractionKind("map");
-  const [cursorPos, setCursorPos] = useState<{ visible: boolean; x: number; y: number }>({
-    visible: false,
-    x: 0,
-    y: 0,
-  });
+  const revealTimerRef = useRef<number | null>(null);
+  const stageRef = useRef<HTMLDivElement | null>(null);
 
   const { containerRef, imgRef, getImageContentRect } = useImageContentRect();
-  const [contentRect, setContentRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
-  const stageRef = useRef<HTMLDivElement | null>(null);
+
+  const mapCursorIcon = iconForInteractionKind("map");
+
+  const hoveredRegion = useMemo(() => {
+    if (!activeMap || !hoveredRegionId) return null;
+
+    return activeMap.regions.find((region) => region.id === hoveredRegionId) ?? null;
+  }, [activeMap, hoveredRegionId]);
+
+  useEffect(() => stageRef.current?.focus(), []);
 
   useEffect(() => {
     return () => {
-      if (revealTimerRef.current) {
-        window.clearTimeout(revealTimerRef.current);
-        revealTimerRef.current = null;
-      }
+      if (revealTimerRef.current) window.clearTimeout(revealTimerRef.current);
     };
   }, []);
 
   useEffect(() => {
-    stageRef.current?.focus();
-  }, []);
-
-  useEffect(() => {
-    const recompute = () => {
-      setContentRect(getImageContentRect());
-    };
+    const recompute = () => setContentRect(getImageContentRect());
 
     recompute();
     window.addEventListener("resize", recompute);
+
     return () => window.removeEventListener("resize", recompute);
   }, [getImageContentRect, mapImageSrc]);
 
-  const triggerRevealRegions = () => {
+  function triggerRevealRegions() {
     setRevealRegions(true);
 
-    if (revealTimerRef.current) {
-      window.clearTimeout(revealTimerRef.current);
-    }
+    if (revealTimerRef.current) window.clearTimeout(revealTimerRef.current);
 
     revealTimerRef.current = window.setTimeout(() => {
       setRevealRegions(false);
       revealTimerRef.current = null;
-    }, 2000);
-  };
-
-  if (!activeMap) {
-    return (
-      <div
-        className="absolute inset-0 z-40 bg-slate-950/90 backdrop-blur-sm flex items-center justify-center"
-        onClick={onClose}
-      >
-        <div
-          className="w-full max-w-xl rounded-xl border border-slate-700 bg-slate-900/95 p-6 text-center shadow-2xl"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="text-lg font-semibold text-slate-100">Mapa</div>
-          <p className="mt-3 text-sm text-slate-300">
-            No hay ningún mapa activo.
-          </p>
-        </div>
-      </div>
-    );
+    }, REVEAL_REGIONS_MS);
   }
+
+  if (!activeMap) return <EmptyMapOverlay onClose={onClose} />;
 
   return (
     <div
       className="absolute inset-0 z-40 bg-slate-950/85 backdrop-blur-sm"
       onClick={onClose}
-      onPointerMove={(e) => setCursorPos({ visible: true, x: e.clientX, y: e.clientY })}
-      onPointerEnter={(e) => setCursorPos({ visible: true, x: e.clientX, y: e.clientY })}
+      onPointerMove={(event) => setCursorPos({ visible: true, x: event.clientX, y: event.clientY })}
+      onPointerEnter={(event) => setCursorPos({ visible: true, x: event.clientX, y: event.clientY })}
       onPointerLeave={() => {
         setCursorPos((prev) => ({ ...prev, visible: false }));
         setHoveredRegionId(null);
       }}
       style={{ cursor: "none" }}
     >
-      <div className="h-full w-full flex flex-col">
-        <div className="flex-1 min-h-0 flex items-center justify-center p-3">
+      <div className="flex h-full w-full flex-col">
+        <div className="flex min-h-0 flex-1 items-center justify-center p-3">
           <div
             ref={stageRef}
             tabIndex={0}
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => {
-              if (e.key === "Tab") {
-                e.preventDefault();
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              if (event.key === "Tab") {
+                event.preventDefault();
                 triggerRevealRegions();
                 return;
               }
 
-              if (e.key === "Escape") {
-                e.preventDefault();
+              if (event.key === "Escape") {
+                event.preventDefault();
                 onClose();
               }
             }}
-            className="relative w-full h-full flex items-center justify-center outline-none"
+            className="relative flex h-full w-full items-center justify-center outline-none"
             style={{ cursor: "none" }}
           >
             {mapImageSrc ? (
               <div
                 ref={containerRef}
-                className="relative w-full h-full flex items-center justify-center"
+                className="relative flex h-full w-full items-center justify-center"
               >
                 <img
                   ref={imgRef}
                   src={mapImageSrc}
                   alt={activeMap.name}
-                  className="max-w-full max-h-full object-contain rounded-lg select-none"
+                  className="max-h-full max-w-full select-none rounded-lg object-contain"
                   draggable={false}
                   onLoad={() => setContentRect(getImageContentRect())}
                 />
@@ -256,48 +223,44 @@ export function MapOverlay({
                 {contentRect ? (
                   <div className="absolute inset-0">
                     {activeMap.visual.type === "composed"
-                      ? (activeMap.regions ?? []).map((region) => {
-                          if (!visibleRegionIds.includes(region.id)) return null;
-                          if (!region.imageAssetId) return null;
+                      ? activeMap.regions.map((region) => {
+                        if (!visibleRegionIds.includes(region.id)) return null;
+                        if (!region.imageAssetId) return null;
 
-                          return (
-                            <RegionImageOverlay
-                              key={`region-image:${region.id}:${region.imageAssetId}`}
-                              region={region}
-                              assetIdToFile={assetIdToFile}
-                              assetUrls={assetUrls}
-                              contentRect={contentRect}
-                            />
-                          );
-                        })
+                        return (
+                          <RegionImageOverlay
+                            key={`region-image:${region.id}:${region.imageAssetId}`}
+                            region={region}
+                            assetIdToFile={assetIdToFile}
+                            assetUrls={assetUrls}
+                            contentRect={contentRect}
+                          />
+                        );
+                      })
                       : null}
 
-                    {(activeMap.regions ?? []).map((region) => {
+                    {activeMap.regions.map((region) => {
                       const style = rectStyleFromRegionShape(region, contentRect);
                       if (!style) return null;
 
-                      const isTravelable = isTravelableRegion(region, visibleRegionIds, unlockedRegionIds);
-                      if (!isTravelable) return null;
+                      const isTravelable = isTravelableRegion(
+                        region,
+                        visibleRegionIds,
+                        unlockedRegionIds
+                      );
 
-                      const isHovered = hoveredRegionId === region.id;
+                      if (!isTravelable) return null;
 
                       return (
                         <button
                           key={region.id}
                           type="button"
-                          style={{
-                            ...style,
-                            cursor: "none",
-                          }}
+                          style={{ ...style, cursor: "none" }}
                           onMouseEnter={() => setHoveredRegionId(region.id)}
-                          onMouseMove={() => {
-                            if (hoveredRegionId !== region.id) setHoveredRegionId(region.id);
-                          }}
-                          onMouseLeave={() => {
-                            setHoveredRegionId((curr) => (curr === region.id ? null : curr));
-                          }}
-                          onClick={(e) => {
-                            e.stopPropagation();
+                          onMouseMove={() => setHoveredRegionId(region.id)}
+                          onMouseLeave={() => setHoveredRegionId((current) => current === region.id ? null : current)}
+                          onClick={(event) => {
+                            event.stopPropagation();
                             onSelectRegion(region.id);
                             onTravel();
                           }}
@@ -307,23 +270,25 @@ export function MapOverlay({
                               ? "border-2 border-emerald-400/80 bg-emerald-500/15 hover:bg-emerald-500/25"
                               : "border border-transparent bg-transparent hover:bg-emerald-500/10",
                           ].join(" ")}
-                          title={region.label}
                         >
-                          {isHovered ? (
-                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                              <div className="max-w-[90%] truncate rounded-md border border-slate-700 bg-slate-950/85 px-2 py-0.5 text-[11px] text-slate-100">
-                                {region.label}
-                              </div>
-                            </div>
-                          ) : null}
                         </button>
                       );
                     })}
+                    {hoveredRegion && contentRect ? (
+                      <div
+                        className="pointer-events-none absolute z-50 -translate-x-1/2 -translate-y-full pb-2"
+                        style={labelStyleFromRegionShape(hoveredRegion, contentRect) ?? undefined}
+                      >
+                        <div className="max-w-[280px] whitespace-normal rounded-md border border-slate-700 bg-slate-950/95 px-3 py-1.5 text-center text-xs font-medium leading-snug text-slate-100 shadow-xl">
+                          {hoveredRegion.label}
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
             ) : (
-              <div className="text-sm text-slate-400 text-center px-6">
+              <div className="px-6 text-center text-sm text-slate-400">
                 Este mapa todavía no tiene imagen visual compatible.
               </div>
             )}
@@ -337,7 +302,7 @@ export function MapOverlay({
           alt=""
           aria-hidden="true"
           draggable={false}
-          className="pointer-events-none fixed z-60 h-16 w-16 object-contain select-none"
+          className="pointer-events-none fixed z-60 h-16 w-16 select-none object-contain"
           style={{
             left: cursorPos.x - 32,
             top: cursorPos.y - 32,

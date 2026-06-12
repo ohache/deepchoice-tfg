@@ -1,16 +1,23 @@
 import type { ID, Project, WorldMap } from "@/domain/types";
+import type { DeleteTarget } from "@/features/editor/delete/deleteTypes";
 import { hasDuplicateName } from "@/validation/genericValidator";
 import { buildAssetPath } from "@/store/assets/assetPath";
 import { generateId } from "@/utils/id";
-import { removeAsset, removeAssetFile, safeTrim, upsertAsset, upsertAssetFile } from "@/features/editor/core/editorGenericSlice";
-import { findAssetByIdAndKind, findEntityById, removeById, replaceById } from "@/features/editor/history/shared/assetBackedEntityHelpers";
+import { removeAssetFile, safeTrim, upsertAsset, upsertAssetFile } from "@/features/editor/core/editorGenericSlice";
+import { findAssetByIdAndKind, findEntityById, replaceById } from "@/features/editor/history/shared/assetBackedEntityHelpers";
 import { nextSelectedAfterRemoval } from "@/features/editor/history/shared/genericHelpers";
+import { applyDeleteWithCleanup } from "@/features/editor/delete/deleteReferenceCleaner";
+import type { DeleteApplyFn } from "@/features/editor/delete/editorDeleteSlice";
 
 /* Contrato mínimo del store */
 type EditorStoreLike = {
   project: Project | null;
   assetFiles: Record<ID, File>;
   selectedMapId: ID | null;
+  requestDelete: (input: {
+    target: DeleteTarget;
+    apply: DeleteApplyFn;
+  }) => void;
 };
 
 type MapVisualType = WorldMap["visual"]["type"];
@@ -22,6 +29,29 @@ export interface EditorMapsSlice {
   updateMap: (id: ID, changes: { name?: string; file?: File | null; visualType?: MapVisualType }) => void;
   removeMap: (id: ID) => void;
 }
+
+const applyMapDeleteTarget = (
+  target: DeleteTarget,
+): DeleteApplyFn => (state) => {
+  if (!state.project) return state;
+
+  const nextProject = applyDeleteWithCleanup(state.project, target);
+
+  let nextAssetFiles = state.assetFiles;
+  let nextSelectedMapId = state.selectedMapId;
+
+  if (target.kind === "map") {
+    nextAssetFiles = removeAssetFile(nextAssetFiles, target.mapId).assetFiles;
+    nextSelectedMapId = nextSelectedAfterRemoval(state.selectedMapId, target.mapId);
+  }
+
+  return {
+    ...state,
+    project: nextProject,
+    assetFiles: nextAssetFiles,
+    selectedMapId: nextSelectedMapId,
+  };
+};
 
 /* Slice */
 export function createEditorMapsSlice(set: (partial: | Partial<EditorStoreLike> | ((state: EditorStoreLike) => Partial<EditorStoreLike> | EditorStoreLike)) => void,
@@ -141,40 +171,15 @@ export function createEditorMapsSlice(set: (partial: | Partial<EditorStoreLike> 
       }),
 
     /* Elimina un mapa global */
-    removeMap: (id) =>
-      set((state) => {
-        if (!state.project) return state;
-        if (!state.project.maps.some((map) => map.id === id)) return state;
+    removeMap: (id) => {
+      const { project, requestDelete } = get();
+      if (!project) return;
+      if (!project.maps.some((map) => map.id === id)) return;
 
-        const mapsWithoutRemoved = removeById(state.project.maps, id);
-
-        const remainingMaps = mapsWithoutRemoved.map((map) => ({
-          ...map,
-          regions: map.regions.map((region) =>
-            region.subMapId === id
-              ? { ...region, subMapId: undefined }
-              : region,
-          ),
-        }));
-
-        const cleanedNodes = state.project.nodes.map((node) =>
-          node.mapLocation?.mapId === id ? { ...node, mapLocation: undefined } : node,
-        );
-
-        const assetResult = removeAsset(state.project.assets, { id, kind: "maps" });
-        const fileResult = removeAssetFile(state.assetFiles, id);
-
-        return {
-          ...state,
-          project: {
-            ...state.project,
-            maps: remainingMaps,
-            nodes: cleanedNodes,
-            assets: assetResult.assets,
-          },
-          assetFiles: fileResult.assetFiles,
-          selectedMapId: nextSelectedAfterRemoval(state.selectedMapId, id),
-        };
-      }),
+      requestDelete({
+        target: { kind: "map", mapId: id },
+        apply: applyMapDeleteTarget({ kind: "map", mapId: id }),
+      });
+    },
   };
 }

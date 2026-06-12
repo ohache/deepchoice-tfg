@@ -109,44 +109,50 @@ export function Select<K extends string>({ value, onChange, options, placeholder
 
   /* Menú flotante renderizado en portal */
   const menu = open && !disabled && menuPosition
-      ? createPortal(
-          <div
-            ref={menuRef}
-            style={{ position: "fixed", top: menuPosition.top, left: menuPosition.left, width: menuPosition.width, zIndex: 9999 }}
-            className={"max-h-60 overflow-auto rounded-md border border-slate-700 bg-slate-900 p-1 shadow-lg " +
-              (menuClassName ?? "")}
-          >
+    ? createPortal(
+      <div
+        ref={menuRef}
+        style={{ position: "fixed", top: menuPosition.top, left: menuPosition.left, width: menuPosition.width, zIndex: 9999 }}
+        className={
+          "editor-scroll max-h-48 max-w-[70vw] overflow-auto rounded-md border border-slate-700 bg-slate-900 p-1 shadow-lg " +
+          (menuClassName ?? "")
+        }
+      >
+        <button
+          type="button"
+          onClick={handleClear}
+          className={
+            "block w-max min-w-full rounded px-2 py-1 text-left text-xs text-slate-300 hover:bg-fuchsia-600 hover:text-white whitespace-nowrap " +
+            (optionClassName ?? "")
+          }
+        >
+          {placeholderText}
+        </button>
+
+        {options.map((option) => {
+          const isSelected = option.id === value;
+
+          return (
             <button
+              key={option.id}
               type="button"
-              onClick={handleClear}
-              className={"block w-full rounded px-2 py-1 text-left text-xs text-slate-300 hover:bg-fuchsia-600 hover:text-white " +
-                (optionClassName ?? "")}
+              onClick={() => handleSelect(option.id)}
+              className={
+                "mb-1 block w-max min-w-full rounded px-2 py-1 text-left text-xs transition-colors whitespace-nowrap " +
+                (isSelected
+                  ? "bg-fuchsia-800 text-white "
+                  : "text-slate-200 hover:bg-fuchsia-900 hover:text-white ") +
+                (optionClassName ?? "")
+              }
             >
-              {placeholderText}
+              {option.label}
             </button>
-
-            {options.map((option) => {
-              const isSelected = option.id === value;
-
-              return (
-                <button
-                  key={option.id}
-                  type="button"
-                  onClick={() => handleSelect(option.id)}
-                  className={"mb-1 block w-full rounded px-2 py-1 text-left text-xs transition-colors " +
-                    (isSelected
-                      ? "bg-fuchsia-800 text-white "
-                      : "text-slate-200 hover:bg-fuchsia-900 hover:text-white ") +
-                    (optionClassName ?? "")}
-                >
-                  {option.label}
-                </button>
-              );
-            })}
-          </div>,
-          document.body,
-        )
-      : null;
+          );
+        })}
+      </div>,
+      document.body,
+    )
+    : null;
 
   return (
     <>
@@ -156,11 +162,11 @@ export function Select<K extends string>({ value, onChange, options, placeholder
           type="button"
           disabled={disabled}
           onClick={() => setOpen((prev) => !prev)}
-          className={"flex w-full items-center justify-between rounded-md border bg-slate-900 px-2 py-1 text-xs text-white " +
+          className={"flex w-full min-w-0 items-center justify-between rounded-md border bg-slate-900 px-2 py-1 text-xs text-white " +
             "focus:outline-none focus:ring-2 focus:ring-fuchsia-500 disabled:opacity-50 " +
             (buttonClassName ?? "border-slate-700")}
         >
-          <span className={selected ? "text-white" : "text-slate-400"}>
+          <span className={(selected ? "text-white" : "text-slate-400") + " min-w-0 flex-1 truncate text-left"}>
             {selected?.label ?? placeholderText}
           </span>
 

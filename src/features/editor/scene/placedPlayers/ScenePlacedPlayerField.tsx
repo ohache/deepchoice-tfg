@@ -88,8 +88,8 @@ export function ScenePlacedPlayerField({ label = "Players", active, onToggle, la
     return placedPlayers.some((p) => p.playerId === draft.playerId);
   }, [draft?.playerId, placedPlayers]);
 
-  const clickableRegions = useMemo(() => 
-    buildClickableRegions({ project, hotspots, placedItems, placedNpcs, placedPlayers  }),
+  const clickableRegions = useMemo(() =>
+    buildClickableRegions({ project, hotspots, placedItems, placedNpcs, placedPlayers }),
     [project, hotspots, placedItems, placedNpcs, placedPlayers],
   );
 
@@ -114,10 +114,10 @@ export function ScenePlacedPlayerField({ label = "Players", active, onToggle, la
   const [editorError, setEditorError] = useState<PlacedPlayerEditorError>(null);
 
   const placedPlayerListEntries = useMemo<InteractiveListEntry[]>(() =>
-      placedPlayers.map((p) => {
-        const playerDef = projectPlayers.find((def) => def.id === p.playerId) ?? null;
-        return { id: p.playerId, label: playerDef?.name?.trim() || p.playerId };
-      }), [placedPlayers, projectPlayers],
+    placedPlayers.map((p) => {
+      const playerDef = projectPlayers.find((def) => def.id === p.playerId) ?? null;
+      return { id: p.playerId, label: playerDef?.name?.trim() || p.playerId };
+    }), [placedPlayers, projectPlayers],
   );
 
   const beginPlacedPlayerPlacement = (playerId: string) => {
@@ -190,10 +190,11 @@ export function ScenePlacedPlayerField({ label = "Players", active, onToggle, la
   };
 
   const handleDelete = (playerId: ID) => {
-    removePlacedPlayer(playerId);
+    removePlacedPlayer(playerId, { withConfirmation: true });
 
     const isSelectedPlacedPlayer =
       selectedInteractionKind === "placedPlayer" && selectedInteractionId === playerId;
+
     if (isSelectedPlacedPlayer) clearInteractionSelection();
 
     const isEditingThisDraft = draft?.playerId === playerId;
@@ -202,7 +203,8 @@ export function ScenePlacedPlayerField({ label = "Players", active, onToggle, la
       cancelPlacedPlayerDraft();
     }
 
-    toast.success("Player eliminado", "Se ha eliminado correctamente.");
+    setIsCreatingPlacedPlayer(false);
+    setSelectedCatalogPlayerId("");
   };
 
   const handleAskNukeAll = () => {
@@ -297,19 +299,19 @@ export function ScenePlacedPlayerField({ label = "Players", active, onToggle, la
       <ToggleFieldBlock label={label} active={active} onToggle={onToggle}>
         <div className="space-y-3">
           {!isDraftActive && !isCreatingPlacedPlayer ? (
-              <InteractiveListPanel
-                items={placedPlayerListEntries}
-                selectedId={selectedId}
-                itemTitle="Editar Player"
-                editTitle="Editar"
-                editAriaLabel="Editar Player"
-                deleteAriaLabel="Eliminar Player"
-                createLabel="+ Añadir Player"
-                onCreate={handleStartAddingPlacedPlayer}
-                onEdit={handleEditPlacedPlayer}
-                onDelete={handleDelete}
-                onDeleteAll={handleAskNukeAll}
-              />
+            <InteractiveListPanel
+              items={placedPlayerListEntries}
+              selectedId={selectedId}
+              itemTitle="Editar Player"
+              editTitle="Editar"
+              editAriaLabel="Editar Player"
+              deleteAriaLabel="Eliminar Player"
+              createLabel="+ Añadir Player"
+              onCreate={handleStartAddingPlacedPlayer}
+              onEdit={handleEditPlacedPlayer}
+              onDelete={handleDelete}
+              onDeleteAll={handleAskNukeAll}
+            />
           ) : (
             <PlacedPlayerEditorPanel
               draft={draft ?? null}

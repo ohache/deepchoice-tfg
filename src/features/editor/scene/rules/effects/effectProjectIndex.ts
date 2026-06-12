@@ -1,7 +1,9 @@
 import type { Option } from "@/components/Select";
-import type { Hotspot, ID, Node, PlacedItem, PlacedNpc, PlacedPlayer, Project, VarDef } from "@/domain/types";
+import type { Hotspot, ID, InventoryItemInstance, Node, PlacedItem, PlacedNpc, PlacedPlayer, Project, VarDef } from "@/domain/types";
 
 export type OwnerVarKind = "boolean" | "number" | "unknown";
+export type MessageSpeakerKind = "narrator" | "player" | "npc";
+export type MessageSpeakerOptionId = "narrator" | `player:${ID}` | `npc:${ID}`;
 
 /* Índice de acceso rápido a entidades del proyecto para el editor de efectos */
 export type ProjectIndex = {
@@ -11,10 +13,16 @@ export type ProjectIndex = {
   getNodeLabel: (id: ID) => string;
   getNodeOptions: (opts?: { excludeNodeId?: ID }) => Option<ID>[];
 
+  getHotspots: () => Hotspot[];
+  getHotspotById: (hotspotId: ID) => Hotspot | null;
+  getHotspotLabelById: (hotspotId: ID) => string;
+  getHotspotOptionsAll: () => Option<ID>[];
+
   getNodeHotspots: (nodeId: ID) => Hotspot[];
   getHotspot: (nodeId: ID, hotspotId: ID) => Hotspot | null;
   getHotspotLabel: (nodeId: ID, hotspotId: ID) => string;
   getHotspotOptions: (nodeId: ID) => Option<ID>[];
+
   getHotspotVarDef: (nodeId: ID, hotspotId: ID, varId: ID) => VarDef | null;
   getHotspotVarLabel: (nodeId: ID, hotspotId: ID, varId: ID) => string;
   getHotspotVarOptions: (nodeId: ID, hotspotId: ID) => Option<ID>[];
@@ -24,13 +32,35 @@ export type ProjectIndex = {
   getPlacedItemLabel: (placedItemId: ID) => string;
   getPlacedItemOptions: () => Option<ID>[];
 
+  getItemOptions: () => Option<ID>[];
+  getItemLabel: (itemId: ID) => string;
+
+  getGameItemOptions: () => Option<ID>[];
+  getGameItemLabel: (itemInstanceId: ID) => string;
+  isPlacedItemInstance: (itemInstanceId: ID) => boolean;
+  hasGameItemLabel: (label: string, excludeItemInstanceId?: ID) => boolean;
+
+  getPlayerInventoryItemOptions: () => Option<ID>[];
+  getPlayerInventoryItemLabel: (itemInstanceId: ID) => string;
+
+  getNpcInventoryItemOptions: (npcId: ID) => Option<ID>[];
+  getNpcInventoryItemLabel: (npcId: ID, itemInstanceId: ID) => string;
+
+  getCombinableInventoryItemOptions: (sourceItemInstanceId: ID) => Option<ID>[];
+
   getPlacedNpcs: () => PlacedNpc[];
   getPlacedNpcLabel: (npcId: ID) => string;
   getPlacedNpcOptions: () => Option<ID>[];
+  getPlacedNpcNodeOptions: (npcId: ID) => Option<ID>[];
+  getPlacedNpcLayerOptions: (npcId: ID, nodeId: ID) => Option<ID>[];
+  getPlacedNpcContextLabel: (nodeId: ID, layerId: ID, npcId: ID) => string;
 
   getPlacedPlayers: () => PlacedPlayer[];
   getPlacedPlayerLabel: (playerId: ID) => string;
   getPlacedPlayerOptions: () => Option<ID>[];
+  getPlacedPlayerNodeOptions: (playerId: ID) => Option<ID>[];
+  getPlacedPlayerLayerOptions: (playerId: ID, nodeId: ID) => Option<ID>[];
+  getPlacedPlayerContextLabel: (nodeId: ID, layerId: ID, playerId: ID) => string;
   getPlayerImageOptions: (playerId: ID) => Option<ID>[];
   getPlayerImageLabel: (playerId: ID, imageId: ID) => string;
 
@@ -61,6 +91,11 @@ export type ProjectIndex = {
   getMapLabel: (mapId: ID) => string;
   getMapRegionOptions: (mapId: ID) => Option<ID>[];
   getMapRegionLabel: (mapId: ID, regionId: ID) => string;
+
+  getMessageSpeakerOptions: (input: { nodeId: ID; layerId?: ID | null }) => Option<MessageSpeakerOptionId>[];
+  parseMessageSpeakerOption: (value: MessageSpeakerOptionId) => { speakerKind: MessageSpeakerKind; speakerId?: ID };
+  formatMessageSpeakerOption: (input: { speakerKind: MessageSpeakerKind; speakerId?: ID }) => MessageSpeakerOptionId;
+  getMessageSpeakerLabel: (input: { speakerKind: MessageSpeakerKind; speakerId?: ID }) => string;
 };
 
 
@@ -79,7 +114,7 @@ function uniqueById<T extends { id: ID }>(items: T[]): T[] {
 }
 
 /* Elimina duplicados en opciones por id */
-function uniqueOptionsById(options: Option<ID>[]): Option<ID>[] {
+function uniqueOptionsById<T extends string>(options: Option<T>[]): Option<T>[] {
   return Array.from(new Map(options.map((option) => [option.id, option] as const)).values());
 }
 
@@ -96,6 +131,10 @@ function getEntityLabel(name: string | undefined, fallbackId: ID): string {
   return normalizeLabel(name) || fallbackId || "—";
 }
 
+function normalizeComparableLabel(value?: string | null): string {
+  return (value ?? "").trim().toLowerCase();
+}
+
 /* Factory */
 export function createProjectIndex(project: Project | null): ProjectIndex {
   const nodes = project?.nodes ?? [];
@@ -106,12 +145,22 @@ export function createProjectIndex(project: Project | null): ProjectIndex {
   const sfx = project?.soundEffects ?? [];
   const musicTracks = project?.musicTracks ?? [];
 
+  const playerInventoryItems: InventoryItemInstance[] = players.flatMap((player) => player.initialInventory ?? []);
+  const npcInventoryItems: InventoryItemInstance[] = npcs.flatMap((npc) => npc.initialInventory ?? []);
+
+  const playerInventoryItemById = new Map(playerInventoryItems.map((item) => [item.itemInstanceId, item] as const));
+
+  const npcInventoryItemsByNpcId = new Map<ID, InventoryItemInstance[]>(npcs.map((npc) => [npc.id, npc.initialInventory ?? []]));
+
   const placedItemsRaw: PlacedItem[] = [];
   const placedNpcsRaw: PlacedNpc[] = [];
   const placedPlayersRaw: PlacedPlayer[] = [];
+  const placedNpcContextsRaw: { nodeId: ID; layerId: ID; npc: PlacedNpc }[] = [];
+  const placedPlayerContextsRaw: { nodeId: ID; layerId: ID; player: PlacedPlayer }[] = [];
 
   const hotspotsByNodeId = new Map<ID, Hotspot[]>();
   const hotspotByNodeAndId = new Map<string, Hotspot>();
+  const hotspotsRaw: Hotspot[] = [];
   const dialoguesByNodeId = new Map<ID, NonNullable<Node["dialogues"]>>();
 
   for (const node of nodes) {
@@ -121,10 +170,34 @@ export function createProjectIndex(project: Project | null): ProjectIndex {
     const nodePlacedPlayers: PlacedPlayer[] = [];
 
     for (const layer of node.layers ?? []) {
-      if (layer.hotspots) nodeHotspots.push(...layer.hotspots);
+      if (layer.hotspots) {
+        nodeHotspots.push(...layer.hotspots);
+        hotspotsRaw.push(...layer.hotspots);
+      }
       if (layer.placedItems) nodePlacedItems.push(...layer.placedItems);
-      if (layer.placedNpcs) nodePlacedNpcs.push(...layer.placedNpcs);
-      if (layer.placedPlayers) nodePlacedPlayers.push(...layer.placedPlayers);
+      if (layer.placedNpcs) {
+        nodePlacedNpcs.push(...layer.placedNpcs);
+
+        for (const npc of layer.placedNpcs) {
+          placedNpcContextsRaw.push({
+            nodeId: node.id,
+            layerId: layer.id,
+            npc,
+          });
+        }
+      }
+
+      if (layer.placedPlayers) {
+        nodePlacedPlayers.push(...layer.placedPlayers);
+
+        for (const player of layer.placedPlayers) {
+          placedPlayerContextsRaw.push({
+            nodeId: node.id,
+            layerId: layer.id,
+            player,
+          });
+        }
+      }
     }
 
     const uniqueHotspots = uniqueById(nodeHotspots);
@@ -141,9 +214,27 @@ export function createProjectIndex(project: Project | null): ProjectIndex {
     placedPlayersRaw.push(...nodePlacedPlayers);
   }
 
+  const hotspots = uniqueById(hotspotsRaw);
+  const hotspotById = new Map(hotspots.map((hotspot) => [hotspot.id, hotspot] as const));
   const placedItems = uniqueById(placedItemsRaw);
   const placedNpcs = Array.from(new Map(placedNpcsRaw.map((placedNpc) => [placedNpc.npcId, placedNpc] as const)).values());
   const placedPlayers = Array.from(new Map(placedPlayersRaw.map((placedPlayer) => [placedPlayer.playerId, placedPlayer] as const)).values());
+  const placedNpcContexts = placedNpcContextsRaw;
+  const placedPlayerContexts = placedPlayerContextsRaw;
+
+  const gameItemByInstanceId = new Map<ID, InventoryItemInstance | PlacedItem>();
+
+  for (const item of playerInventoryItems) {
+    gameItemByInstanceId.set(item.itemInstanceId, item);
+  }
+
+  for (const item of npcInventoryItems) {
+    gameItemByInstanceId.set(item.itemInstanceId, item);
+  }
+
+  for (const item of placedItems) {
+    gameItemByInstanceId.set(item.id, item);
+  }
 
   const nodeById = new Map(nodes.map((node) => [node.id, node] as const));
   const itemById = new Map(items.map((item) => [item.id, item] as const));
@@ -155,7 +246,36 @@ export function createProjectIndex(project: Project | null): ProjectIndex {
 
   const placedItemById = new Map(placedItems.map((placedItem) => [placedItem.id, placedItem] as const));
 
+  const getGameItemDisplayLabel = (itemInstanceId: ID): string => {
+    const item = gameItemByInstanceId.get(itemInstanceId);
+
+    if (!item) return itemInstanceId || "—";
+
+    if ("itemInstanceId" in item) {
+      const itemName = itemById.get(item.itemId)?.name;
+      return normalizeLabel(item.label) || normalizeLabel(itemName) || item.itemInstanceId || "—";
+    }
+
+    const itemName = itemById.get(item.itemId)?.name;
+    return normalizeLabel(item.label) || normalizeLabel(itemName) || item.id || "—";
+  };
+
   const nodeOptionsAll = nodes.map((node) => toOption(node.id, getEntityLabel(node.title, node.id)));
+
+  const itemOptionsAll = items.map((item) => toOption(item.id, getEntityLabel(item.name, item.id)));
+
+  const playerInventoryItemOptionsAll = uniqueOptionsById(
+    playerInventoryItems.map((item) => {
+      const itemName = itemById.get(item.itemId)?.name;
+      return toOption(item.itemInstanceId, normalizeLabel(item.label) || normalizeLabel(itemName) || item.itemInstanceId);
+    }),
+  );
+
+  const hotspotOptionsAll = uniqueOptionsById(
+    hotspots.map((hotspot) =>
+      toOption(hotspot.id, getEntityLabel(hotspot.label, hotspot.id))
+    )
+  );
 
   const placedItemOptionsAll = uniqueOptionsById(
     placedItems.map((placedItem) => {
@@ -163,6 +283,19 @@ export function createProjectIndex(project: Project | null): ProjectIndex {
       return toOption(placedItem.id, normalizeLabel(placedItem.label) || normalizeLabel(itemName) || placedItem.id);
     })
   );
+
+  const npcInventoryItemOptionsAll = uniqueOptionsById(
+    npcInventoryItems.map((item) => {
+      const itemName = itemById.get(item.itemId)?.name;
+      return toOption(item.itemInstanceId, normalizeLabel(item.label) || normalizeLabel(itemName) || item.itemInstanceId);
+    }),
+  );
+
+  const gameItemOptionsAll = uniqueOptionsById([
+    ...playerInventoryItemOptionsAll,
+    ...npcInventoryItemOptionsAll,
+    ...placedItemOptionsAll,
+  ]);
 
   const placedNpcOptionsAll = uniqueOptionsById(
     placedNpcs.map((placedNpc) => {
@@ -185,6 +318,13 @@ export function createProjectIndex(project: Project | null): ProjectIndex {
   const mapOptionsAll = maps.map((map) => toOption(map.id, getEntityLabel(map.name, map.id)));
 
   const getNode = (id: ID): Node | null => nodeById.get(id) ?? null;
+
+  const getHotspots = (): Hotspot[] => hotspots;
+
+  const getHotspotById = (hotspotId: ID): Hotspot | null => {
+    return hotspotById.get(hotspotId) ?? null;
+  };
+
   const getNodeHotspots = (nodeId: ID): Hotspot[] => hotspotsByNodeId.get(nodeId) ?? [];
   const getHotspot = (nodeId: ID, hotspotId: ID): Hotspot | null => hotspotByNodeAndId.get(`${nodeId}::${hotspotId}`) ?? null;
   const getPlacedItems = (): PlacedItem[] => placedItems;
@@ -240,8 +380,160 @@ export function createProjectIndex(project: Project | null): ProjectIndex {
     return (player?.images ?? []).map((image) => toOption(image.id, getEntityLabel(image.name, image.id)));
   };
 
-  /* API pública */
+  const getNodeLayerLabel = (nodeId: ID, layerId: ID): string => {
+    const node = nodeById.get(nodeId);
+    const layer = node?.layers?.find((entry) => entry.id === layerId);
 
+    const nodeLabel = getEntityLabel(node?.title, nodeId);
+    const layerLabel = getEntityLabel(layer?.label, layerId);
+
+    return `${nodeLabel} · ${layerLabel}`;
+  };
+
+  const getPlacedNpcNodeOptions = (npcId: ID): Option<ID>[] => {
+    return uniqueOptionsById(
+      placedNpcContexts
+        .filter((entry) => entry.npc.npcId === npcId)
+        .map((entry) => toOption(entry.nodeId, getEntityLabel(nodeById.get(entry.nodeId)?.title, entry.nodeId))),
+    );
+  };
+
+  const getPlacedNpcLayerOptions = (npcId: ID, nodeId: ID): Option<ID>[] => {
+    const node = nodeById.get(nodeId);
+
+    return uniqueOptionsById(
+      placedNpcContexts
+        .filter((entry) => entry.npc.npcId === npcId && entry.nodeId === nodeId)
+        .map((entry) => {
+          const layer = node?.layers?.find((current) => current.id === entry.layerId);
+          return toOption(entry.layerId, getEntityLabel(layer?.label, entry.layerId));
+        }),
+    );
+  };
+
+  const getPlacedPlayerNodeOptions = (playerId: ID): Option<ID>[] => {
+    return uniqueOptionsById(
+      placedPlayerContexts
+        .filter((entry) => entry.player.playerId === playerId)
+        .map((entry) => toOption(entry.nodeId, getEntityLabel(nodeById.get(entry.nodeId)?.title, entry.nodeId))),
+    );
+  };
+
+  const getPlacedPlayerLayerOptions = (playerId: ID, nodeId: ID): Option<ID>[] => {
+    const node = nodeById.get(nodeId);
+
+    return uniqueOptionsById(
+      placedPlayerContexts
+        .filter((entry) => entry.player.playerId === playerId && entry.nodeId === nodeId)
+        .map((entry) => {
+          const layer = node?.layers?.find((current) => current.id === entry.layerId);
+          return toOption(entry.layerId, getEntityLabel(layer?.label, entry.layerId));
+        }),
+    );
+  };
+
+  const getCombinableInventoryItemOptions = (sourceItemInstanceId: ID): Option<ID>[] => {
+    if (!sourceItemInstanceId) return [];
+
+    return gameItemOptionsAll.filter((option) => option.id !== sourceItemInstanceId);
+  };
+
+  const getGameItemComparableLabel = (item: InventoryItemInstance | PlacedItem): string => {
+    const itemId = "itemInstanceId" in item ? item.itemId : item.itemId;
+    const itemName = itemById.get(itemId)?.name;
+
+    return normalizeComparableLabel(
+      normalizeLabel(item.label) || normalizeLabel(itemName) || ("itemInstanceId" in item ? item.itemInstanceId : item.id),
+    );
+  };
+
+  const hasGameItemLabel = (label: string, excludeItemInstanceId?: ID): boolean => {
+    const normalized = normalizeComparableLabel(label);
+    if (!normalized) return false;
+
+    for (const [instanceId, item] of gameItemByInstanceId.entries()) {
+      if (excludeItemInstanceId && instanceId === excludeItemInstanceId) continue;
+      if (getGameItemComparableLabel(item) === normalized) return true;
+    }
+
+    return false;
+  };
+
+  const formatMessageSpeakerOption = (input: {
+    speakerKind: MessageSpeakerKind;
+    speakerId?: ID;
+  }): MessageSpeakerOptionId => {
+    if (input.speakerKind === "player") return `player:${input.speakerId ?? ""}`;
+    if (input.speakerKind === "npc") return `npc:${input.speakerId ?? ""}`;
+    return "narrator";
+  };
+
+  const parseMessageSpeakerOption = (
+    value: MessageSpeakerOptionId,
+  ): { speakerKind: MessageSpeakerKind; speakerId?: ID } => {
+    if (value === "narrator") return { speakerKind: "narrator" };
+
+    const [kind, id] = value.split(":") as [MessageSpeakerKind, ID];
+
+    if (kind === "player") return { speakerKind: "player", speakerId: id };
+    if (kind === "npc") return { speakerKind: "npc", speakerId: id };
+
+    return { speakerKind: "narrator" };
+  };
+
+  const getMessageSpeakerOptions = (input: {
+    nodeId: ID;
+    layerId?: ID | null;
+  }): Option<MessageSpeakerOptionId>[] => {
+    const node = nodeById.get(input.nodeId);
+    const layers = input.layerId
+      ? (node?.layers ?? []).filter((layer) => layer.id === input.layerId)
+      : (node?.layers ?? []);
+
+    const playerOptions = layers.flatMap((layer) =>
+      (layer.placedPlayers ?? []).map((placedPlayer) => {
+        const playerName = playerById.get(placedPlayer.playerId)?.name;
+
+        return {
+          id: `player:${placedPlayer.playerId}` as const,
+          label: `Player · ${getEntityLabel(playerName, placedPlayer.playerId)}`,
+        };
+      }),
+    );
+
+    const npcOptions = layers.flatMap((layer) =>
+      (layer.placedNpcs ?? []).map((placedNpc) => {
+        const npcName = npcById.get(placedNpc.npcId)?.name;
+
+        return {
+          id: `npc:${placedNpc.npcId}` as const,
+          label: `NPC · ${getEntityLabel(npcName, placedNpc.npcId)}`,
+        };
+      }),
+    );
+
+    return uniqueOptionsById([
+      { id: "narrator", label: "Narrador" },
+      ...playerOptions,
+      ...npcOptions,
+    ]);
+  };
+
+  const getMessageSpeakerLabel = (input: {
+    speakerKind: MessageSpeakerKind;
+    speakerId?: ID;
+  }): string => {
+    if (input.speakerKind === "narrator") return "Narrador";
+    if (!input.speakerId) return "—";
+
+    if (input.speakerKind === "player") {
+      return `Player · ${getEntityLabel(playerById.get(input.speakerId)?.name, input.speakerId)}`;
+    }
+
+    return `NPC · ${getEntityLabel(npcById.get(input.speakerId)?.name, input.speakerId)}`;
+  };
+
+  /* API pública */
   return {
     project,
 
@@ -251,6 +543,14 @@ export function createProjectIndex(project: Project | null): ProjectIndex {
       ? nodeOptionsAll.filter((option) => option.id !== opts.excludeNodeId)
       : nodeOptionsAll,
 
+    getHotspots,
+    getHotspotById,
+    getHotspotLabelById: (hotspotId) => {
+      const hotspot = getHotspotById(hotspotId);
+      return getEntityLabel(hotspot?.label, hotspot?.id || hotspotId);
+    },
+    getHotspotOptionsAll: () => hotspotOptionsAll,
+
     getNodeHotspots,
     getHotspot,
     getHotspotLabel: (nodeId, hotspotId) => {
@@ -258,28 +558,86 @@ export function createProjectIndex(project: Project | null): ProjectIndex {
       return getEntityLabel(hotspot?.label, hotspot?.id || hotspotId);
     },
     getHotspotOptions,
+
+
+
     getHotspotVarDef,
     getHotspotVarLabel: (nodeId, hotspotId, varId) => getVarLabel(getHotspotVarDef(nodeId, hotspotId, varId), varId),
     getHotspotVarOptions,
     getHotspotVarKind: (nodeId, hotspotId, varId) => getVarKind(getHotspotVarDef(nodeId, hotspotId, varId)),
 
     getPlacedItems,
-    getPlacedItemLabel: (placedItemId) => {
-      const placedItem = placedItemById.get(placedItemId);
-      if (!placedItem) return placedItemId || "—";
-
-      const itemName = itemById.get(placedItem.itemId)?.name;
-      return (normalizeLabel(placedItem.label) || normalizeLabel(itemName) || placedItem.id || placedItemId || "—");
-    },
+    getPlacedItemLabel: (placedItemId) => getGameItemDisplayLabel(placedItemId),
     getPlacedItemOptions: () => placedItemOptionsAll,
+
+    getItemOptions: () => itemOptionsAll,
+
+    getItemLabel: (itemId) => {
+      const item = itemById.get(itemId);
+      return getEntityLabel(item?.name, itemId);
+    },
+
+    isPlacedItemInstance: (itemInstanceId) => placedItemById.has(itemInstanceId),
+
+    getGameItemOptions: () => gameItemOptionsAll,
+
+    getGameItemLabel: (itemInstanceId) => getGameItemDisplayLabel(itemInstanceId),
+
+    hasGameItemLabel,
+
+    getPlayerInventoryItemOptions: () => playerInventoryItemOptionsAll,
+
+    getPlayerInventoryItemLabel: (itemInstanceId) => {
+      const item = playerInventoryItemById.get(itemInstanceId);
+      if (!item) return itemInstanceId || "—";
+
+      const itemName = itemById.get(item.itemId)?.name;
+      return normalizeLabel(item.label) || normalizeLabel(itemName) || item.itemInstanceId || "—";
+    },
+
+    getNpcInventoryItemOptions: (npcId) => {
+      const npcItems = npcInventoryItemsByNpcId.get(npcId) ?? [];
+
+      return npcItems.map((item) => {
+        const itemName = itemById.get(item.itemId)?.name;
+        return toOption(
+          item.itemInstanceId,
+          normalizeLabel(item.label) || normalizeLabel(itemName) || item.itemInstanceId,
+        );
+      });
+    },
+
+    getNpcInventoryItemLabel: (npcId, itemInstanceId) => {
+      const npcItems = npcInventoryItemsByNpcId.get(npcId) ?? [];
+      const item = npcItems.find((entry) => entry.itemInstanceId === itemInstanceId);
+
+      if (!item) return itemInstanceId || "—";
+
+      const itemName = itemById.get(item.itemId)?.name;
+      return normalizeLabel(item.label) || normalizeLabel(itemName) || item.itemInstanceId || "—";
+    },
+
+    getCombinableInventoryItemOptions,
 
     getPlacedNpcs,
     getPlacedNpcLabel: (npcId) => getEntityLabel(npcById.get(npcId)?.name, npcId),
     getPlacedNpcOptions: () => placedNpcOptionsAll,
+    getPlacedNpcNodeOptions,
+    getPlacedNpcLayerOptions,
+    getPlacedNpcContextLabel: (nodeId, layerId, npcId) => {
+      const npcName = getEntityLabel(npcById.get(npcId)?.name, npcId);
+      return `${npcName} · ${getNodeLayerLabel(nodeId, layerId)}`;
+    },
 
     getPlacedPlayers,
     getPlacedPlayerLabel: (playerId) => getEntityLabel(playerById.get(playerId)?.name, playerId),
     getPlacedPlayerOptions: () => placedPlayerOptionsAll,
+    getPlacedPlayerNodeOptions,
+    getPlacedPlayerLayerOptions,
+    getPlacedPlayerContextLabel: (nodeId, layerId, playerId) => {
+      const playerName = getEntityLabel(playerById.get(playerId)?.name, playerId);
+      return `${playerName} · ${getNodeLayerLabel(nodeId, layerId)}`;
+    },
     getPlayerImageOptions,
     getPlayerImageLabel: (playerId, imageId) => {
       const player = playerById.get(playerId);
@@ -321,5 +679,10 @@ export function createProjectIndex(project: Project | null): ProjectIndex {
       const region = map?.regions?.find((entry) => entry.id === regionId);
       return getEntityLabel(region?.label, region?.id || regionId);
     },
+
+    getMessageSpeakerOptions,
+    parseMessageSpeakerOption,
+    formatMessageSpeakerOption,
+    getMessageSpeakerLabel,
   };
 }

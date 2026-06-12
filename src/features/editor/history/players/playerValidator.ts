@@ -4,12 +4,15 @@ import { PlayerBaseDraftSchema, PlayerDraftSchema } from "@/features/editor/hist
 import { validateAssetBackedDraft, type AssetDraftFieldErrors } from "@/validation/validateAssetBackedDraft";
 import { validateVarsDraft, type VarsErrorBag } from "@/validation/varValidator";
 import { hasDuplicateName } from "@/validation/genericValidator";
+import { hasDuplicatedItemInstanceLabel } from "@/validation/itemInstanceLabels";
 
 type PlayerDraftInput = z.input<typeof PlayerDraftSchema>;
 
-type ImageErrors = { images?: string; imageById?: Record<ID, AssetDraftFieldErrors>}
+type ImageErrors = { images?: string; imageById?: Record<ID, AssetDraftFieldErrors> }
 
-export type PlayerFieldErrors = AssetDraftFieldErrors & ImageErrors & VarsErrorBag;
+type InventoryErrors = { initialInventory?: string; inventoryItemById?: Record<ID, string> };
+
+export type PlayerFieldErrors = AssetDraftFieldErrors & ImageErrors & InventoryErrors & VarsErrorBag;
 
 function ensureImgErr(errors: PlayerFieldErrors, imgId: ID): AssetDraftFieldErrors {
   errors.imageById ??= {};
@@ -22,6 +25,36 @@ function pickPlayerCoverFile(input: PlayerDraftInput): File | undefined {
 
   const defaultImage = input.images.find((i) => i.id === input.defaultImageId);
   return defaultImage?.file ?? input.images[0]?.file ?? undefined;
+}
+
+function validatePlayerInitialInventoryDraft(input: PlayerDraftInput, project: Project): InventoryErrors {
+  const out: InventoryErrors = {};
+
+  const inventory = input.initialInventory ?? [];
+
+  const ids = inventory.map((i) => i.itemInstanceId);
+  if (new Set(ids).size !== ids.length) {
+    out.initialInventory = out.initialInventory ?? "Hay items de inventario con id repetido.";
+  }
+
+  const normalizedLabels = inventory.map((i) => i.label.trim().toLowerCase()).filter(Boolean);;
+  if (new Set(normalizedLabels).size !== normalizedLabels.length) {
+    out.initialInventory = out.initialInventory ?? "Hay items de inventario con etiqueta repetida.";
+  }
+
+  for (const item of inventory) {
+    if (!item.itemId) {
+      out.inventoryItemById ??= {};
+      out.inventoryItemById[item.itemInstanceId] = "Selecciona un item.";
+    }
+
+    if (hasDuplicatedItemInstanceLabel(project, item.label, item.itemInstanceId)) {
+      out.inventoryItemById ??= {};
+      out.inventoryItemById[item.itemInstanceId] = "Ya existe otro item instanciado con ese nombre.";
+    }
+  }
+
+  return out;
 }
 
 function validatePlayerImagesDraft(args: { input: PlayerDraftInput; project: Project }): ImageErrors {
@@ -38,7 +71,7 @@ function validatePlayerImagesDraft(args: { input: PlayerDraftInput; project: Pro
     p.images.map((img) => ({ id: img.id, name: img.name }))
   );
 
-    for (const img of input.images) {
+  for (const img of input.images) {
     const base = validateAssetBackedDraft<{ id: ID; name: string }>({
       input: { name: img.name, file: img.file ?? undefined },
       opts: { mode: "edit", project, currentId: img.id },
@@ -59,7 +92,7 @@ function validatePlayerImagesDraft(args: { input: PlayerDraftInput; project: Pro
   return out;
 }
 
-export function validatePlayerDraft( input: PlayerDraftInput, opts: { mode: "new" | "edit"; project: Project; currentPlayerId?: ID }): { ok: boolean; errors: PlayerFieldErrors } {
+export function validatePlayerDraft(input: PlayerDraftInput, opts: { mode: "new" | "edit"; project: Project; currentPlayerId?: ID }): { ok: boolean; errors: PlayerFieldErrors } {
   const errors: PlayerFieldErrors = {};
 
   const parsedBase = PlayerBaseDraftSchema.safeParse({
@@ -78,8 +111,7 @@ export function validatePlayerDraft( input: PlayerDraftInput, opts: { mode: "new
     }
   }
 
-  if (hasDuplicateName({list: opts.project.players, incomingName: String(input.name ?? "").trim(), ignoreId: opts.mode === "edit" ? opts.currentPlayerId : undefined }))
-    {errors.name = errors.name ?? "Ya existe otro personaje con ese nombre." }
+  if (hasDuplicateName({ list: opts.project.players, incomingName: String(input.name ?? "").trim(), ignoreId: opts.mode === "edit" ? opts.currentPlayerId : undefined })) { errors.name = errors.name ?? "Ya existe otro personaje con ese nombre." }
 
   const full = PlayerDraftSchema.safeParse(input);
   const fullZodError = full.success ? undefined : full.error;
@@ -92,6 +124,8 @@ export function validatePlayerDraft( input: PlayerDraftInput, opts: { mode: "new
   }
 
   Object.assign(errors, validatePlayerImagesDraft({ input, project: opts.project }));
+
+  Object.assign(errors, validatePlayerInitialInventoryDraft(input, opts.project));
 
   Object.assign(errors, validateVarsDraft({ vars: input.vars, zodError: fullZodError ?? baseZodError }));
 

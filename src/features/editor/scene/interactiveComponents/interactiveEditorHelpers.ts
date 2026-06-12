@@ -1,4 +1,4 @@
-import type { Hotspot, ID, InteractionRules, PlaceableState, PlacedItem, PlacedNpc, PlacedPlayer, PlacedPlayerState, RegionShape } from "@/domain/types";
+import type { Hotspot, ID, InteractionRules, PlaceableState, PlacedItem, PlacedNpc, PlacedPlayer, PlacedPlayerState, RegionShape, RulePhrase } from "@/domain/types";
 import type { HotspotDraft, HotspotEditorState, HotspotRuleChannel } from "@/features/editor/scene/hotspots/hotspotEditorTypes";
 import type { PlacedItemDraft, PlacedItemEditorState, PlacedItemRuleChannel } from "@/features/editor/scene/placedItems/placedItemEditorTypes";
 import type { PlacedNpcDraft, PlacedNpcEditorState, PlacedNpcRuleChannel } from "@/features/editor/scene/placedNpcs/placedNpcEditorTypes";
@@ -40,22 +40,34 @@ export function rectFromGesture(gesture: { startX: number; startY: number; curre
   return { type: "rect", x, y, w, h };
 }
 
-export function addRuleToRules(rules: InteractionRules | undefined, channel: { type: "onClick" } | { type: "onUseItem"; placedItemId: ID },
-  ruleId: ID, phrase?: string ): InteractionRules {
-  const nextPhrase = (phrase ?? "").trim();
+export function addRuleToRules(
+  rules: InteractionRules | undefined,
+  channel: { type: "onClick" } | { type: "onUseItem"; itemInstanceId: ID },
+  ruleId: ID,
+  phrase?: RulePhrase,
+): InteractionRules {
+  const nextPhraseText = phrase?.text.trim();
 
-  const baseRule = { id: ruleId, ...(nextPhrase ? { phrase: nextPhrase } : {}), effects: [] };
+  const baseRule = {
+    id: ruleId,
+    ...(phrase && nextPhraseText ? { phrase: { ...phrase, text: nextPhraseText } } : {}),
+    effects: [],
+  };
 
   const currentRules = rules ?? {};
 
   return channel.type === "onClick"
-    ? { ...currentRules,
-        onClick: [...(currentRules.onClick ?? []), baseRule] }
-    : { ...currentRules,
-        onUseItem: [...(currentRules.onUseItem ?? []), { ...baseRule, placedItemId: channel.placedItemId }]};
+    ? {
+        ...currentRules,
+        onClick: [...(currentRules.onClick ?? []), baseRule],
+      }
+    : {
+        ...currentRules,
+        onUseItem: [...(currentRules.onUseItem ?? []), { ...baseRule, itemInstanceId: channel.itemInstanceId }],
+      };
 }
 
-export function removeRuleFromRules(rules: InteractionRules | undefined, channel: { type: "onClick" } | { type: "onUseItem"; placedItemId: ID },
+export function removeRuleFromRules(rules: InteractionRules | undefined, channel: { type: "onClick" } | { type: "onUseItem"; itemInstanceId: ID },
   ruleId: ID): InteractionRules {
   const currentRules = rules ?? {};
 
@@ -147,8 +159,8 @@ export const initialPlacedItemEditorState: PlacedItemEditorState = {
   drawing: null,
 };
 
-export function createDefaultPlacedItemRules(placedItemId: ID): InteractionRules {
-  return { onClick: [{ id: generateId.rule(), effects: [{ type: "addItem", placedItemId }] }]};
+export function createDefaultPlacedItemRules(itemInstanceId: ID): InteractionRules {
+  return { onClick: [{ id: generateId.rule(), effects: [{ type: "addItem", itemInstanceId }] }]};
 }
 
 export function buildEmptyPlacedItemDraft(input: { itemId: ID; label?: string }): PlacedItemDraft {

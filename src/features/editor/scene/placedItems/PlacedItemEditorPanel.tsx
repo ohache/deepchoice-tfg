@@ -1,5 +1,5 @@
 import type { RefObject } from "react";
-import type { ID, ClickRule, UseItemRule, ItemDef, BaseInteractionRule, Project } from "@/domain/types";
+import type { ID, ClickRule, UseItemRule, ItemDef, BaseInteractionRule, Project, RulePhrase } from "@/domain/types";
 import type { Condition } from "@/domain/conditions";
 import type { Effect } from "@/domain/effects";
 import type { PlacedItemDraft, PlacedItemRuleChannel } from "@/features/editor/scene/placedItems/placedItemEditorTypes";
@@ -57,12 +57,12 @@ type PlacedItemEditorPanelProps = {
   onOpenAddClickRule: () => void;
   onOpenEditClickRule: (index: number) => void;
   onRemoveClickRule: (index: number) => void;
-  onOpenAddUseItemRule: (placedItemId: ID) => void;
-  onOpenEditUseItemRule: (placedItemId: ID, index: number) => void;
-  onRemoveUseItemRule: (placedItemId: ID, index: number) => void;
+  onOpenAddUseItemRule: (itemInstanceId: ID) => void;
+  onOpenEditUseItemRule: (itemInstanceId: ID, index: number) => void;
+  onRemoveUseItemRule: (itemInstanceId: ID, index: number) => void;
 
   onCloseRuleModal: () => void;
-  onSaveRule: (rule: { id: ID; when?: Condition; phrase?: string; effects: Effect[] }) => void;
+  onSaveRule: (rule: { id: ID; when?: Condition; phrase?: RulePhrase; effects: Effect[] }) => void;
 
   panelError: string | null;
   showPickupRuleRequiredError: boolean;
@@ -251,9 +251,10 @@ export function PlacedItemEditorPanel({ draft, selectedCatalogItemId, projectIte
 
           <button
             type="button"
-            className="btn btn-create text-[11px]"
+            className="btn btn-create text-[11px] disabled:opacity-40 disabled:cursor-not-allowed"
             onClick={onCommit}
             title={saveButtonTitle}
+            disabled={isDrawing || !hasShape || !draft?.label.trim() || dupLabel || hasCollisions}
           >
             Guardar
           </button>

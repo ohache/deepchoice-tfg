@@ -6,7 +6,6 @@ import { hasDuplicateFileByLinkedAssetId } from "@/validation/genericValidator";
 import { type AssetDraftFieldErrors } from "@/validation/validateAssetBackedDraft";
 import { useAssetDraftPanel } from "@/features/editor/history/shared/useAssetDraftPanel";
 import { useAudioFileDraft } from "@/features/editor/history/shared/useAudioFileDraft";
-import { DeleteProjectEntityModal } from "@/features/editor/modals/DeleteProjectEntityModal";
 import { PlayIcon, StopIcon } from "@heroicons/react/24/solid";
 import { toast } from "@/shared/toast/toastStore";
 
@@ -31,11 +30,6 @@ export function HistoryMusicPanel() {
   const nameInputRef = useRef<HTMLInputElement | null>(null);
 
   const musicTrackList = useMemo(() => project?.musicTracks ?? [], [project]);
-
-  const selectedMusicTrack = useMemo(() => {
-    if (!selectedTrackId || !project) return null;
-    return musicTrackList.find((track) => track.id === selectedTrackId) ?? null;
-  }, [selectedTrackId, project, musicTrackList]);
 
   const inferredMode: "none" | "edit" = selectedTrackId ? "edit" : "none";
 
@@ -159,14 +153,9 @@ export function HistoryMusicPanel() {
     if (mode === "edit") handleUpdate();
   };
 
-  const handleConfirmDelete = () => {
-    if (selectedTrackId) {
-      const deletedName = selectedMusicTrack?.name ?? "Pista";
-      removeMusicTrack(selectedTrackId);
-      toast.success("Música eliminada", `“${deletedName}”`);
-    }
-
-    panel.reset();
+  const handleDeleteMusicTrack = () => {
+    if (!selectedTrackId) return;
+    removeMusicTrack(selectedTrackId);
   };
 
   if (!project) return null;
@@ -348,7 +337,7 @@ export function HistoryMusicPanel() {
                 <div className="mt-auto flex justify-between">
                   <button
                     type="button"
-                    onClick={panel.openDelete}
+                    onClick={handleDeleteMusicTrack}
                     disabled={!selectedTrackId}
                     className="btn btn-danger text-[12px] disabled:opacity-40 disabled:cursor-not-allowed"
                   >
@@ -377,14 +366,6 @@ export function HistoryMusicPanel() {
           </div>
         </section>
       </div>
-
-      <DeleteProjectEntityModal
-        open={panel.isDeleteModalOpen}
-        entityName={selectedMusicTrack?.name ?? ""}
-        description="El archivo dejará de estar disponible para las escenas que lo usen."
-        onConfirm={handleConfirmDelete}
-        onCancel={panel.cancelDelete}
-      />
     </div>
   );
 }

@@ -1,154 +1,483 @@
-import type { Hotspot, ID, VarDef } from "@/domain/types";
+import type { Hotspot, ID, Project, VarDef } from "@/domain/types";
 import type { Effect } from "@/domain/effects";
 import type { GameState, InventoryEntry } from "@/engine/state/runtimeState";
 import { ensureNodeRuntime } from "@/engine/state/runtimeState";
-import { musicPause, musicPlay, musicStop } from "@/engine/state/slices/musicSlice";
+import { musicPlay, musicStop } from "@/engine/state/slices/musicSlice";
 import type { AudioAdapter } from "@/engine/adapters/audioAdapter";
 
 export type ApplyEffectCtx = {
   audio?: AudioAdapter;
-  emitMessage?: (text: string) => void;
+  emitMessage?: (
+    text: string,
+    speaker: {
+      kind: "narrator" | "player" | "npc";
+      speakerId?: ID;
+    }
+  ) => void;
+
+  itemUsePair?: {
+    sourceItemInstanceId: ID;
+    targetItemInstanceId: ID;
+  };
 };
 
-/* Helpers */
+type RuntimeVarValue = boolean | number;
+type RuntimeVarMap = Record<ID, RuntimeVarValue>;
+
+/* Inventario*/
 function addInventoryEntry(inventory: InventoryEntry[], entry: InventoryEntry): InventoryEntry[] {
-  const alreadyExists = inventory.some((item) => item.instanceId === entry.instanceId);
+  const alreadyExists = inventory.some((item) => item.itemInstanceId === entry.itemInstanceId);
+
   if (alreadyExists) return inventory;
+
   return [...inventory, entry];
 }
 
 function removeFromInventory(inventory: InventoryEntry[], instanceId: ID): InventoryEntry[] {
-  const idx = inventory.findIndex((entry) => entry.instanceId === instanceId);
-  if (idx < 0) return inventory;
+  const index = inventory.findIndex((entry) => entry.itemInstanceId === instanceId);
 
-  return [...inventory.slice(0, idx), ...inventory.slice(idx + 1)];
+  if (index < 0) return inventory;
+
+  return [...inventory.slice(0, index), ...inventory.slice(index + 1)];
 }
 
-export function addInventoryInstance(state: GameState, instanceId: ID, itemId: ID): GameState {
-  return { ...state, inventory: addInventoryEntry(state.inventory, { instanceId, itemId }) };
+export function addInventoryInstance(state: GameState, itemInstanceId: ID, itemId: ID, label?: string): GameState {
+  return {
+    ...state,
+    inventory: addInventoryEntry(state.inventory, { itemInstanceId, itemId, label }),
+  };
 }
 
+function isMatchingItemUsePair(effect: Extract<Effect, { type: "combineItems" }>, pair?: ApplyEffectCtx["itemUsePair"]): boolean {
+  if (!pair) return false;
+
+  const a = effect.sourceItemInstanceId;
+  const b = effect.targetItemInstanceId;
+
+  return (
+    (pair.sourceItemInstanceId === a && pair.targetItemInstanceId === b) ||
+    (pair.sourceItemInstanceId === b && pair.targetItemInstanceId === a)
+  );
+}
+
+/* Búsquedas en proyecto */
 function findDialogueInCurrentNode(state: GameState, dialogueId: ID) {
-  const node = state.project.nodes.find((n) => n.id === state.currentNodeId);
+  const node = state.project.nodes.find((projectNode) => projectNode.id === state.currentNodeId);
   if (!node) return null;
 
-  return (node.dialogues ?? []).find((d) => d.id === dialogueId) ?? null;
+  return (node.dialogues ?? []).find((dialogue) => dialogue.id === dialogueId) ?? null;
 }
 
-function findPlacedItemInProject(project: GameState["project"], placedItemId: ID) {
+function findPlacedItemInProject(project: Project, itemInstanceId: ID) {
   for (const node of project.nodes ?? []) {
     for (const layer of node.layers ?? []) {
-      const found = (layer.placedItems ?? []).find((p) => p.id === placedItemId);
+      const found = (layer.placedItems ?? []).find(
+        (placedItem) => placedItem.id === itemInstanceId
+      );
+
       if (found) return found;
     }
   }
+
   return null;
 }
 
-function findNpcInProject(project: GameState["project"], npcId: ID) {
-  return project.npcs.find((n) => n.id === npcId) ?? null;
+function findInventoryItemInProject(project: Project, itemInstanceId: ID): InventoryEntry | null {
+  for (const player of project.players ?? []) {
+    const found = (player.initialInventory ?? []).find((item) => item.itemInstanceId === itemInstanceId);
+
+    if (found) {
+      return {
+        itemInstanceId: found.itemInstanceId,
+        itemId: found.itemId,
+        label: found.label,
+      };
+    }
+  }
+
+  for (const npc of project.npcs ?? []) {
+    const found = (npc.initialInventory ?? []).find((item) => item.itemInstanceId === itemInstanceId);
+
+    if (found) {
+      return {
+        itemInstanceId: found.itemInstanceId,
+        itemId: found.itemId,
+        label: found.label,
+      };
+    }
+  }
+
+  return null;
 }
 
-function findPlayerVarDef(project: GameState["project"], playerId: ID, varId: ID): VarDef | null {
-  const p = project.players.find((x) => x.id === playerId);
-  return p?.vars?.find((d) => d.id === varId) ?? null;
+function findGameItemEntryInProject(project: Project, itemInstanceId: ID): InventoryEntry | null {
+  const placedItem = findPlacedItemInProject(project, itemInstanceId);
+
+  if (placedItem) {
+    return {
+      itemInstanceId: placedItem.id,
+      itemId: placedItem.itemId,
+      label: placedItem.label,
+    };
+  }
+
+  return findInventoryItemInProject(project, itemInstanceId);
 }
 
-function findNpcVarDef(project: GameState["project"], npcId: ID, varId: ID): VarDef | null {
-  const n = project.npcs.find((x) => x.id === npcId);
-  return n?.vars?.find((d) => d.id === varId) ?? null;
+function findHotspotInProject(project: Project, hotspotId: ID): Hotspot | null {
+  for (const node of project.nodes ?? []) {
+    for (const layer of node.layers ?? []) {
+      const found = (layer.hotspots ?? []).find((hotspot) => hotspot.id === hotspotId);
+      if (found) return found;
+    }
+  }
+
+  return null;
 }
 
+function findHotspotVarDef(project: Project, hotspotId: ID, varId: ID): VarDef | null {
+  const hotspot = findHotspotInProject(project, hotspotId);
+  return hotspot?.vars?.find((def) => def.id === varId) ?? null;
+}
+
+function findNpcInProject(project: Project, npcId: ID) {
+  return project.npcs.find((npc) => npc.id === npcId) ?? null;
+}
+
+function findPlayerVarDef(project: Project, playerId: ID, varId: ID): VarDef | null {
+  const player = project.players.find((candidate) => candidate.id === playerId);
+  return player?.vars?.find((def) => def.id === varId) ?? null;
+}
+
+function findNpcVarDef(project: Project, npcId: ID, varId: ID): VarDef | null {
+  const npc = project.npcs.find((candidate) => candidate.id === npcId);
+  return npc?.vars?.find((def) => def.id === varId) ?? null;
+}
+
+/* Variables runtime */
 function clampNumber(def: VarDef | null, value: number): number {
   if (!def || def.type !== "number") return value;
+
   return Math.min(def.max, Math.max(def.min, value));
 }
 
-function coerceToNumber(prev: boolean | number | undefined): number {
-  if (typeof prev === "number") return prev;
-  if (typeof prev === "boolean") return prev ? 1 : 0;
+function coerceToNumber(value: RuntimeVarValue | undefined): number {
+  if (typeof value === "number") return value;
+  if (typeof value === "boolean") return value ? 1 : 0;
+
   return 0;
 }
 
-function coerceToBoolean(prev: boolean | number | undefined): boolean {
-  if (typeof prev === "boolean") return prev;
-  if (typeof prev === "number") return prev !== 0;
+function coerceToBoolean(value: RuntimeVarValue | undefined): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+
   return false;
 }
 
+function setRuntimeVar(varsByOwner: Record<ID, RuntimeVarMap>, ownerId: ID, varId: ID, value: RuntimeVarValue): Record<ID, RuntimeVarMap> {
+  const previousVars = varsByOwner[ownerId] ?? {};
+
+  return {
+    ...varsByOwner,
+    [ownerId]: { ...previousVars, [varId]: value },
+  };
+}
+
+function updateRuntimeVar(varsByOwner: Record<ID, RuntimeVarMap>, ownerId: ID, varId: ID, updater: (previous: RuntimeVarValue | undefined) => RuntimeVarValue
+): Record<ID, RuntimeVarMap> {
+  const previousVars = varsByOwner[ownerId] ?? {};
+
+  return {
+    ...varsByOwner,
+    [ownerId]: { ...previousVars, [varId]: updater(previousVars[varId]) },
+  };
+}
+
+/* Asegura que las variables propias de un hotspot existen en runtime */
+export function ensureHotspotVars(state: GameState, hotspot: Hotspot): GameState {
+  if (state.hotspotVars[hotspot.id]) return state;
+
+  const initialVars: RuntimeVarMap = {};
+
+  for (const variable of hotspot.vars ?? []) {
+    initialVars[variable.id] = variable.initial;
+  }
+
+  return {
+    ...state,
+    hotspotVars: { ...state.hotspotVars, [hotspot.id]: initialVars },
+  };
+}
+
+/* Estado visual de entidades */
+function updatePlacedItemState(state: GameState, nodeId: ID, placedItemId: ID, patch: Partial<{ visible: boolean; reachable: boolean }>): GameState {
+  const preparedState = ensureNodeRuntime(state, nodeId);
+  const nodeRuntime = preparedState.nodes[nodeId];
+  const previous = nodeRuntime?.placedItems[placedItemId];
+
+  if (!nodeRuntime || !previous) return preparedState;
+
+  return {
+    ...preparedState,
+    nodes: {
+      ...preparedState.nodes,
+      [nodeId]: {
+        ...nodeRuntime,
+        placedItems: {
+          ...nodeRuntime.placedItems,
+          [placedItemId]: {
+            ...previous,
+            ...patch,
+          },
+        },
+      },
+    },
+  };
+}
+
+function updateHotspotState(state: GameState, nodeId: ID, hotspotId: ID, patch: Partial<{ visible: boolean; reachable: boolean }>): GameState {
+  const preparedState = ensureNodeRuntime(state, nodeId);
+  const nodeRuntime = preparedState.nodes[nodeId];
+  const previous = nodeRuntime?.hotspots[hotspotId];
+
+  if (!nodeRuntime || !previous) return preparedState;
+
+  return {
+    ...preparedState,
+    nodes: {
+      ...preparedState.nodes,
+      [nodeId]: {
+        ...nodeRuntime,
+        hotspots: {
+          ...nodeRuntime.hotspots,
+          [hotspotId]: {
+            ...previous,
+            ...patch,
+          },
+        },
+      },
+    },
+  };
+}
+
+function updatePlacedNpcState(state: GameState, nodeId: ID, npcId: ID, patch: Partial<{ visible: boolean; reachable: boolean }>): GameState {
+  const preparedState = ensureNodeRuntime(state, nodeId);
+  const nodeRuntime = preparedState.nodes[nodeId];
+  const previous = nodeRuntime?.placedNpcs[npcId];
+
+  if (!nodeRuntime || !previous) return preparedState;
+
+  return {
+    ...preparedState,
+    nodes: {
+      ...preparedState.nodes,
+      [nodeId]: {
+        ...nodeRuntime,
+        placedNpcs: {
+          ...nodeRuntime.placedNpcs,
+          [npcId]: {
+            ...previous,
+            ...patch,
+          },
+        },
+      },
+    },
+  };
+}
+
+function updatePlacedPlayerState(state: GameState, nodeId: ID, playerId: ID, patch: Partial<{ visible: boolean }>): GameState {
+  const preparedState = ensureNodeRuntime(state, nodeId);
+  const nodeRuntime = preparedState.nodes[nodeId];
+  const previous = nodeRuntime?.placedPlayers[playerId];
+
+  if (!nodeRuntime || !previous) return preparedState;
+
+  return {
+    ...preparedState,
+    nodes: {
+      ...preparedState.nodes,
+      [nodeId]: {
+        ...nodeRuntime,
+        placedPlayers: {
+          ...nodeRuntime.placedPlayers,
+          [playerId]: {
+            ...previous,
+            ...patch,
+          },
+        },
+      },
+    },
+  };
+}
+
+function setPlacedPlayerImage(state: GameState, nodeId: ID, playerId: ID, imageId: ID): GameState {
+  const preparedState = ensureNodeRuntime(state, nodeId);
+  const nodeRuntime = preparedState.nodes[nodeId];
+
+  if (!nodeRuntime?.placedPlayers[playerId]) return preparedState;
+
+  const previousImages = nodeRuntime.placedPlayerImageId ?? {};
+
+  return {
+    ...preparedState,
+    nodes: {
+      ...preparedState.nodes,
+      [nodeId]: {
+        ...nodeRuntime,
+        placedPlayerImageId: {
+          ...previousImages,
+          [playerId]: imageId,
+        },
+      },
+    },
+  };
+}
+
+/* Mapa */
 function setRegionMembership(list: ID[] | undefined, regionId: ID, value: boolean): ID[] {
   const current = list ?? [];
   const hasRegion = current.includes(regionId);
 
   if (value) return hasRegion ? current : [...current, regionId];
+
   return hasRegion ? current.filter((id) => id !== regionId) : current;
 }
 
-/* Hotspot vars: asegurar inicialización (runtime) */
-export function ensureHotspotVars(state: GameState, hotspot: Hotspot): GameState {
-  if (state.hotspotVars[hotspot.id]) return state;
-
-  const initial: Record<ID, boolean | number> = {};
-  for (const v of hotspot.vars ?? []) initial[v.id] = v.initial;
+function setMapRegionAvailable(state: GameState, mapId: ID, regionId: ID, value: boolean): GameState {
+  const current = state.map.unlockedRegionIdsByMap[mapId] ?? [];
+  const next = setRegionMembership(current, regionId, value);
 
   return {
     ...state,
-    hotspotVars: {
-      ...state.hotspotVars,
-      [hotspot.id]: initial,
+    map: {
+      ...state.map,
+      unlockedRegionIdsByMap: {
+        ...state.map.unlockedRegionIdsByMap,
+        [mapId]: next,
+      },
     },
   };
 }
 
-export function applyEffect(state: GameState, eff: Effect, ctx: ApplyEffectCtx = {}): GameState {
-  switch (eff.type) {
+/* Aplicación de efectos */
+export function applyEffect(state: GameState, effect: Effect, ctx: ApplyEffectCtx = {}): GameState {
+  switch (effect.type) {
     case "goToNode": {
-      const legacyEff = eff as { type: "goToNode"; targetNodeId?: ID; nodeId?: ID; goToNodeId?: ID };
-      const targetId = legacyEff.targetNodeId ?? legacyEff.nodeId ?? legacyEff.goToNodeId;
-
-      if (!targetId) throw new Error("goToNode sin id de destino.");
-
-      const exists = state.project.nodes.some((n) => n.id === targetId);
-      if (!exists) throw new Error(`goToNode apunta a un nodo inexistente: "${targetId}".`);
-
-      let s: GameState = {
-        ...state,
-        currentNodeId: targetId,
-        visitedNodes: {
-          ...state.visitedNodes,
-          [targetId]: true,
-        },
+      const legacyEffect = effect as {
+        type: "goToNode";
+        targetNodeId?: ID;
+        nodeId?: ID;
+        goToNodeId?: ID;
       };
 
-      s = ensureNodeRuntime(s, targetId);
-      return s;
+      const targetNodeId = legacyEffect.targetNodeId ?? legacyEffect.nodeId ?? legacyEffect.goToNodeId;
+
+      if (!targetNodeId) throw new Error("goToNode sin id de destino.");
+
+      const exists = state.project.nodes.some((node) => node.id === targetNodeId);
+
+      if (!exists) throw new Error(`goToNode apunta a un nodo inexistente: "${targetNodeId}".`);
+
+      return ensureNodeRuntime(
+        {
+          ...state,
+          currentNodeId: targetNodeId,
+          activeDialogue: undefined,
+          visitedNodes: {
+            ...state.visitedNodes,
+            [targetNodeId]: true,
+          },
+        },
+        targetNodeId
+      );
     }
 
     case "addItem": {
-      const placedItem = findPlacedItemInProject(state.project, eff.placedItemId);
-      if (!placedItem) {
-        throw new Error(`addItem apunta a un placedItem inexistente: "${eff.placedItemId}".`);
+      const entry = findGameItemEntryInProject(state.project, effect.itemInstanceId);
+
+      if (!entry) {
+        throw new Error(`addItem apunta a un itemInstanceId inexistente: "${effect.itemInstanceId}".`);
       }
 
-      const s = addInventoryInstance(state, placedItem.id, placedItem.itemId);
+      const nextState = {
+        ...state,
+        inventory: addInventoryEntry(state.inventory, entry),
+      };
+
       ctx.audio?.playSfxUrl("/sounds/add_item.wav");
-      return s;
+
+      return nextState;
+    }
+
+    case "transformItem": {
+      const hasSource = state.inventory.some((entry) => entry.itemInstanceId === effect.sourceItemInstanceId);
+
+      if (!hasSource) return state;
+
+      const withoutSource = removeFromInventory(state.inventory, effect.sourceItemInstanceId);
+
+      const resultEntry: InventoryEntry = {
+        itemInstanceId: effect.resultItemInstanceId,
+        itemId: effect.resultItemId,
+        label: effect.resultItemLabel,
+      };
+
+      ctx.audio?.playSfxUrl("/sounds/add_item.wav");
+
+      return {
+        ...state,
+        inventory: addInventoryEntry(withoutSource, resultEntry),
+      };
     }
 
     case "removeItem":
-      return { ...state, inventory: removeFromInventory(state.inventory, eff.placedItemId) };
+      return {
+        ...state,
+        inventory: removeFromInventory(state.inventory, effect.itemInstanceId),
+      };
+
+    case "combineItems": {
+      if (effect.sourceItemInstanceId === effect.targetItemInstanceId) return state;
+
+      if (!isMatchingItemUsePair(effect, ctx.itemUsePair)) return state;
+
+      const hasSource = state.inventory.some(
+        (entry) => entry.itemInstanceId === effect.sourceItemInstanceId
+      );
+
+      const hasTarget = state.inventory.some(
+        (entry) => entry.itemInstanceId === effect.targetItemInstanceId
+      );
+
+      if (!hasSource || !hasTarget) return state;
+
+      const withoutSource = removeFromInventory(state.inventory, effect.sourceItemInstanceId);
+      const withoutBoth = removeFromInventory(withoutSource, effect.targetItemInstanceId);
+
+      const resultEntry: InventoryEntry = {
+        itemInstanceId: effect.resultItemInstanceId,
+        itemId: effect.resultItemId,
+      };
+
+      ctx.audio?.playSfxUrl("/sounds/add_item.wav");
+
+      return {
+        ...state,
+        inventory: addInventoryEntry(withoutBoth, resultEntry),
+      };
+    }
 
     case "startDialogue": {
-      const dialogue = findDialogueInCurrentNode(state, eff.nodeDialogueId);
-      if (!dialogue) {
-        throw new Error(`startDialogue apunta a un diálogo inexistente en el nodo actual: "${eff.nodeDialogueId}".`);
-      }
+      const dialogue = findDialogueInCurrentNode(state, effect.nodeDialogueId);
+
+      if (!dialogue) throw new Error(`startDialogue apunta a un diálogo inexistente en el nodo actual: "${effect.nodeDialogueId}".`);
 
       return {
         ...state,
         activeDialogue: {
           nodeId: state.currentNodeId,
-          dialogueId: eff.nodeDialogueId,
+          dialogueId: effect.nodeDialogueId,
           currentNodeId: dialogue.rootId,
           phase: "speaking",
         },
@@ -156,434 +485,266 @@ export function applyEffect(state: GameState, eff: Effect, ctx: ApplyEffectCtx =
     }
 
     case "endDialogue":
-      return state.activeDialogue
-        ? { ...state, activeDialogue: undefined }
-        : state;
+      return state.activeDialogue ? { ...state, activeDialogue: undefined } : state;
 
     case "giveItemToNpc": {
-      const npc = findNpcInProject(state.project, eff.npcId);
+      const npc = findNpcInProject(state.project, effect.npcId);
+
       if (!npc) {
-        throw new Error(`giveItemToNpc apunta a un npc inexistente: "${eff.npcId}".`);
+        throw new Error(`giveItemToNpc apunta a un npc inexistente: "${effect.npcId}".`);
       }
 
-      const hasItem = state.inventory.some((entry) => entry.instanceId === eff.placedItemId);
-      if (!hasItem) return state;
+      const inventoryEntry = state.inventory.find(
+        (entry) => entry.itemInstanceId === effect.itemInstanceId
+      );
+
+      if (!inventoryEntry) return state;
+
+      const currentNpcInventory = state.npcInventory[effect.npcId] ?? [];
+
+      const alreadyHasItem = currentNpcInventory.some(
+        (entry) => entry.itemInstanceId === effect.itemInstanceId
+      );
 
       return {
         ...state,
-        inventory: removeFromInventory(state.inventory, eff.placedItemId),
+        inventory: removeFromInventory(state.inventory, effect.itemInstanceId),
+        npcInventory: {
+          ...state.npcInventory,
+          [effect.npcId]: alreadyHasItem
+            ? currentNpcInventory
+            : [...currentNpcInventory, inventoryEntry],
+        },
       };
     }
 
     case "receiveItemFromNpc": {
-      const npc = findNpcInProject(state.project, eff.npcId);
+      const npc = findNpcInProject(state.project, effect.npcId);
+
       if (!npc) {
-        throw new Error(`receiveItemFromNpc apunta a un npc inexistente: "${eff.npcId}".`);
+        throw new Error(`receiveItemFromNpc apunta a un npc inexistente: "${effect.npcId}".`);
       }
 
-      const placedItem = findPlacedItemInProject(state.project, eff.placedItemId);
-      if (!placedItem) {
-        throw new Error(`receiveItemFromNpc apunta a un placedItem inexistente: "${eff.placedItemId}".`);
-      }
+      const currentNpcInventory = state.npcInventory[effect.npcId] ?? [];
 
-      const s = addInventoryInstance(state, placedItem.id, placedItem.itemId);
+      const inventoryEntry = currentNpcInventory.find(
+        (entry) => entry.itemInstanceId === effect.itemInstanceId
+      );
+
+      if (!inventoryEntry) return state;
+
+      const nextState = {
+        ...state,
+        inventory: addInventoryEntry(state.inventory, inventoryEntry),
+        npcInventory: {
+          ...state.npcInventory,
+          [effect.npcId]: currentNpcInventory.filter(
+            (entry) => entry.itemInstanceId !== effect.itemInstanceId
+          ),
+        },
+      };
+
       ctx.audio?.playSfxUrl("/sounds/add_item.wav");
-      return s;
+
+      return nextState;
     }
 
     case "showMessage": {
-      const text = (eff.text ?? "").trim();
-      if (text) ctx.emitMessage?.(text);
+      const text = effect.text?.trim();
+      if (!text) return state;
+
+      ctx.emitMessage?.(text, {
+        kind: effect.speakerKind,
+        speakerId: effect.speakerId,
+      });
+
       return state;
     }
 
-    case "setPlacedItemVisible": {
-      const s = ensureNodeRuntime(state, eff.nodeId);
-      const nodeRt = s.nodes[eff.nodeId]!;
-      const prev = nodeRt.placedItems[eff.placedItemId];
-      if (!prev) return s;
+    case "setPlacedItemVisible":
+      return updatePlacedItemState(state, effect.nodeId, effect.itemInstanceId, { visible: effect.value });
 
-      return {
-        ...s,
-        nodes: {
-          ...s.nodes,
-          [eff.nodeId]: {
-            ...nodeRt,
-            placedItems: {
-              ...nodeRt.placedItems,
-              [eff.placedItemId]: { ...prev, visible: eff.value },
-            },
-          },
-        },
-      };
-    }
+    case "setPlacedItemReachable":
+      return updatePlacedItemState(state, effect.nodeId, effect.itemInstanceId, { reachable: effect.value });
 
-    case "setPlacedItemReachable": {
-      const s = ensureNodeRuntime(state, eff.nodeId);
-      const nodeRt = s.nodes[eff.nodeId]!;
-      const prev = nodeRt.placedItems[eff.placedItemId];
-      if (!prev) return s;
+    case "setHotspotVisible":
+      return updateHotspotState(state, state.currentNodeId, effect.hotspotId, { visible: effect.value });
 
-      return {
-        ...s,
-        nodes: {
-          ...s.nodes,
-          [eff.nodeId]: {
-            ...nodeRt,
-            placedItems: {
-              ...nodeRt.placedItems,
-              [eff.placedItemId]: { ...prev, reachable: eff.value },
-            },
-          },
-        },
-      };
-    }
-
-    case "setHotspotVisible": {
-      const nodeId = state.currentNodeId;
-      const s = ensureNodeRuntime(state, nodeId);
-      const nodeRt = s.nodes[nodeId]!;
-      const prev = nodeRt.hotspots[eff.hotspotId];
-      if (!prev) return s;
-
-      return {
-        ...s,
-        nodes: {
-          ...s.nodes,
-          [nodeId]: {
-            ...nodeRt,
-            hotspots: {
-              ...nodeRt.hotspots,
-              [eff.hotspotId]: { ...prev, visible: eff.value },
-            },
-          },
-        },
-      };
-    }
-
-    case "setHotspotReachable": {
-      const nodeId = state.currentNodeId;
-      const s = ensureNodeRuntime(state, nodeId);
-      const nodeRt = s.nodes[nodeId]!;
-      const prev = nodeRt.hotspots[eff.hotspotId];
-      if (!prev) return s;
-
-      return {
-        ...s,
-        nodes: {
-          ...s.nodes,
-          [nodeId]: {
-            ...nodeRt,
-            hotspots: {
-              ...nodeRt.hotspots,
-              [eff.hotspotId]: { ...prev, reachable: eff.value },
-            },
-          },
-        },
-      };
-    }
+    case "setHotspotReachable":
+      return updateHotspotState(state, state.currentNodeId, effect.hotspotId, { reachable: effect.value });
 
     case "setHotspotVar": {
-      const prev = state.hotspotVars[eff.hotspotId] ?? {};
-      return {
-        ...state,
-        hotspotVars: {
-          ...state.hotspotVars,
-          [eff.hotspotId]: { ...prev, [eff.varId]: eff.value },
-        },
-      };
-    }
-
-    case "toggleHotspotVar": {
-      const prev = state.hotspotVars[eff.hotspotId] ?? {};
-      const next = !coerceToBoolean(prev[eff.varId]);
+      const def = findHotspotVarDef(state.project, effect.hotspotId, effect.varId);
+      const nextValue = typeof effect.value === "number" ? clampNumber(def, effect.value) : effect.value;
 
       return {
         ...state,
-        hotspotVars: {
-          ...state.hotspotVars,
-          [eff.hotspotId]: { ...prev, [eff.varId]: next },
-        },
+        hotspotVars: setRuntimeVar(state.hotspotVars, effect.hotspotId, effect.varId, nextValue),
       };
     }
+
+    case "toggleHotspotVar":
+      return {
+        ...state,
+        hotspotVars: updateRuntimeVar(state.hotspotVars, effect.hotspotId, effect.varId, (previous) => {
+          return !coerceToBoolean(previous);
+        }),
+      };
 
     case "incHotspotVar": {
-      const prev = state.hotspotVars[eff.hotspotId] ?? {};
-      const base = coerceToNumber(prev[eff.varId]);
-      const amount = eff.amount ?? 1;
+      const def = findHotspotVarDef(state.project, effect.hotspotId, effect.varId);
 
       return {
         ...state,
-        hotspotVars: {
-          ...state.hotspotVars,
-          [eff.hotspotId]: { ...prev, [eff.varId]: base + amount },
-        },
+        hotspotVars: updateRuntimeVar(state.hotspotVars, effect.hotspotId, effect.varId, (previous) => {
+          return clampNumber(def, coerceToNumber(previous) + (effect.amount ?? 1));
+        }),
       };
     }
 
     case "decHotspotVar": {
-      const prev = state.hotspotVars[eff.hotspotId] ?? {};
-      const base = coerceToNumber(prev[eff.varId]);
-      const amount = eff.amount ?? 1;
+      const def = findHotspotVarDef(state.project, effect.hotspotId, effect.varId);
 
       return {
         ...state,
-        hotspotVars: {
-          ...state.hotspotVars,
-          [eff.hotspotId]: { ...prev, [eff.varId]: base - amount },
-        },
+        hotspotVars: updateRuntimeVar(state.hotspotVars, effect.hotspotId, effect.varId, (previous) => {
+          return clampNumber(def, coerceToNumber(previous) - (effect.amount ?? 1));
+        }),
       };
     }
 
-    case "setPlacedPlayerVisible": {
-      const s = ensureNodeRuntime(state, eff.nodeId);
-      const nodeRt = s.nodes[eff.nodeId]!;
-      const prev = nodeRt.placedPlayers[eff.playerId];
-      if (!prev) return s;
+    case "setPlacedPlayerVisible":
+      return updatePlacedPlayerState(state, effect.nodeId, effect.playerId, { visible: effect.value });
 
-      return {
-        ...s,
-        nodes: {
-          ...s.nodes,
-          [eff.nodeId]: {
-            ...nodeRt,
-            placedPlayers: {
-              ...nodeRt.placedPlayers,
-              [eff.playerId]: { ...prev, visible: eff.value },
-            },
-          },
-        },
-      };
-    }
+    case "setPlacedPlayerImage":
+      return setPlacedPlayerImage(state, effect.nodeId, effect.playerId, effect.imageId);
 
-    case "setPlacedPlayerImage": {
-      const s = ensureNodeRuntime(state, eff.nodeId);
-      const nodeRt = s.nodes[eff.nodeId]!;
-      if (!nodeRt.placedPlayers[eff.playerId]) return s;
+    case "setPlacedNpcVisible":
+      return updatePlacedNpcState(state, effect.nodeId, effect.npcId, { visible: effect.value });
 
-      const prevImgs = nodeRt.placedPlayerImageId ?? {};
-      return {
-        ...s,
-        nodes: {
-          ...s.nodes,
-          [eff.nodeId]: {
-            ...nodeRt,
-            placedPlayerImageId: { ...prevImgs, [eff.playerId]: eff.imageId },
-          },
-        },
-      };
-    }
-
-    case "setPlacedNpcVisible": {
-      const s = ensureNodeRuntime(state, eff.nodeId);
-      const nodeRt = s.nodes[eff.nodeId]!;
-      const prev = nodeRt.placedNpcs[eff.npcId];
-      if (!prev) return s;
-
-      return {
-        ...s,
-        nodes: {
-          ...s.nodes,
-          [eff.nodeId]: {
-            ...nodeRt,
-            placedNpcs: {
-              ...nodeRt.placedNpcs,
-              [eff.npcId]: { ...prev, visible: eff.value },
-            },
-          },
-        },
-      };
-    }
-
-    case "setPlacedNpcReachable": {
-      const s = ensureNodeRuntime(state, eff.nodeId);
-      const nodeRt = s.nodes[eff.nodeId]!;
-      const prev = nodeRt.placedNpcs[eff.npcId];
-      if (!prev) return s;
-
-      return {
-        ...s,
-        nodes: {
-          ...s.nodes,
-          [eff.nodeId]: {
-            ...nodeRt,
-            placedNpcs: {
-              ...nodeRt.placedNpcs,
-              [eff.npcId]: { ...prev, reachable: eff.value },
-            },
-          },
-        },
-      };
-    }
+    case "setPlacedNpcReachable":
+      return updatePlacedNpcState(state, effect.nodeId, effect.npcId, { reachable: effect.value });
 
     case "setPlayerVar": {
-      const prev = state.playerVars[eff.playerId] ?? {};
-      const def = findPlayerVarDef(state.project, eff.playerId, eff.varId);
-
-      let nextVal: boolean | number = eff.value;
-      if (typeof eff.value === "number") nextVal = clampNumber(def, eff.value);
+      const def = findPlayerVarDef(state.project, effect.playerId, effect.varId);
+      const nextValue = typeof effect.value === "number" ? clampNumber(def, effect.value) : effect.value;
 
       return {
         ...state,
-        playerVars: {
-          ...state.playerVars,
-          [eff.playerId]: { ...prev, [eff.varId]: nextVal },
-        },
+        playerVars: setRuntimeVar(state.playerVars, effect.playerId, effect.varId, nextValue),
       };
     }
 
-    case "togglePlayerVar": {
-      const prev = state.playerVars[eff.playerId] ?? {};
-      const next = !coerceToBoolean(prev[eff.varId]);
-
+    case "togglePlayerVar":
       return {
         ...state,
-        playerVars: {
-          ...state.playerVars,
-          [eff.playerId]: { ...prev, [eff.varId]: next },
-        },
+        playerVars: updateRuntimeVar(state.playerVars, effect.playerId, effect.varId, (previous) => {
+          return !coerceToBoolean(previous);
+        }),
       };
-    }
 
     case "incPlayerVar": {
-      const prev = state.playerVars[eff.playerId] ?? {};
-      const def = findPlayerVarDef(state.project, eff.playerId, eff.varId);
-      const base = coerceToNumber(prev[eff.varId]);
-      const amount = eff.amount ?? 1;
-      const next = clampNumber(def, base + amount);
+      const def = findPlayerVarDef(state.project, effect.playerId, effect.varId);
 
       return {
         ...state,
-        playerVars: {
-          ...state.playerVars,
-          [eff.playerId]: { ...prev, [eff.varId]: next },
-        },
+        playerVars: updateRuntimeVar(state.playerVars, effect.playerId, effect.varId, (previous) => {
+          return clampNumber(def, coerceToNumber(previous) + (effect.amount ?? 1));
+        }),
       };
     }
 
     case "decPlayerVar": {
-      const prev = state.playerVars[eff.playerId] ?? {};
-      const def = findPlayerVarDef(state.project, eff.playerId, eff.varId);
-      const base = coerceToNumber(prev[eff.varId]);
-      const amount = eff.amount ?? 1;
-      const next = clampNumber(def, base - amount);
+      const def = findPlayerVarDef(state.project, effect.playerId, effect.varId);
 
       return {
         ...state,
-        playerVars: {
-          ...state.playerVars,
-          [eff.playerId]: { ...prev, [eff.varId]: next },
-        },
+        playerVars: updateRuntimeVar(state.playerVars, effect.playerId, effect.varId, (previous) => {
+          return clampNumber(def, coerceToNumber(previous) - (effect.amount ?? 1));
+        }),
       };
     }
 
     case "setNpcVar": {
-      const prev = state.npcVars[eff.npcId] ?? {};
-      const def = findNpcVarDef(state.project, eff.npcId, eff.varId);
-
-      let nextVal: boolean | number = eff.value;
-      if (typeof eff.value === "number") nextVal = clampNumber(def, eff.value);
+      const def = findNpcVarDef(state.project, effect.npcId, effect.varId);
+      const nextValue = typeof effect.value === "number" ? clampNumber(def, effect.value) : effect.value;
 
       return {
         ...state,
-        npcVars: {
-          ...state.npcVars,
-          [eff.npcId]: { ...prev, [eff.varId]: nextVal },
-        },
+        npcVars: setRuntimeVar(state.npcVars, effect.npcId, effect.varId, nextValue),
       };
     }
 
-    case "toggleNpcVar": {
-      const prev = state.npcVars[eff.npcId] ?? {};
-      const next = !coerceToBoolean(prev[eff.varId]);
-
+    case "toggleNpcVar":
       return {
         ...state,
-        npcVars: {
-          ...state.npcVars,
-          [eff.npcId]: { ...prev, [eff.varId]: next },
-        },
+        npcVars: updateRuntimeVar(state.npcVars, effect.npcId, effect.varId, (previous) => {
+          return !coerceToBoolean(previous);
+        }),
       };
-    }
 
     case "incNpcVar": {
-      const prev = state.npcVars[eff.npcId] ?? {};
-      const def = findNpcVarDef(state.project, eff.npcId, eff.varId);
-      const base = coerceToNumber(prev[eff.varId]);
-      const amount = eff.amount ?? 1;
-      const next = clampNumber(def, base + amount);
+      const def = findNpcVarDef(state.project, effect.npcId, effect.varId);
 
       return {
         ...state,
-        npcVars: {
-          ...state.npcVars,
-          [eff.npcId]: { ...prev, [eff.varId]: next },
-        },
+        npcVars: updateRuntimeVar(state.npcVars, effect.npcId, effect.varId, (previous) => {
+          return clampNumber(def, coerceToNumber(previous) + (effect.amount ?? 1));
+        }),
       };
     }
 
     case "decNpcVar": {
-      const prev = state.npcVars[eff.npcId] ?? {};
-      const def = findNpcVarDef(state.project, eff.npcId, eff.varId);
-      const base = coerceToNumber(prev[eff.varId]);
-      const amount = eff.amount ?? 1;
-      const next = clampNumber(def, base - amount);
+      const def = findNpcVarDef(state.project, effect.npcId, effect.varId);
 
       return {
         ...state,
-        npcVars: {
-          ...state.npcVars,
-          [eff.npcId]: { ...prev, [eff.varId]: next },
-        },
+        npcVars: updateRuntimeVar(state.npcVars, effect.npcId, effect.varId, (previous) => {
+          return clampNumber(def, coerceToNumber(previous) - (effect.amount ?? 1));
+        }),
       };
     }
 
     case "playSfx":
-      ctx.audio?.playSfx(state, eff.sfxId);
+      ctx.audio?.playSfx(state, effect.sfxId);
       return state;
 
     case "playMusic":
-      return { ...state, music: musicPlay(state.music, eff.trackId, { startAt: eff.startAt }) };
-
-    case "pauseMusic":
-      return { ...state, music: musicPause(state.music) };
-
-    case "stopMusic":
-      return { ...state, music: musicStop(state.music) };
-
-    case "setMapRegionAvailable": {
-      const current = state.map.unlockedRegionIdsByMap[eff.mapId] ?? [];
-      const next = setRegionMembership(current, eff.regionId, eff.value);
-
       return {
         ...state,
-        map: {
-          ...state.map,
-          unlockedRegionIdsByMap: {
-            ...state.map.unlockedRegionIdsByMap,
-            [eff.mapId]: next,
-          },
-        },
+        music: musicPlay(state.music, effect.trackId, { startAt: effect.startAt }),
       };
-    }
+
+    case "stopMusic":
+      return {
+        ...state,
+        music: musicStop(state.music),
+      };
+
+    case "setMapRegionAvailable":
+      return setMapRegionAvailable(state, effect.mapId, effect.regionId, effect.value);
 
     case "endGame": {
-      const message = eff.message?.trim();
+      const ending = effect.ending;
+      const lines = ending?.lines ?? [];
 
       return {
         ...state,
         gameEnded: true,
-        endGameMessage: message || undefined,
+        activeDialogue: undefined,
+        ending,
+        endingLineIndex: lines.length > 0 ? 0 : lines.length,
+        music: ending?.musicTrackId
+          ? musicPlay(state.music, ending.musicTrackId, { startAt: "restart" })
+          : state.music,
       };
     }
 
     default:
-      throw new Error(`Efecto no soportado en el motor: ${(eff as { type?: string }).type ?? "desconocido"}`);
+      throw new Error(`Efecto no soportado en el motor: ${(effect as { type?: string }).type ?? "desconocido"}`);
   }
 }
 
 export function applyEffects(state: GameState, effects: Effect[] = [], ctx: ApplyEffectCtx = {}): GameState {
-  let s = state;
-  for (const eff of effects) s = applyEffect(s, eff, ctx);
-  return s;
+  return effects.reduce((currentState, effect) => { return applyEffect(currentState, effect, ctx) }, state);
 }

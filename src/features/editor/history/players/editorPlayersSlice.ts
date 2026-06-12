@@ -1,25 +1,37 @@
-import type { ID, PlacedPlayer, PlayerDef, PlayerImage, Project, VarDef } from "@/domain/types";
+import type { ID, InventoryItemInstance, PlayerDef, PlayerImage, Project, VarDef } from "@/domain/types";
+import type { DeleteTarget } from "@/features/editor/delete/deleteTypes";
 import { conditionReferences } from "@/domain/conditionRefs";
-import { effectReferencesPlayer, effectReferencesPlayerVar } from "@/domain/effectRefs";
+import { effectReferencesPlayer } from "@/domain/effectRefs";
 import { hasDuplicateName } from "@/validation/genericValidator";
 import { generateId } from "@/utils/id";
-import { fileExtFromName, removeAsset, removeAssetFile, safeTrim, sameVarDef, upsertAsset, upsertAssetFile } from "@/features/editor/core/editorGenericSlice";
-import { isEntityReferenced, removeConditionsInProject, removeDialogues, removeEffectsInProject, removePlacedPlayers, collectDialogueIds,
-  effectIsStartDialogueForAnyOf, someDialogue, somePlacedPlayer } from "@/features/editor/core/editorProjectWalkers";
-import { findAssetByIdAndKind, findEntityById, removeById, replaceById } from "@/features/editor/history/shared/assetBackedEntityHelpers";
+import { fileExtFromName, removeAssetFile, safeTrim, sameVarDef, upsertAsset, upsertAssetFile } from "@/features/editor/core/editorGenericSlice";
+import {
+  isEntityReferenced,
+  collectDialogueIds,
+  effectIsStartDialogueForAnyOf,
+  someDialogue,
+  somePlacedPlayer,
+} from "@/features/editor/core/editorProjectWalkers";
+import { findAssetByIdAndKind, findEntityById, replaceById } from "@/features/editor/history/shared/assetBackedEntityHelpers";
 import { nextSelectedAfterRemoval, buildPlayerImageFilePath, ensureDefaultImageId } from "@/features/editor/history/shared/genericHelpers";
+import { applyDeleteWithCleanup } from "@/features/editor/delete/deleteReferenceCleaner";
+import type { DeleteApplyFn } from "@/features/editor/delete/editorDeleteSlice";
 
 /* Contrato mínimo del store que necesita este slice */
 type EditorStoreLike = {
   project: Project | null;
   assetFiles: Record<ID, File>;
   selectedPlayerId: ID | null;
+  requestDelete: (input: {
+    target: DeleteTarget;
+    apply: DeleteApplyFn;
+  }) => void;
 };
 
 export interface EditorPlayerSlice {
   selectedPlayerId: ID | null;
   setSelectedPlayerId: (id: ID | null) => void;
-  addPlayer: (input: { name: string; description?: string; vars?: VarDef[]; images: Array<{ name: string; file: File }> }) => ID | null;
+  addPlayer: (input: { name: string; description?: string; vars?: VarDef[]; images: Array<{ name: string; file: File }>; initialInventory?: InventoryItemInstance[] }) => ID | null;
   updatePlayer: (playerId: ID, changes: { name?: string; description?: string }) => void;
   addPlayerImage: (playerId: ID, input: { name: string; file?: File | null }) => ID | null;
   updatePlayerImage: (playerId: ID, imageId: ID, patch: { name?: string; file?: File | null }) => void;
@@ -28,8 +40,44 @@ export interface EditorPlayerSlice {
   addPlayerVar: (playerId: ID, variable: VarDef) => void;
   updatePlayerVar: (playerId: ID, variable: VarDef) => void;
   removePlayerVar: (playerId: ID, varId: ID) => void;
+  addPlayerInventoryItem: (playerId: ID, item: InventoryItemInstance) => void;
+  updatePlayerInventoryItem: (playerId: ID, item: InventoryItemInstance) => void;
+  removePlayerInventoryItem: (playerId: ID, itemInstanceId: ID) => void;
   removePlayer: (playerId: ID) => void;
   isPlayerReferenced: (playerId: ID) => boolean;
+}
+
+const applyPlayerDeleteTarget = (
+  target: DeleteTarget,
+): DeleteApplyFn => (state) => {
+  if (!state.project) return state;
+
+  const prevProject = state.project;
+  const nextProject = applyDeleteWithCleanup(prevProject, target);
+
+  let nextAssetFiles = state.assetFiles;
+  let nextSelectedPlayerId = state.selectedPlayerId;
+
+  if (target.kind === "player") {
+    const player = prevProject.players.find((entry) => entry.id === target.playerId);
+
+    for (const image of player?.images ?? []) {
+      nextAssetFiles = removeAssetFile(nextAssetFiles, image.id).assetFiles;
+    }
+
+    nextSelectedPlayerId = nextSelectedAfterRemoval(state.selectedPlayerId, target.playerId);
+  }
+
+  if (target.kind === "playerImage") {
+    nextAssetFiles = removeAssetFile(nextAssetFiles, target.imageId).assetFiles;
+  }
+
+  return {
+    ...state,
+    project: nextProject,
+    assetFiles: nextAssetFiles,
+    selectedPlayerId: nextSelectedPlayerId,
+  };
 }
 
 /* Slice */
@@ -55,7 +103,7 @@ export function createEditorPlayerSlice(set: (partial: | Partial<EditorStoreLike
       if (imagesIn.length === 0) return null;
 
       const cleanedImages = imagesIn.map((image) =>
-        ({ id: generateId.playerImage(), name: safeTrim(image?.name) || "Imagen", file: image?.file}))
+        ({ id: generateId.playerImage(), name: safeTrim(image?.name) || "Imagen", file: image?.file }))
         .filter((image): image is { id: ID; name: string; file: File } => image.file instanceof File);
 
       if (cleanedImages.length === 0) return null;
@@ -85,6 +133,7 @@ export function createEditorPlayerSlice(set: (partial: | Partial<EditorStoreLike
         images: newImages,
         defaultImageId: newImages[0]!.id,
         vars: input.vars ?? [],
+        initialInventory: input.initialInventory ?? [],
       };
 
       set({
@@ -112,8 +161,8 @@ export function createEditorPlayerSlice(set: (partial: | Partial<EditorStoreLike
         const nextName = typeof changes.name === "string" ? safeTrim(changes.name) : "";
         const nameChanged = Boolean(nextName) && nextName !== prevPlayer.name;
 
-        if (nameChanged && hasDuplicateName({ list: project.players, incomingName: nextName, ignoreId: playerId }))  return state;
-        
+        if (nameChanged && hasDuplicateName({ list: project.players, incomingName: nextName, ignoreId: playerId })) return state;
+
         const nextDescription = typeof changes.description === "string" ? safeTrim(changes.description) : "";
         const prevDescription = safeTrim(prevPlayer.description);
         const descriptionChanged = typeof changes.description === "string" && nextDescription !== prevDescription;
@@ -269,84 +318,20 @@ export function createEditorPlayerSlice(set: (partial: | Partial<EditorStoreLike
         };
       }),
 
-    /* Elimina una imagen del player */
-    removePlayerImage: (playerId, imageId) =>
-      set((state) => {
-        if (!state.project) return state;
+        /* Elimina una imagen del player */
+    removePlayerImage: (playerId, imageId) => {
+      const { project, requestDelete } = get();
+      if (!project) return;
 
-        let project = state.project;
-        const prevPlayer = findEntityById(project.players, playerId);
-        if (!prevPlayer) return state;
+      const player = findEntityById(project.players, playerId);
+      if (!player) return;
+      if (!player.images.some((image) => image.id === imageId)) return;
 
-        if (!prevPlayer.images.some((image) => image.id === imageId)) return state;
-        if (prevPlayer.images.length <= 1) return state;
-
-        const nextImages = prevPlayer.images.filter((image) => image.id !== imageId);
-
-        let nextPlayer: PlayerDef = {
-          ...prevPlayer,
-          images: nextImages,
-        };
-
-        if (nextPlayer.defaultImageId === imageId) nextPlayer.defaultImageId = undefined;
-
-        nextPlayer = ensureDefaultImageId(nextPlayer);
-
-        project = {
-          ...project,
-          nodes: project.nodes.map((node) => ({
-            ...node,
-            layers: node.layers.map((layer) => {
-              const placedPlayers = layer.placedPlayers ?? [];
-              if (placedPlayers.length === 0) return layer;
-        
-              let touchedPlacedPlayers = false;
-        
-              const nextPlacedPlayers = placedPlayers.map((placedPlayer) => {
-                if (placedPlayer.playerId !== playerId) return placedPlayer;
-                if (placedPlayer.initialImageId !== imageId) return placedPlayer;
-        
-                touchedPlacedPlayers = true;
-        
-                if (!nextPlayer.defaultImageId) {
-                  const { initialImageId: _omitted, ...rest } = placedPlayer;
-                  return rest as PlacedPlayer;
-                }
-        
-                return {
-                  ...placedPlayer,
-                  initialImageId: nextPlayer.defaultImageId,
-                };
-              });
-        
-              if (!touchedPlacedPlayers) return layer;
-        
-              return {
-                ...layer,
-                placedPlayers: nextPlacedPlayers,
-              };
-            }),
-          })),
-        };
-
-        project = removeEffectsInProject(project, (effect) => {
-          if (effect.type !== "setPlacedPlayerImage") return false;
-          return effect.playerId === playerId && effect.imageId === imageId;
-        });
-
-        const assetResult = removeAsset(project.assets, { id: imageId, kind: "players" });
-        const fileResult = removeAssetFile(state.assetFiles, imageId);
-
-        return {
-          ...state,
-          project: {
-            ...project,
-            players: replaceById(project.players, playerId, nextPlayer),
-            assets: assetResult.assets,
-          },
-          assetFiles: fileResult.assetFiles,
-        };
-      }),
+      requestDelete({
+        target: { kind: "playerImage", playerId, imageId },
+                apply: applyPlayerDeleteTarget({ kind: "playerImage", playerId, imageId }),
+      });
+    },
 
     /* Cambia la imagen por defecto del player */
     setDefaultPlayerImage: (playerId, imageId) =>
@@ -430,83 +415,101 @@ export function createEditorPlayerSlice(set: (partial: | Partial<EditorStoreLike
       }),
 
     /* Elimina una variable del player */
-    removePlayerVar: (playerId, varId) =>
+    removePlayerVar: (playerId, varId) => {
+      const { project, requestDelete } = get();
+      if (!project) return;
+
+      const player = findEntityById(project.players, playerId);
+      if (!player) return;
+
+      const vars = player.vars ?? [];
+      if (!vars.some((variable) => variable.id === varId)) return;
+
+      requestDelete({
+        target: { kind: "playerVar", playerId, varId },
+                apply: applyPlayerDeleteTarget({ kind: "playerVar", playerId, varId }),
+      });
+    },
+
+    addPlayerInventoryItem: (playerId, item) =>
       set((state) => {
         if (!state.project) return state;
 
-        let project = state.project;
-        const prevPlayer = findEntityById(project.players, playerId);
+        const prevPlayer = findEntityById(state.project.players, playerId);
         if (!prevPlayer) return state;
 
-        const prevVars = prevPlayer.vars ?? [];
-        const nextVars = prevVars.filter((variable) => variable.id !== varId);
-        if (nextVars.length === prevVars.length) return state;
+        const prevInventory = prevPlayer.initialInventory ?? [];
+        if (prevInventory.some((existingItem) => existingItem.itemInstanceId === item.itemInstanceId)) return state;
 
         const nextPlayer: PlayerDef = {
           ...prevPlayer,
-          vars: nextVars,
+          initialInventory: [...prevInventory, item],
         };
-
-        project = {
-          ...project,
-          players: replaceById(project.players, playerId, nextPlayer),
-        };
-
-        project = removeConditionsInProject(project,
-          (condition) => condition.type === "playerVar" &&
-            condition.playerId === playerId && condition.varId === varId,
-        );
-
-        project = removeEffectsInProject(project, (effect) => effectReferencesPlayerVar(effect, { playerId, varId }));
-
-        return { ...state, project };
-      }),
-
-    /* Elimina un player global */
-    removePlayer: (playerId) =>
-      set((state) => {
-        if (!state.project) return state;
-
-        const player = findEntityById(state.project.players, playerId);
-        if (!player) return state;
-
-        const dialogueIds = collectDialogueIds(state.project, (dialogue) => dialogue.playerId === playerId);
-
-        let project = state.project;
-
-        project = removeEffectsInProject(project, (effect) => {
-          if (effectReferencesPlayer(effect, playerId)) return true;
-          if (effectIsStartDialogueForAnyOf(effect, dialogueIds)) return true;
-          return false;
-        });
-
-        project = removeConditionsInProject(project,
-          (condition) => (condition.type === "playerVar" && condition.playerId === playerId) ||
-          (condition.type === "placedPlayerVisible" && condition.playerId === playerId),
-        );
-
-        project = removePlacedPlayers(project, (placedPlayer) => placedPlayer.playerId === playerId);
-        project = removeDialogues(project, (dialogue) => dialogue.playerId === playerId);
-
-        let nextAssets = project.assets;
-        let nextAssetFiles = state.assetFiles;
-
-        for (const image of player.images) {
-          nextAssets = removeAsset(nextAssets, { id: image.id, kind: "players" }).assets;
-          nextAssetFiles = removeAssetFile(nextAssetFiles, image.id).assetFiles;
-        }
 
         return {
           ...state,
           project: {
-            ...project,
-            players: removeById(project.players, playerId),
-            assets: nextAssets,
+            ...state.project,
+            players: replaceById(state.project.players, playerId, nextPlayer),
           },
-          assetFiles: nextAssetFiles,
-          selectedPlayerId: nextSelectedAfterRemoval(state.selectedPlayerId, playerId),
         };
       }),
+
+    updatePlayerInventoryItem: (playerId, item) =>
+  set((state) => {
+    if (!state.project) return state;
+
+    const prevPlayer = findEntityById(state.project.players, playerId);
+    if (!prevPlayer) return state;
+
+    const prevInventory = prevPlayer.initialInventory ?? [];
+    if (!prevInventory.some((existingItem) => existingItem.itemInstanceId === item.itemInstanceId)) return state;
+
+    const nextPlayer: PlayerDef = {
+      ...prevPlayer,
+      initialInventory: prevInventory.map((existingItem) =>
+        existingItem.itemInstanceId === item.itemInstanceId ? item : existingItem,
+      ),
+    };
+
+    return {
+      ...state,
+      project: {
+        ...state.project,
+        players: replaceById(state.project.players, playerId, nextPlayer),
+      },
+    };
+  }),
+
+    removePlayerInventoryItem: (playerId, itemInstanceId) => {
+    const { project, requestDelete } = get();
+    if (!project) return;
+
+    const player = findEntityById(project.players, playerId);
+    if (!player) return;
+
+    const inventory = player.initialInventory ?? [];
+    if (!inventory.some((item) => item.itemInstanceId === itemInstanceId)) return;
+
+    requestDelete({
+      target: { kind: "playerInventoryItem", playerId, itemInstanceId },
+            apply: applyPlayerDeleteTarget({ kind: "playerInventoryItem", playerId, itemInstanceId }),
+    });
+  },
+
+        /* Elimina un player global */
+    removePlayer: (playerId) => {
+      const { project, requestDelete } = get();
+      if (!project) return;
+
+      const player = findEntityById(project.players, playerId);
+      if (!player) return;
+
+      requestDelete({
+        target: { kind: "player", playerId },
+                apply: applyPlayerDeleteTarget({ kind: "player", playerId }),
+      });
+    },
 
     isPlayerReferenced: (playerId: ID) => {
       const { project } = get();
@@ -523,7 +526,8 @@ export function createEditorPlayerSlice(set: (partial: | Partial<EditorStoreLike
         someWhenRef: (when) => conditionReferences.player(when, playerId) ||
           playerVars.some((variable) => conditionReferences.playerVar(when, { playerId, varId: variable.id })),
 
-        someEffectRef: (effect) => effectReferencesPlayer(effect, playerId) || effectIsStartDialogueForAnyOf(effect, dialogueIds)});
+        someEffectRef: (effect) => effectReferencesPlayer(effect, playerId) || effectIsStartDialogueForAnyOf(effect, dialogueIds)
+      });
     },
   };
 }

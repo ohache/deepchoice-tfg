@@ -18,6 +18,15 @@ export const PlayerImageDraftSchema = z.object({
 export type PlayerImageDraftInput = z.input<typeof PlayerImageDraftSchema>;
 export type PlayerImageDraftOutput = z.output<typeof PlayerImageDraftSchema>;
 
+export const PlayerInventoryItemDraftSchema = z.object({
+  itemInstanceId: IdSchema,
+  itemId: IdSchema,
+  label: z.string().trim().min(1, "El item necesita una etiqueta").max(60, "La etiqueta no puede superar 60 caracteres"),
+});
+
+export type PlayerInventoryItemDraftInput = z.input<typeof PlayerInventoryItemDraftSchema>;
+export type PlayerInventoryItemDraftOutput = z.output<typeof PlayerInventoryItemDraftSchema>;
+
 /* Draft completo del player en el editor */
 export const PlayerDraftSchema = z.object({
   name: z.string().trim().min(1, "El personaje necesita un nombre").max(60, "El nombre no puede superar 60 caracteres"),
@@ -25,6 +34,7 @@ export const PlayerDraftSchema = z.object({
   images: z.array(PlayerImageDraftSchema).min(1, "Sube al menos una imagen"),
   defaultImageId: IdSchema,
   vars: z.array(VarDraftSchema).default([]),
+  initialInventory: z.array(PlayerInventoryItemDraftSchema).default([]),
 })
   .superRefine((val, ctx) => {
     const ids = val.images.map((i) => i.id);
@@ -46,7 +56,7 @@ export const PlayerDraftSchema = z.object({
       });
     }
 
-  const normalizedNames = val.images.map((i) => i.name.trim().toLowerCase());
+    const normalizedNames = val.images.map((i) => i.name.trim().toLowerCase());
     const nameSet = new Set(normalizedNames);
 
     if (nameSet.size !== normalizedNames.length) {
@@ -54,6 +64,28 @@ export const PlayerDraftSchema = z.object({
         code: "custom",
         path: ["images"],
         message: "Hay imágenes con nombre repetido.",
+      });
+    }
+
+    const inventoryItemInstanceIds = val.initialInventory.map((i) => i.itemInstanceId);
+    const inventoryItemInstanceIdSet = new Set(inventoryItemInstanceIds);
+
+    if (inventoryItemInstanceIdSet.size !== inventoryItemInstanceIds.length) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["initialInventory"],
+        message: "Hay items de inventario con id repetido.",
+      });
+    }
+
+    const normalizedInventoryLabels = val.initialInventory.map((i) => i.label.trim().toLowerCase());
+    const inventoryLabelSet = new Set(normalizedInventoryLabels);
+
+    if (inventoryLabelSet.size !== normalizedInventoryLabels.length) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["initialInventory"],
+        message: "Hay items de inventario con etiqueta repetida.",
       });
     }
   });

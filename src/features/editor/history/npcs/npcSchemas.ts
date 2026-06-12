@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createFileSchema } from "@/validation/genericSchemas";
+import { createFileSchema, IdSchema } from "@/validation/genericSchemas";
 import { VarDraftSchema, type VarDraftInput, type VarDraftOutput } from "@/validation/varSchemas";
 
 export const IMAGE_ALLOWED_NPC = /\.(png|jpg|jpeg|webp)$/i;
@@ -9,11 +9,21 @@ export const NpcImageFileSchema = createFileSchema({
   message: "Formato no válido. Usa .png, .jpg, .jpeg o .webp.",
 });
 
+export const NpcInventoryItemDraftSchema = z.object({
+  itemInstanceId: IdSchema,
+  itemId: IdSchema,
+  label: z.string().trim().min(1, "El item necesita una etiqueta").max(60, "La etiqueta no puede superar 60 caracteres"),
+});
+
+export type NpcInventoryItemDraftInput = z.input<typeof NpcInventoryItemDraftSchema>;
+export type NpcInventoryItemDraftOutput = z.output<typeof NpcInventoryItemDraftSchema>;
+
 export const NpcDraftSchema = z.object({
   name: z.string().trim().min(1, "El PNJ necesita un nombre").max(60, "El nombre no puede superar 60 caracteres"),
   description: z.string().trim().max(200, "La descripción no puede superar 200 caracteres").optional(),
   file: NpcImageFileSchema.optional(),
   vars: z.array(VarDraftSchema).default([]),
+  initialInventory: z.array(NpcInventoryItemDraftSchema).default([]),
 });
 
 export type NpcDraftInput = z.input<typeof NpcDraftSchema>;

@@ -1,25 +1,27 @@
-import type { ID } from "@/domain/types";
+import type { ID, EndGameContent } from "@/domain/types";
 
 export type Effect =
   // Navegación
   | { type: "goToNode"; targetNodeId: ID }
 
   // Inventario
-  | { type: "addItem"; placedItemId: ID }
-  | { type: "removeItem"; placedItemId: ID }
+  | { type: "addItem"; itemInstanceId: ID }
+  | { type: "removeItem"; itemInstanceId: ID }
+  | { type: "transformItem"; sourceItemInstanceId: ID; resultItemId: ID; resultItemInstanceId: ID; resultItemLabel: string }
+  | { type: "combineItems"; sourceItemInstanceId: ID; targetItemInstanceId: ID; resultItemId: ID; resultItemInstanceId: ID; resultItemLabel: string }
 
   // Diálogo / PNJ
   | { type: "startDialogue"; nodeDialogueId: ID }
   | { type: "endDialogue" }
-  | { type: "giveItemToNpc"; npcId: ID; placedItemId: ID }
-  | { type: "receiveItemFromNpc"; npcId: ID; placedItemId: ID }
+  | { type: "giveItemToNpc"; npcId: ID; itemInstanceId: ID }
+  | { type: "receiveItemFromNpc"; npcId: ID; itemInstanceId: ID }
 
   // Feedback
-  | { type: "showMessage"; text: string }
+  | { type: "showMessage"; text: string; speakerKind: "narrator" | "player" | "npc"; speakerId?: ID }
 
   // Estado de placed items (runtime)
-  | { type: "setPlacedItemVisible"; nodeId: ID; placedItemId: ID; value: boolean }
-  | { type: "setPlacedItemReachable"; nodeId: ID; placedItemId: ID; value: boolean }
+  | { type: "setPlacedItemVisible"; nodeId: ID; itemInstanceId: ID; value: boolean }
+  | { type: "setPlacedItemReachable"; nodeId: ID; itemInstanceId: ID; value: boolean }
 
   // Estado del hotspot (runtime)
   | { type: "setHotspotVisible"; hotspotId: ID; value: boolean }
@@ -32,12 +34,12 @@ export type Effect =
   | { type: "decHotspotVar"; hotspotId: ID; varId: ID; amount?: number }
 
   // Estado del player colocado
-  | { type: "setPlacedPlayerVisible"; nodeId: ID; playerId: ID; value: boolean }
-  | { type: "setPlacedPlayerImage"; nodeId: ID; playerId: ID; imageId: ID }
+  | { type: "setPlacedPlayerVisible"; nodeId: ID; layerId: ID; playerId: ID; value: boolean }
+  | { type: "setPlacedPlayerImage"; nodeId: ID; layerId: ID; playerId: ID; imageId: ID }
 
   // Estado del npc colocado
-  | { type: "setPlacedNpcVisible"; nodeId: ID; npcId: ID; value: boolean }
-  | { type: "setPlacedNpcReachable"; nodeId: ID; npcId: ID; value: boolean }
+  | { type: "setPlacedNpcVisible"; nodeId: ID; layerId: ID; npcId: ID; value: boolean }
+  | { type: "setPlacedNpcReachable"; nodeId: ID; layerId: ID; npcId: ID; value: boolean }
 
   // Variables del player
   | { type: "setPlayerVar"; playerId: ID; varId: ID; value: boolean | number }
@@ -54,13 +56,12 @@ export type Effect =
   // Audio
   | { type: "playSfx"; sfxId: ID }
   | { type: "playMusic"; trackId: ID; startAt?: "resume" | "restart" }
-  | { type: "pauseMusic" }
   | { type: "stopMusic" }
 
   // Mapa
   | { type: "setMapRegionAvailable"; mapId: ID; regionId: ID; value: boolean }
 
   // Finalizar juego
-  | { type: "endGame"; message?: string};
+  | { type: "endGame"; ending?: EndGameContent };
 
 export type EffectType = Effect["type"];

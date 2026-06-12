@@ -1,4 +1,4 @@
-import type { Hotspot, ID, InteractionRules, PlaceableState, RegionShape } from "@/domain/types";
+import type { Hotspot, ID, InteractionRules, PlaceableState, RegionShape, RulePhrase } from "@/domain/types";
 import type { HotspotEditorState, HotspotRuleChannel } from "@/features/editor/scene/hotspots/hotspotEditorTypes";
 import {
   buildContext, buildDraftFromHotspot, buildEmptyHotspotDraft, defaultChannel, initialHotspotEditorState,
@@ -34,7 +34,7 @@ export interface EditorHotspotsSlice {
   setHotspotDraftInitialState: (patch: Partial<PlaceableState>) => void;
   setHotspotDraftVars: (vars: Hotspot["vars"]) => void;
   setHotspotDraftRules: (rules: InteractionRules) => void;
-  addRuleToSelectedChannel: (args?: { phrase?: string }) => ID | null;
+  addRuleToSelectedChannel: (args?: { phrase?: RulePhrase }) => ID | null;
   deleteRuleFromSelectedChannel: (ruleId: ID) => void;
   validateHotspotDraft: () => { ok: boolean; error?: string };
   commitHotspotDraft: () => { ok: boolean; error?: string; hotspotId?: ID };
@@ -255,11 +255,11 @@ export function createEditorHotspotsSlice(set: (partial: Partial<Store> | ((s: S
 
       const channel = state.hotspotEditor.selection.selectedChannel ?? defaultChannel();
       const ruleId = generateId.rule();
-      const phrase = (args?.phrase ?? "").trim();
+      const phraseText = args?.phrase?.text.trim();
 
       const baseRule = {
         id: ruleId,
-        ...(phrase ? { phrase } : {}),
+        ...(args?.phrase && phraseText ? { phrase: { ...args.phrase, text: phraseText } } : {}),
         effects: [],
       };
 
@@ -274,7 +274,7 @@ export function createEditorHotspotsSlice(set: (partial: Partial<Store> | ((s: S
           ...currentRules,
           onUseItem: [
             ...(currentRules.onUseItem ?? []),
-            { ...baseRule, placedItemId: channel.placedItemId }],
+            { ...baseRule, itemInstanceId: channel.itemInstanceId }],
         };
 
       set((storeState) => ({

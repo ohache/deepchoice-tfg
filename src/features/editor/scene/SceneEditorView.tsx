@@ -61,9 +61,6 @@ export function SceneEditorView() {
   const commitNode = useEditorStore((s) => s.commitNode);
   const deleteNode = useEditorStore((s) => s.deleteNode);
 
-  const selectedNodeId = useEditorStore((s) => s.selectedNodeId);
-  const setSelectedNodeId = useEditorStore((s) => s.setSelectedNodeId);
-
   const setActiveLayerId = useEditorStore((s) => s.setActiveLayerId);
   const setNodeMapLocation = useEditorStore((s) => s.setNodeMapLocation);
   const setNodeTitle = useEditorStore((s) => s.setNodeTitle);
@@ -104,8 +101,6 @@ export function SceneEditorView() {
 
   const [isMapEntryConflictModalOpen, setMapEntryConflictModalOpen] = useState(false);
   const [existingRegionEntryTitle, setExistingRegionEntryTitle] = useState("");
-
-  const [openDeleteSceneModal, setOpenDeleteSceneModal] = useState(false);
 
   const clearTextPreview = useCallback(() => setTextPreview(null), []);
   const navigateOut = useCallback(() => goToHistoriaVista(), [goToHistoriaVista]);
@@ -292,20 +287,11 @@ useEffect(() => {
   }, [cancelNodeDraft, navigateOut]);
 
   /* Eliminación de escena ya existente */
-  const handleDelete = useCallback(() => {
-    if (!editingNodeId) return;
+const handleDelete = useCallback(() => {
+  if (!editingNodeId) return;
 
-    const res = deleteNode(editingNodeId);
-    if (!res) return;
-
-    cancelNodeDraft();
-
-    if (selectedNodeId === editingNodeId) setSelectedNodeId(null);
-
-    toast.success("Escena eliminada", "La escena se ha eliminado del proyecto.");
-    setErrors({});
-    navigateOut();
-  }, [editingNodeId, deleteNode, cancelNodeDraft, selectedNodeId, setSelectedNodeId, navigateOut]);
+  deleteNode(editingNodeId);
+}, [editingNodeId, deleteNode]);
 
   /* Confirmaciones/cancelaciones de modales */
   const confirmReplace = useCallback(() => {
@@ -396,7 +382,7 @@ useEffect(() => {
             {isEditing ? (
               <button
                 type="button"
-                onClick={() => setOpenDeleteSceneModal(true)}
+                onClick={handleDelete}
                 className="btn btn-danger-condition text-[12px]"
               >
                 Eliminar
@@ -439,20 +425,6 @@ useEffect(() => {
         editingTitle={title}
         onConfirmReplace={confirmReplace}
         onCancelKeep={cancelKeepExistingStart}
-      />
-
-      {/* Eliminación de escena */}
-      <ConfirmDangerModal
-        open={openDeleteSceneModal}
-        title="Eliminar escena"
-        description="Vas a eliminar esta escena del proyecto. ¿Quieres continuar?"
-        confirmText="Sí, eliminar"
-        cancelText="Cancelar"
-        onCancel={() => setOpenDeleteSceneModal(false)}
-        onConfirm={() => {
-          setOpenDeleteSceneModal(false);
-          handleDelete();
-        }}
       />
 
       {/* Conflicto de puerta de entrada de región */}

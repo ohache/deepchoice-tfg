@@ -1,8 +1,8 @@
-import type { Hotspot, ID, PlacedItem, PlacedNpc, Project } from "@/domain/types";
+import type { Hotspot, ID, InventoryItemInstance, PlacedItem, PlacedNpc, Project } from "@/domain/types";
 import type { HotspotDraft } from "@/features/editor/scene/hotspots/hotspotEditorTypes";
 import type { ProjectIndex } from "@/features/editor/scene/rules/effects/effectProjectIndex";
 
-export type EffectOwnerKind = "hotspot" | "placedItem" | "placedNpc" | "dialogueLine";
+export type EffectOwnerKind = "hotspot" | "placedItem" | "placedNpc" | "dialogueLine" | "playerInventoryItem" | "npcInventoryItem";
 
 type EffectOwnerBase<K extends EffectOwnerKind> = {
   kind: K;
@@ -31,7 +31,17 @@ export type DialogueLineEffectOwner = EffectOwnerBase<"dialogueLine"> & {
   lineId: ID;
 };
 
-export type EffectOwner = HotspotEffectOwner | PlacedItemEffectOwner | PlacedNpcEffectOwner | DialogueLineEffectOwner;
+export type PlayerInventoryItemEffectOwner = EffectOwnerBase<"playerInventoryItem"> & {
+  playerId: ID;
+  itemInstance: InventoryItemInstance;
+};
+
+export type NpcInventoryItemEffectOwner = EffectOwnerBase<"npcInventoryItem"> & {
+  npcId: ID;
+  itemInstance: InventoryItemInstance;
+};
+
+export type EffectOwner = HotspotEffectOwner | PlacedItemEffectOwner | PlacedNpcEffectOwner | DialogueLineEffectOwner  | PlayerInventoryItemEffectOwner | NpcInventoryItemEffectOwner;;
 
 /* Contexto mínimo del editor para construir/editar efectos */
 export type EffectCtx = {
@@ -47,7 +57,7 @@ export type FactoryCtx = {
 };
 
 export function isSceneEffectOwner(owner: EffectOwner): owner is HotspotEffectOwner | PlacedItemEffectOwner | PlacedNpcEffectOwner {
-  return owner.kind !== "dialogueLine";
+  return owner.kind === "hotspot" || owner.kind === "placedItem" || owner.kind === "placedNpc";
 }
 
 export function isDialogueLineEffectOwner(owner: EffectOwner): owner is DialogueLineEffectOwner {
@@ -66,5 +76,8 @@ export function getEffectOwnerEntityId(owner: EffectOwner): ID {
     case "placedItem": return owner.placedItemId;
     case "placedNpc": return owner.npcId;
     case "dialogueLine": return owner.lineId;
+    case "playerInventoryItem":
+    case "npcInventoryItem":
+      return owner.itemInstance.itemInstanceId;
   }
 }

@@ -12,6 +12,8 @@ export interface SceneNodeVM {
   pos: NodeLayout;
   isStart: boolean;
   isFinal: boolean;
+  errorCount: number;
+  warningCount: number;
 }
 
 /* ViewModel de una arista entre dos nodos */

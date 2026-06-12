@@ -9,12 +9,18 @@ import {
 } from "@/features/editor/scene/dialogues/dialogueHelpersSlice";
 import { generateId } from "@/utils/id";
 import { safeTrim } from "@/features/editor/core/editorGenericSlice";
+import type { DeleteTarget } from "@/features/editor/delete/deleteTypes";
+import type { DeleteApplyFn } from "@/features/editor/delete/editorDeleteSlice";
 
 export const initialDialogueEditorState: DialogueEditorState = createEmptyDialogueEditorState();
 
 type Store = {
   nodeDraft: Node | null;
   dialogueEditor: DialogueEditorState;
+  requestDelete: (input: {
+    target: DeleteTarget;
+    apply: DeleteApplyFn;
+  }) => void;
 };
 
 export interface EditorDialoguesSlice {
@@ -40,7 +46,7 @@ export interface EditorDialoguesSlice {
   setDialogueWhen: (dialogueId: ID, when: Dialogue["when"]) => void;
   setDialogueRootId: (dialogueId: ID, rootId: ID) => void;
 
-  removeDialogue: (dialogueId: ID) => void;
+  removeDialogue: (dialogueId: ID, options?: { withConfirmation?: boolean }) => void;
   reorderDialogues: (fromIndex: number, toIndex: number) => void;
 
   addDialogueLine: (dialogueId: ID, args?: { speaker?: DialogueLineNode["speaker"]; text?: string; parentId?: ID }) => ID | null;
@@ -53,6 +59,27 @@ export interface EditorDialoguesSlice {
 
 export function createEditorDialoguesSlice(set: (partial: Partial<Store> | ((state: Store) => Partial<Store> | Store)) => void,
   get: () => Store): EditorDialoguesSlice {
+
+  function removeDialogueFromState(state: Store, dialogueId: ID): Store {
+    if (!state.nodeDraft) return state;
+
+    const dialogues0 = state.nodeDraft.dialogues ?? [];
+    const dialogues1 = dialogues0.filter((dialogue) => dialogue.id !== dialogueId);
+
+    if (dialogues1.length === dialogues0.length) return state;
+
+    const isEditing = state.dialogueEditor.selection.selectedDialogueId === dialogueId;
+
+    return {
+      ...state,
+      nodeDraft: {
+        ...state.nodeDraft,
+        dialogues: dialogues1,
+      },
+      dialogueEditor: isEditing ? initialDialogueEditorState : state.dialogueEditor,
+    };
+  }
+
   /* Helper interno del slice para mutar solo el dialogueDraft actual */
   function withDialogueDraft(updater: (dialogue: Dialogue) => Dialogue) {
     set((state) => {
@@ -289,25 +316,30 @@ export function createEditorDialoguesSlice(set: (partial: Partial<Store> | ((sta
         ? dialogue : { ...dialogue, rootId }),
 
     /* Operaciones sobre diálogos */
-    removeDialogue: (dialogueId) =>
-      set((state) => {
-        if (!state.nodeDraft) return state;
+    removeDialogue: (dialogueId, options) => {
+      const withConfirmation = options?.withConfirmation ?? false;
 
-        const dialogues0 = state.nodeDraft.dialogues ?? [];
-        const dialogues1 = dialogues0.filter((dialogue) => dialogue.id !== dialogueId);
-        if (dialogues1.length === dialogues0.length) return state;
+      const state = get();
+      const nodeId = state.nodeDraft?.id;
 
-        const isEditing = state.dialogueEditor.selection.selectedDialogueId === dialogueId;
+      if (!nodeId) return;
 
-        return {
-          ...state,
-          nodeDraft: {
-            ...state.nodeDraft,
-            dialogues: dialogues1,
+      if (withConfirmation) {
+        state.requestDelete({
+          target: {
+            kind: "dialogue",
+            nodeId,
+            dialogueId,
           },
-          dialogueEditor: isEditing ? initialDialogueEditorState : state.dialogueEditor
-        };
-      }),
+          apply: (currentState) =>
+            removeDialogueFromState(currentState as unknown as Store, dialogueId),
+        });
+
+        return;
+      }
+
+      set((currentState) => removeDialogueFromState(currentState, dialogueId));
+    },
 
     reorderDialogues: (fromIndex, toIndex) =>
       set((state) => {

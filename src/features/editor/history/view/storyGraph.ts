@@ -1,4 +1,5 @@
 import type { Project, Node, ID, NodeLayout } from "@/domain/types";
+import { diagnoseProject } from "@/features/editor/delete/projectDiagnostics";
 import { GRID_TILE_SIZE, HISTORY_VIEW_COLUMNS, NODE_SLOT_OFFSET, type SceneEdgeVM, type SceneNodeVM, type StoryGraphVM, type DirectedEdge } from "@/features/editor/history/view/historyViewTypes";
 
 function clampToMinSlot(pos: NodeLayout): NodeLayout {
@@ -102,14 +103,29 @@ function computeBaseOffsetX(nodes: Node[]): number {
   return hasAnyLayout ? maxTileX + GRID_TILE_SIZE : 0;
 }
 
-function buildNodeVMs(nodes: Node[]): SceneNodeVM[] {
+function buildNodeVMs(project: Project): SceneNodeVM[] {
+  const nodes = project.nodes ?? [];
   const baseOffsetX = computeBaseOffsetX(nodes);
+  const diagnostics = diagnoseProject(project);
+  const issues = [...diagnostics.errors, ...diagnostics.warnings];
 
   return nodes.map((node, index) => {
     const fallback = buildDefaultNodePos(index, baseOffsetX);
     const pos = readStableNodePos(node, fallback);
 
-    return { id: node.id, title: node.title, pos, isStart: !!node.isStart, isFinal: !!node.isFinal };
+    const nodeIssues = issues.filter((issue) =>
+      issue.location.nodeId === node.id
+    );
+
+    return {
+      id: node.id,
+      title: node.title,
+      pos,
+      isStart: !!node.isStart,
+      isFinal: !!node.isFinal,
+      errorCount: nodeIssues.filter((issue) => issue.severity === "error").length,
+      warningCount: nodeIssues.filter((issue) => issue.severity === "warning").length,
+    };
   });
 }
 
@@ -150,7 +166,7 @@ function buildEdgeVMs(nodes: Node[], validNodeIds: Set<ID>): SceneEdgeVM[] {
 export function buildStoryGraph(project: Project | null): StoryGraphVM {
   if (!project) return { nodes: [], edges: [] };
 
-  const nodes = buildNodeVMs(project.nodes ?? []);
+  const nodes = buildNodeVMs(project);
   const nodeIdSet = new Set(nodes.map((node) => node.id));
   const edges = buildEdgeVMs(project.nodes ?? [], nodeIdSet);
 

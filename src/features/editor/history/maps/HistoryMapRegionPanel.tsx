@@ -160,9 +160,7 @@ export function HistoryMapRegionsPanel({ mapId, mapVisualType, isRegionMode, pan
   const handleDelete = () => {
     if (!selectedRegionId) return;
 
-    const deletedName = selectedRegion?.label ?? "Región";
     removeMapRegion(selectedRegionId);
-    toast.success("Región eliminada", `“${deletedName}”`);
   };
 
   const handleCancel = () => {

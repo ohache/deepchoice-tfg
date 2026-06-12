@@ -6,7 +6,6 @@ import { hasDuplicateFileByLinkedAssetId } from "@/validation/genericValidator";
 import { type AssetDraftFieldErrors } from "@/validation/validateAssetBackedDraft";
 import { useImageFileDraft } from "@/features/editor/history/shared/useImageFileDraft";
 import { useAssetDraftPanel } from "@/features/editor/history/shared/useAssetDraftPanel";
-import { DeleteProjectEntityModal } from "@/features/editor/modals/DeleteProjectEntityModal";
 import { toast } from "@/shared/toast/toastStore";
 
 function getModeTitle(mode: "none" | "new" | "edit") {
@@ -24,7 +23,6 @@ export function HistoryItemsPanel() {
   const addItem = useEditorStore((s) => s.addItem);
   const updateItem = useEditorStore((s) => s.updateItem);
   const removeItem = useEditorStore((s) => s.removeItem);
-  const isItemReferenced = useEditorStore((s) => s.isItemReferenced);
 
   const [draftName, setDraftName] = useState("");
   const [draftDescription, setDraftDescription] = useState("");
@@ -32,11 +30,6 @@ export function HistoryItemsPanel() {
   const nameInputRef = useRef<HTMLInputElement | null>(null);
 
   const itemsList = useMemo(() => project?.items ?? [], [project]);
-
-  const selectedItem = useMemo(() => {
-    if (!selectedItemId || !project) return null;
-    return itemsList.find((item) => item.id === selectedItemId) ?? null;
-  }, [selectedItemId, project, itemsList]);
 
   const inferredMode: "none" | "edit" = selectedItemId ? "edit" : "none";
 
@@ -176,21 +169,13 @@ export function HistoryItemsPanel() {
     if (mode === "edit") handleUpdate();
   };
 
-  const handleConfirmDelete = () => {
-    if (!selectedItemId) {
-      panel.reset();
-      return;
-    }
-
-    const deletedName = selectedItem?.name ?? "Item";
+  const handleDeleteItem = () => {
+    if (!selectedItemId) return;
     removeItem(selectedItemId);
-    toast.success("Item eliminado", `“${deletedName}”`);
-    panel.reset();
   };
 
   if (!project) return null;
 
-  const referenced = selectedItemId ? isItemReferenced(selectedItemId) : false;
   const fileError = fieldErrors.file ?? image.fileError;
 
   return (
@@ -367,7 +352,7 @@ export function HistoryItemsPanel() {
                 <div className="mt-auto flex justify-between pt-6">
                   <button
                     type="button"
-                    onClick={panel.openDelete}
+                    onClick={handleDeleteItem}
                     disabled={!selectedItemId}
                     className="btn btn-danger border-rose-500 bg-rose-800 hover:bg-rose-500 text-[12px] disabled:opacity-40 disabled:cursor-not-allowed"
                   >
@@ -396,17 +381,6 @@ export function HistoryItemsPanel() {
           </div>
         </section>
       </div>
-
-      <DeleteProjectEntityModal
-        open={panel.isDeleteModalOpen}
-        entityName={selectedItem?.name ?? ""}
-        description={referenced
-          ? "Este item está referenciado en el proyecto. Si lo eliminas, se borrará de los lugares donde aparezca."
-          : "El item dejará de estar disponible para las escenas que lo usen."
-        }
-        onConfirm={handleConfirmDelete}
-        onCancel={panel.cancelDelete}
-      />
     </div>
   );
 }

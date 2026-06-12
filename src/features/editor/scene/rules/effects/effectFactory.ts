@@ -1,9 +1,10 @@
 import type { ID } from "@/domain/types";
 import type { Effect } from "@/domain/effects";
 import type { Option } from "@/components/Select";
-import type { FactoryCtx } from "@/features/editor/scene/rules/effects/effectShared";
+import { type FactoryCtx } from "@/features/editor/scene/rules/effects/effectShared";
 import type { OwnerVarKind } from "@/features/editor/scene/rules/effects/effectProjectIndex";
 import type { EffectFamilyId } from "@/features/editor/scene/rules/effects/effectFamilies";
+import { generateId } from "@/utils/id";
 
 export type { FactoryCtx, EffectCtx, EffectOwner } from "@/features/editor/scene/rules/effects/effectShared";
 export type { OwnerVarKind, ProjectIndex } from "@/features/editor/scene/rules/effects/effectProjectIndex";
@@ -31,6 +32,8 @@ export type EnabledEffect =
   | LeafByType<"goToNode">
   | LeafByType<"addItem">
   | LeafByType<"removeItem">
+  | LeafByType<"combineItems">
+  | LeafByType<"transformItem">
   | LeafByType<"startDialogue">
   | LeafByType<"endDialogue">
   | LeafByType<"giveItemToNpc">
@@ -57,7 +60,6 @@ export type EnabledEffect =
   | LeafByType<"decNpcVar">
   | LeafByType<"playSfx">
   | LeafByType<"playMusic">
-  | LeafByType<"pauseMusic">
   | LeafByType<"stopMusic">
   | LeafByType<"setMapRegionAvailable">
   | LeafByType<"endGame">;
@@ -65,22 +67,38 @@ export type EnabledEffect =
 export type EnabledEffectType = EnabledEffect["type"];
 
 /* Tipos base potencialmente disponibles. Se filtran según el contexto y el owner actual */
-const BASE_ENABLED_EFFECT_TYPES: EnabledEffectType[] = ["showMessage", "goToNode", "removeItem", "startDialogue", "setPlacedItemVisible", "setPlacedItemReachable",
-  "setHotspotVisible", "setHotspotReachable", "setPlacedPlayerVisible", "setPlacedNpcVisible", "setPlacedNpcReachable", "setPlayerVar", "togglePlayerVar", "incPlayerVar",
-  "decPlayerVar", "setNpcVar", "toggleNpcVar", "incNpcVar", "decNpcVar", "playSfx", "playMusic", "pauseMusic", "stopMusic", "setMapRegionAvailable", "endGame"];
+const BASE_ENABLED_EFFECT_TYPES: EnabledEffectType[] = ["showMessage", "goToNode", "addItem", "removeItem", "transformItem", "combineItems", "startDialogue", "setPlacedItemVisible", "setPlacedPlayerImage",
+  "setPlacedItemReachable", "giveItemToNpc", "receiveItemFromNpc", "setHotspotVisible", "setHotspotReachable", "setPlacedPlayerVisible", "setPlacedNpcVisible", "setPlacedNpcReachable",
+  "setPlayerVar", "togglePlayerVar", "incPlayerVar", "decPlayerVar", "setNpcVar", "toggleNpcVar", "incNpcVar", "decNpcVar", "playSfx", "playMusic", "stopMusic", "setMapRegionAvailable", "endGame"];
 
 function dedupeEffectTypes(types: EnabledEffectType[]): EnabledEffectType[] {
   return Array.from(new Set(types));
 }
 
+function getOwnerItemInstanceId(factory: FactoryCtx): ID {
+  switch (factory.ctx.owner.kind) {
+    case "placedItem":
+      return factory.ctx.owner.placedItemId;
+
+    case "playerInventoryItem":
+      return factory.ctx.owner.itemInstance.itemInstanceId;
+
+    case "npcInventoryItem":
+      return factory.ctx.owner.itemInstance.itemInstanceId;
+
+    default:
+      return "";
+  }
+}
+
 export function enabledEffectTypes(factory: FactoryCtx): EnabledEffectType[] {
   const ownerKind = factory.ctx.owner.kind;
 
-  const hasPlacedItems = factory.idx.getPlacedItems().length > 0;
+  const hasGameItems = factory.idx.getGameItemOptions().length > 0;
 
-  const nodeHotspots = factory.idx.getNodeHotspots(factory.ctx.nodeId);
-  const hasHotspots = nodeHotspots.length > 0;
-  const hasHotspotVars = nodeHotspots.some((hotspot) => factory.idx.getHotspotVarOptions(factory.ctx.nodeId, hotspot.id).length > 0);
+  const allHotspots = factory.idx.getHotspots();
+  const hasHotspots = allHotspots.length > 0;
+  const hasHotspotVars = allHotspots.some((hotspot) => (hotspot.vars?.length ?? 0) > 0);
 
   const hasDialogues = factory.idx.getDialogueOptions(factory.ctx.nodeId).length > 0;
 
@@ -102,7 +120,9 @@ export function enabledEffectTypes(factory: FactoryCtx): EnabledEffectType[] {
 
   const filtered = BASE_ENABLED_EFFECT_TYPES.filter((type) => {
     if (!canUseProgress && (type === "goToNode" || type === "setMapRegionAvailable")) return false;
-    if (!hasPlacedItems && (type === "removeItem" || type === "setPlacedItemVisible" || type === "setPlacedItemReachable")) return false;
+    if (!hasGameItems && (type === "addItem" || type === "removeItem" || type === "transformItem" || type === "combineItems" ||
+      type === "setPlacedItemVisible" || type === "setPlacedItemReachable")) return false;
+    if (!hasNpcs && (type === "giveItemToNpc" || type === "receiveItemFromNpc")) return false;
     if (!hasHotspots && (type === "setHotspotVisible" || type === "setHotspotReachable")) return false;
     if (!hasHotspotVars && (type === "setHotspotVar" || type === "toggleHotspotVar" || type === "incHotspotVar" || type === "decHotspotVar")) return false;
     if (!hasDialogues && type === "startDialogue") return false;
@@ -113,8 +133,8 @@ export function enabledEffectTypes(factory: FactoryCtx): EnabledEffectType[] {
     if (!(hasNpcs && hasNpcVars) && (type === "setNpcVar" || type === "toggleNpcVar" || type === "incNpcVar" || type === "decNpcVar")) return false;
     if (!hasMaps && type === "setMapRegionAvailable") return false;
     if (!hasSfx && type === "playSfx") return false;
-    if (!hasMusic && (type === "playMusic" || type === "pauseMusic" || type === "stopMusic")) return false;
-    if (!canUseAudio && (type === "playSfx" || type === "playMusic" || type === "pauseMusic" || type === "stopMusic")) return false;
+    if (!hasMusic && (type === "playMusic" || type === "stopMusic")) return false;
+    if (!canUseAudio && (type === "playSfx" || type === "playMusic" || type === "stopMusic")) return false;
 
     return true;
   });
@@ -124,18 +144,20 @@ export function enabledEffectTypes(factory: FactoryCtx): EnabledEffectType[] {
       return dedupeEffectTypes(hasHotspotVars ? [...filtered, "setHotspotVar", "toggleHotspotVar", "incHotspotVar", "decHotspotVar"] : filtered);
 
     case "placedItem":
-      return dedupeEffectTypes(hasPlacedItems ? [...filtered, "addItem"] : filtered);
+      return dedupeEffectTypes(filtered);
+
+    case "playerInventoryItem":
+    case "npcInventoryItem":
+      return dedupeEffectTypes(filtered);
 
     case "placedNpc":
-      return dedupeEffectTypes(hasPlacedNpcs ? [...filtered, "giveItemToNpc"] : filtered);
+      return dedupeEffectTypes(filtered);
 
     case "dialogueLine": {
       const dialogueOnly: EnabledEffectType[] = [
         ...filtered.filter((type) => type !== "showMessage"),
         "endDialogue",
       ];
-
-      if (hasPlacedNpcs) dialogueOnly.push("giveItemToNpc", "receiveItemFromNpc");
 
       return dedupeEffectTypes(dialogueOnly);
     }
@@ -185,10 +207,6 @@ function textField(path: string, label: string): EffectFieldSpec {
   return { key: path, label, path, control: "text" };
 }
 
-function itemField(path = "placedItemId", label = "Item"): EffectFieldSpec {
-  return { key: path, label, path, control: "id-select", optionsResolver: (factory) => factory.idx.getPlacedItemOptions() };
-}
-
 function npcField(path = "npcId", label = "NPC"): EffectFieldSpec {
   return { key: path, label, path, control: "id-select", optionsResolver: (factory) => factory.idx.getNpcOptions() };
 }
@@ -198,29 +216,161 @@ function playerField(path = "playerId", label = "Player"): EffectFieldSpec {
 }
 
 function hotspotField(): EffectFieldSpec {
-  return { key: "hotspotId", label: "Hotspot", path: "hotspotId", control: "id-select", optionsResolver: (factory) => factory.idx.getHotspotOptions(factory.ctx.nodeId) };
+  return {
+    key: "hotspotId",
+    label: "Hotspot",
+    path: "hotspotId",
+    control: "id-select",
+    optionsResolver: (factory) => factory.idx.getHotspotOptionsAll(),
+  };
 }
 
 function hotspotVarField<T extends | LeafByType<"setHotspotVar"> | LeafByType<"toggleHotspotVar"> | LeafByType<"incHotspotVar"> | LeafByType<"decHotspotVar">>(): EffectFieldSpec {
-  return { key: "varId", label: "Variable", path: "varId", control: "id-select",
+  return {
+    key: "varId", label: "Variable", path: "varId", control: "id-select",
     optionsResolver: (factory, effect) => {
       const hotspotId = (effect as T).hotspotId;
-      return factory.idx.getHotspotVarOptions(factory.ctx.nodeId, hotspotId);
+      const hotspot = factory.idx.getHotspotById(hotspotId);
+
+      return (hotspot?.vars ?? []).map((entry) => ({
+        id: entry.id,
+        label: entry.name || entry.id,
+      }));
     },
     disabledWhen: (_factory, effect) => !(effect as T).hotspotId,
   };
 }
 
-function placedPlayerField(path = "playerId", label = "Player colocado"): EffectFieldSpec {
-  return { key: path, label, path, control: "id-select", optionsResolver: (factory) => factory.idx.getPlacedPlayerOptions() };
+function gameItemField(path = "itemInstanceId", label = "Item"): EffectFieldSpec {
+  return {
+    key: path,
+    label,
+    path,
+    control: "id-select",
+    optionsResolver: (factory) => factory.idx.getGameItemOptions(),
+  };
+}
+function secondPlayerInventoryItemField(path = "targetItemInstanceId", label = "Segundo item"): EffectFieldSpec {
+  return {
+    key: path,
+    label,
+    path,
+    control: "id-select",
+    optionsResolver: (factory, effect) => {
+      const sourceId = (effect as LeafByType<"combineItems">).sourceItemInstanceId || getOwnerItemInstanceId(factory);
+
+      return factory.idx
+        .getGameItemOptions()
+        .filter((option) => option.id !== sourceId);
+    },
+    disabledWhen: (factory, effect) => {
+      const sourceId = (effect as LeafByType<"combineItems">).sourceItemInstanceId || getOwnerItemInstanceId(factory);
+      return !sourceId;
+    },
+  };
+}
+
+function itemDefField(path = "resultItemId", label = "Resultado"): EffectFieldSpec {
+  return {
+    key: path,
+    label,
+    path,
+    control: "id-select",
+    optionsResolver: (factory) => factory.idx.getItemOptions(),
+  };
+}
+
+function placedPlayerField(path = "playerId", label = "Player"): EffectFieldSpec {
+  return {
+    key: path,
+    label,
+    path,
+    control: "id-select",
+    optionsResolver: (factory) => factory.idx.getPlacedPlayerOptions(),
+  };
 }
 
 function placedNpcField(path = "npcId", label = "NPC"): EffectFieldSpec {
-  return { key: path, label, path, control: "id-select", optionsResolver: (factory) => factory.idx.getPlacedNpcOptions() };
+  return {
+    key: path,
+    label,
+    path,
+    control: "id-select",
+    optionsResolver: (factory) => factory.idx.getPlacedNpcOptions(),
+  };
+}
+
+function placedNpcNodeField(): EffectFieldSpec {
+  return {
+    key: "nodeId",
+    label: "Escena",
+    path: "nodeId",
+    control: "id-select",
+    optionsResolver: (factory, effect) => {
+      if (effect.type !== "setPlacedNpcVisible" && effect.type !== "setPlacedNpcReachable") return [];
+      return factory.idx.getPlacedNpcNodeOptions(effect.npcId);
+    },
+    disabledWhen: (_factory, effect) => {
+      if (effect.type !== "setPlacedNpcVisible" && effect.type !== "setPlacedNpcReachable") return true;
+      return !effect.npcId;
+    },
+  };
+}
+
+function placedNpcLayerField(): EffectFieldSpec {
+  return {
+    key: "layerId",
+    label: "Capa",
+    path: "layerId",
+    control: "id-select",
+    optionsResolver: (factory, effect) => {
+      if (effect.type !== "setPlacedNpcVisible" && effect.type !== "setPlacedNpcReachable") return [];
+      return factory.idx.getPlacedNpcLayerOptions(effect.npcId, effect.nodeId);
+    },
+    disabledWhen: (_factory, effect) => {
+      if (effect.type !== "setPlacedNpcVisible" && effect.type !== "setPlacedNpcReachable") return true;
+      return !effect.npcId || !effect.nodeId;
+    },
+  };
+}
+
+function placedPlayerNodeField(): EffectFieldSpec {
+  return {
+    key: "nodeId",
+    label: "Escena",
+    path: "nodeId",
+    control: "id-select",
+    optionsResolver: (factory, effect) => {
+      if (effect.type !== "setPlacedPlayerVisible" && effect.type !== "setPlacedPlayerImage") return [];
+      return factory.idx.getPlacedPlayerNodeOptions(effect.playerId);
+    },
+    disabledWhen: (_factory, effect) => {
+      if (effect.type !== "setPlacedPlayerVisible" && effect.type !== "setPlacedPlayerImage") return true;
+      return !effect.playerId;
+    },
+  };
+}
+
+function placedPlayerLayerField(): EffectFieldSpec {
+  return {
+    key: "layerId",
+    label: "Capa",
+    path: "layerId",
+    control: "id-select",
+    optionsResolver: (factory, effect) => {
+      if (effect.type !== "setPlacedPlayerVisible" && effect.type !== "setPlacedPlayerImage") return [];
+      return factory.idx.getPlacedPlayerLayerOptions(effect.playerId, effect.nodeId);
+    },
+    disabledWhen: (_factory, effect) => {
+      if (effect.type !== "setPlacedPlayerVisible" && effect.type !== "setPlacedPlayerImage") return true;
+      return !effect.playerId || !effect.nodeId;
+    },
+  };
 }
 
 function placedPlayerImageField(): EffectFieldSpec {
-  return { key: "imageId", label: "Imagen", path: "imageId", control: "id-select",
+  return {
+    key: "imageId", label: "Imagen", path: "imageId", control: "id-select",
     optionsResolver: (factory, effect) => {
       const playerId = (effect as LeafByType<"setPlacedPlayerImage">).playerId;
       return playerId ? factory.idx.getPlayerImageOptions(playerId) : [];
@@ -230,7 +380,8 @@ function placedPlayerImageField(): EffectFieldSpec {
 }
 
 function playerVarField<T extends | LeafByType<"setPlayerVar"> | LeafByType<"togglePlayerVar"> | LeafByType<"incPlayerVar"> | LeafByType<"decPlayerVar">>(): EffectFieldSpec {
-  return { key: "varId", label: "Variable", path: "varId", control: "id-select",
+  return {
+    key: "varId", label: "Variable", path: "varId", control: "id-select",
     optionsResolver: (factory, effect) => {
       const playerId = (effect as T).playerId;
       return factory.idx.getPlayerVarOptions(playerId);
@@ -240,7 +391,8 @@ function playerVarField<T extends | LeafByType<"setPlayerVar"> | LeafByType<"tog
 }
 
 function npcVarField<T extends | LeafByType<"setNpcVar"> | LeafByType<"toggleNpcVar"> | LeafByType<"incNpcVar"> | LeafByType<"decNpcVar">>(): EffectFieldSpec {
-  return { key: "varId", label: "Variable", path: "varId", control: "id-select",
+  return {
+    key: "varId", label: "Variable", path: "varId", control: "id-select",
     optionsResolver: (factory, effect) => {
       const npcId = (effect as T).npcId;
       return factory.idx.getNpcVarOptions(npcId);
@@ -254,7 +406,8 @@ function mapField(): EffectFieldSpec {
 }
 
 function mapRegionField(): EffectFieldSpec {
-  return { key: "regionId", label: "Región", path: "regionId", control: "id-select",
+  return {
+    key: "regionId", label: "Región", path: "regionId", control: "id-select",
     optionsResolver: (factory, effect) => {
       const mapId = (effect as LeafByType<"setMapRegionAvailable">).mapId;
       return factory.idx.getMapRegionOptions(mapId);
@@ -264,18 +417,20 @@ function mapRegionField(): EffectFieldSpec {
 }
 
 function summarizeHotspotBool(factory: FactoryCtx, hotspotId: ID, label: string, value: boolean): string {
-  const hotspot = factory.idx.getHotspotLabel(factory.ctx.nodeId, hotspotId);
+  const hotspot = factory.idx.getHotspotLabelById(hotspotId);
   return `${hotspot}: ${label} = ${String(value)}`;
 }
 
 function summarizeHotspotVar(factory: FactoryCtx, hotspotId: ID, varId: ID, prefix: string, suffix?: string): string {
-  const hotspot = factory.idx.getHotspotLabel(factory.ctx.nodeId, hotspotId);
-  const varLabel = factory.idx.getHotspotVarLabel(factory.ctx.nodeId, hotspotId, varId);
+  const hotspot = factory.idx.getHotspotLabelById(hotspotId);
+  const found = factory.idx.getHotspotById(hotspotId);
+  const varLabel = found?.vars?.find((entry) => entry.id === varId)?.name || varId || "—";
+
   return `${hotspot}: ${prefix} ${varLabel}${suffix ? ` ${suffix}` : ""}`;
 }
 
 function normalizeHotspotId(factory: FactoryCtx, hotspotId: ID | undefined): ID {
-  return hotspotId || factory.idx.getHotspotOptions(factory.ctx.nodeId)[0]?.id || "";
+  return hotspotId || factory.idx.getHotspotOptionsAll()[0]?.id || "";
 }
 
 function normalizePlayerVarValue(factory: FactoryCtx, effect: LeafByType<"setPlayerVar">): boolean | number {
@@ -294,7 +449,9 @@ function normalizeNpcVarValue(factory: FactoryCtx, effect: LeafByType<"setNpcVar
 
 function normalizeHotspotVarValue(factory: FactoryCtx, effect: LeafByType<"setHotspotVar">): boolean | number {
   const hotspotId = normalizeHotspotId(factory, effect.hotspotId);
-  const kind = factory.idx.getHotspotVarKind(factory.ctx.nodeId, hotspotId, effect.varId);
+  const hotspot = factory.idx.getHotspotById(hotspotId);
+  const def = hotspot?.vars?.find((entry) => entry.id === effect.varId) ?? null;
+  const kind: OwnerVarKind = !def ? "unknown" : def.type === "boolean" ? "boolean" : "number";
 
   return kind === "number"
     ? normalizeNumber(effect.value)
@@ -308,16 +465,74 @@ export const EFFECT_REGISTRY: { [K in EnabledEffectType]: EffectSpec<Extract<Ena
     label: "Mostrar mensaje",
     ui: {
       layoutClassName: "grid grid-cols-1 gap-2",
-      fields: [textField("text", "Texto")],
+      fields: [
+        textField("text", "Texto"),
+        {
+          key: "speaker",
+          label: "Emisor",
+          path: "speaker",
+          control: "id-select",
+          optionsResolver: (factory, effect) => {
+            const layerId = factory.ctx.owner.kind === "hotspot" || factory.ctx.owner.kind === "placedItem" || factory.ctx.owner.kind === "placedNpc"
+              ? factory.ctx.owner.layerId : null;
+
+            const speakerValue = factory.idx.formatMessageSpeakerOption({
+              speakerKind: effect.type === "showMessage" ? effect.speakerKind : "narrator",
+              speakerId: effect.type === "showMessage" ? effect.speakerId : undefined,
+            });
+
+            const options = factory.idx.getMessageSpeakerOptions({
+              nodeId: factory.ctx.nodeId,
+              layerId,
+            });
+
+            const exists = options.some((option) => option.id === speakerValue);
+
+            return exists
+              ? options
+              : [
+                ...options,
+                {
+                  id: speakerValue,
+                  label: factory.idx.getMessageSpeakerLabel({
+                    speakerKind: effect.type === "showMessage" ? effect.speakerKind : "narrator",
+                    speakerId: effect.type === "showMessage" ? effect.speakerId : undefined,
+                  }),
+                },
+              ];
+          },
+        },
+      ],
     },
-    makeDefault: () => ({ type: "showMessage", text: "" }),
-    summarize: (_factory, effect) => {
+    makeDefault: () => ({
+      type: "showMessage",
+      text: "",
+      speakerKind: "narrator",
+      speakerId: undefined,
+    }),
+    summarize: (factory, effect) => {
+      const speaker = factory.idx.getMessageSpeakerLabel({
+        speakerKind: effect.speakerKind,
+        speakerId: effect.speakerId,
+      });
+
       const text = String(effect.text ?? "").trim();
+
       return text
-        ? `“${text.length > 40 ? `${text.slice(0, 40)}…` : text}”`
-        : "";
+        ? `${speaker}: “${text.length > 40 ? `${text.slice(0, 40)}…` : text}”`
+        : speaker;
     },
-    normalize: (_factory, effect) => ({ ...effect, text: String(effect.text ?? "") }),
+    normalize: (_factory, effect) => {
+      const speakerKind = effect.speakerKind ?? "narrator";
+      const speakerId = speakerKind === "narrator" ? undefined : effect.speakerId || undefined;
+
+      return {
+        ...effect,
+        text: String(effect.text ?? ""),
+        speakerKind,
+        speakerId,
+      };
+    },
   },
 
   goToNode: {
@@ -349,13 +564,13 @@ export const EFFECT_REGISTRY: { [K in EnabledEffectType]: EffectSpec<Extract<Ena
     label: "Añadir al inventario",
     ui: {
       layoutClassName: "grid grid-cols-1 gap-2",
-      fields: [itemField()],
+      fields: [gameItemField()],
     },
-    makeDefault: () => ({ type: "addItem", placedItemId: "" }),
-    summarize: ({ idx }, effect) => `${idx.getPlacedItemLabel(effect.placedItemId)}`,
+    makeDefault: () => ({ type: "addItem", itemInstanceId: "" }),
+    summarize: ({ idx }, effect) => `${idx.getGameItemLabel(effect.itemInstanceId)}`,
     normalize: (_factory, effect) => ({
       ...effect,
-      placedItemId: String(effect.placedItemId ?? "").trim(),
+      itemInstanceId: String(effect.itemInstanceId ?? "").trim(),
     }),
   },
 
@@ -364,13 +579,87 @@ export const EFFECT_REGISTRY: { [K in EnabledEffectType]: EffectSpec<Extract<Ena
     label: "Eliminar del inventario",
     ui: {
       layoutClassName: "grid grid-cols-1 gap-2",
-      fields: [itemField()],
+      fields: [gameItemField()],
     },
-    makeDefault: () => ({ type: "removeItem", placedItemId: "" }),
-    summarize: ({ idx }, effect) => `${idx.getPlacedItemLabel(effect.placedItemId)}`,
+    makeDefault: () => ({ type: "removeItem", itemInstanceId: "" }),
+    summarize: ({ idx }, effect) => `${idx.getGameItemLabel(effect.itemInstanceId)}`,
     normalize: (_factory, effect) => ({
       ...effect,
-      placedItemId: String(effect.placedItemId ?? "").trim(),
+      itemInstanceId: String(effect.itemInstanceId ?? "").trim(),
+    }),
+  },
+
+  transformItem: {
+    familyId: "item",
+    label: "Transformar item",
+    ui: {
+      layoutClassName: "grid grid-cols-1 md:grid-cols-2 gap-2",
+      fields: [
+        gameItemField("sourceItemInstanceId", "Item original"),
+        itemDefField("resultItemId", "Tipo de item resultante"),
+        textField("resultItemLabel", "Nombre de la nueva instancia"),
+      ],
+    },
+    makeDefault: (factory) => ({
+      type: "transformItem",
+      sourceItemInstanceId: getOwnerItemInstanceId(factory) || "",
+      resultItemId: factory.idx.getItemOptions()[0]?.id ?? "",
+      resultItemInstanceId: generateId.itemPlaced(),
+      resultItemLabel: "",
+    }),
+    summarize: ({ idx }, effect) => {
+      const source = idx.getGameItemLabel(effect.sourceItemInstanceId);
+      const result = effect.resultItemLabel.trim() || idx.getItemLabel(effect.resultItemId);
+
+      return `${source} → ${result}`;
+    },
+    normalize: (factory, effect) => ({
+      ...effect,
+      sourceItemInstanceId: String(effect.sourceItemInstanceId || getOwnerItemInstanceId(factory)).trim(),
+      resultItemId: String(effect.resultItemId ?? "").trim(),
+      resultItemInstanceId: String(effect.resultItemInstanceId || generateId.itemPlaced()).trim(),
+      resultItemLabel: String(effect.resultItemLabel ?? ""),
+    }),
+  },
+
+  combineItems: {
+    familyId: "item",
+    label: "Combinar item",
+    ui: {
+      layoutClassName: "grid grid-cols-1 md:grid-cols-2 gap-2",
+      fields: [
+        gameItemField("sourceItemInstanceId", "Item base"),
+        secondPlayerInventoryItemField("targetItemInstanceId", "Combinar con"),
+        itemDefField("resultItemId", "Tipo de item creado"),
+        textField("resultItemLabel", "Nombre de la nueva instancia"),
+      ],
+    },
+    makeDefault: (factory) => {
+      const resultItemId = factory.idx.getItemOptions()[0]?.id ?? "";
+
+      return {
+        type: "combineItems",
+        sourceItemInstanceId: getOwnerItemInstanceId(factory) || "",
+        targetItemInstanceId: "",
+        resultItemId,
+        resultItemInstanceId: generateId.itemPlaced(),
+        resultItemLabel: "",
+      };
+    },
+    summarize: ({ idx }, effect) => {
+      const source = idx.getGameItemLabel(effect.sourceItemInstanceId);
+      const target = idx.getGameItemLabel(effect.targetItemInstanceId);
+      const result = effect.resultItemLabel.trim() || idx.getItemLabel(effect.resultItemId);
+
+      return `${source} + ${target} → ${result}`;
+    },
+    normalize: (factory, effect) => ({
+      ...effect,
+      sourceItemInstanceId: String(effect.sourceItemInstanceId || getOwnerItemInstanceId(factory)).trim(),
+      targetItemInstanceId: String(effect.targetItemInstanceId ?? "").trim(),
+      resultItemId: String(effect.resultItemId ?? "").trim(),
+      resultItemInstanceId: String(effect.resultItemInstanceId || generateId.itemPlaced()).trim(),
+      resultItemLabel: String(effect.resultItemLabel ?? ""),
     }),
   },
 
@@ -416,15 +705,15 @@ export const EFFECT_REGISTRY: { [K in EnabledEffectType]: EffectSpec<Extract<Ena
     label: "Dar item",
     ui: {
       layoutClassName: "grid grid-cols-1 md:grid-cols-2 gap-2",
-      fields: [npcField(), itemField()],
+      fields: [npcField(), gameItemField("itemInstanceId", "Item")],
     },
-    makeDefault: () => ({ type: "giveItemToNpc", npcId: "", placedItemId: "" }),
+    makeDefault: () => ({ type: "giveItemToNpc", npcId: "", itemInstanceId: "" }),
     summarize: ({ idx }, effect) =>
-      `${idx.getPlacedItemLabel(effect.placedItemId)} a ${idx.getNpcLabel(effect.npcId)}`,
+      `${idx.getGameItemLabel(effect.itemInstanceId)} a ${idx.getNpcLabel(effect.npcId)}`,
     normalize: (_factory, effect) => ({
       ...effect,
       npcId: String(effect.npcId ?? "").trim(),
-      placedItemId: String(effect.placedItemId ?? "").trim(),
+      itemInstanceId: String(effect.itemInstanceId ?? "").trim(),
     }),
   },
 
@@ -433,15 +722,15 @@ export const EFFECT_REGISTRY: { [K in EnabledEffectType]: EffectSpec<Extract<Ena
     label: "Recibir item",
     ui: {
       layoutClassName: "grid grid-cols-1 md:grid-cols-2 gap-2",
-      fields: [npcField(), itemField()],
+      fields: [npcField(), gameItemField("itemInstanceId", "Item")],
     },
-    makeDefault: () => ({ type: "receiveItemFromNpc", npcId: "", placedItemId: "" }),
+    makeDefault: () => ({ type: "receiveItemFromNpc", npcId: "", itemInstanceId: "" }),
     summarize: ({ idx }, effect) =>
-      `${idx.getPlacedItemLabel(effect.placedItemId)} de ${idx.getNpcLabel(effect.npcId)}`,
+      `${idx.getGameItemLabel(effect.itemInstanceId)} de ${idx.getNpcLabel(effect.npcId)}`,
     normalize: (_factory, effect) => ({
       ...effect,
       npcId: String(effect.npcId ?? "").trim(),
-      placedItemId: String(effect.placedItemId ?? "").trim(),
+      itemInstanceId: String(effect.itemInstanceId ?? "").trim(),
     }),
   },
 
@@ -450,20 +739,20 @@ export const EFFECT_REGISTRY: { [K in EnabledEffectType]: EffectSpec<Extract<Ena
     label: "Visible",
     ui: {
       layoutClassName: "grid grid-cols-1 md:grid-cols-2 gap-2",
-      fields: [itemField(), boolField("value", "Valor")],
+      fields: [gameItemField(), boolField("value", "Valor")],
     },
     makeDefault: (factory) => ({
       type: "setPlacedItemVisible",
       nodeId: factory.ctx.nodeId,
-      placedItemId: "",
+      itemInstanceId: "",
       value: true,
     }),
     summarize: ({ idx }, effect) =>
-      `${idx.getPlacedItemLabel(effect.placedItemId)} = ${String(effect.value)}`,
+      `${idx.getGameItemLabel(effect.itemInstanceId)} = ${String(effect.value)}`,
     normalize: (factory, effect) => ({
       ...effect,
       nodeId: factory.ctx.nodeId,
-      placedItemId: String(effect.placedItemId ?? "").trim(),
+      itemInstanceId: String(effect.itemInstanceId ?? "").trim(),
       value: Boolean(effect.value),
     }),
   },
@@ -473,20 +762,20 @@ export const EFFECT_REGISTRY: { [K in EnabledEffectType]: EffectSpec<Extract<Ena
     label: "Alcanzable",
     ui: {
       layoutClassName: "grid grid-cols-1 md:grid-cols-2 gap-2",
-      fields: [itemField(), boolField("value", "Valor")],
+      fields: [gameItemField(), boolField("value", "Valor")],
     },
     makeDefault: (factory) => ({
       type: "setPlacedItemReachable",
       nodeId: factory.ctx.nodeId,
-      placedItemId: "",
+      itemInstanceId: "",
       value: true,
     }),
     summarize: ({ idx }, effect) =>
-      `${idx.getPlacedItemLabel(effect.placedItemId)} = ${String(effect.value)}`,
+      `${idx.getGameItemLabel(effect.itemInstanceId)} = ${String(effect.value)}`,
     normalize: (factory, effect) => ({
       ...effect,
       nodeId: factory.ctx.nodeId,
-      placedItemId: String(effect.placedItemId ?? "").trim(),
+      itemInstanceId: String(effect.itemInstanceId ?? "").trim(),
       value: Boolean(effect.value),
     }),
   },
@@ -649,27 +938,31 @@ export const EFFECT_REGISTRY: { [K in EnabledEffectType]: EffectSpec<Extract<Ena
     familyId: "player",
     label: "Visible",
     ui: {
-      layoutClassName: "grid grid-cols-1 md:grid-cols-2 gap-2",
+      layoutClassName: "space-y-2",
       fields: [
         placedPlayerField("playerId", "Player"),
+        placedPlayerNodeField(),
+        placedPlayerLayerField(),
         {
           ...boolField("value", "Valor"),
           disabledWhen: (_factory, effect) =>
-            !(effect as LeafByType<"setPlacedPlayerVisible">).playerId,
+            effect.type !== "setPlacedPlayerVisible" || !effect.playerId || !effect.nodeId || !effect.layerId,
         },
       ],
     },
-    makeDefault: (factory) => ({
+    makeDefault: () => ({
       type: "setPlacedPlayerVisible",
-      nodeId: factory.ctx.nodeId,
+      nodeId: "",
+      layerId: "",
       playerId: "",
       value: true,
     }),
     summarize: ({ idx }, effect) =>
-      `Player: ${idx.getPlacedPlayerLabel(effect.playerId)} = ${String(effect.value)}`,
-    normalize: (factory, effect) => ({
+      `Player: ${idx.getPlacedPlayerContextLabel(effect.nodeId, effect.layerId, effect.playerId)} = ${String(effect.value)}`,
+    normalize: (_factory, effect) => ({
       ...effect,
-      nodeId: factory.ctx.nodeId,
+      nodeId: String(effect.nodeId ?? "").trim(),
+      layerId: String(effect.layerId ?? "").trim(),
       playerId: String(effect.playerId ?? "").trim(),
       value: Boolean(effect.value),
     }),
@@ -679,20 +972,27 @@ export const EFFECT_REGISTRY: { [K in EnabledEffectType]: EffectSpec<Extract<Ena
     familyId: "player",
     label: "Cambiar imagen",
     ui: {
-      layoutClassName: "grid grid-cols-1 md:grid-cols-2 gap-2",
-      fields: [placedPlayerField("playerId", "Player"), placedPlayerImageField()],
+      layoutClassName: "space-y-2",
+      fields: [
+        placedPlayerField("playerId", "Player"),
+        placedPlayerNodeField(),
+        placedPlayerLayerField(),
+        placedPlayerImageField(),
+      ],
     },
-    makeDefault: (factory) => ({
+    makeDefault: () => ({
       type: "setPlacedPlayerImage",
-      nodeId: factory.ctx.nodeId,
+      nodeId: "",
+      layerId: "",
       playerId: "",
       imageId: "",
     }),
     summarize: ({ idx }, effect) =>
-      `${idx.getPlacedPlayerLabel(effect.playerId)}: ${idx.getPlayerImageLabel(effect.playerId, effect.imageId)}`,
-    normalize: (factory, effect) => ({
+      `${idx.getPlacedPlayerContextLabel(effect.nodeId, effect.layerId, effect.playerId)}: ${idx.getPlayerImageLabel(effect.playerId, effect.imageId)}`,
+    normalize: (_factory, effect) => ({
       ...effect,
-      nodeId: factory.ctx.nodeId,
+      nodeId: String(effect.nodeId ?? "").trim(),
+      layerId: String(effect.layerId ?? "").trim(),
       playerId: String(effect.playerId ?? "").trim(),
       imageId: String(effect.imageId ?? "").trim(),
     }),
@@ -702,27 +1002,31 @@ export const EFFECT_REGISTRY: { [K in EnabledEffectType]: EffectSpec<Extract<Ena
     familyId: "npc",
     label: "Visible",
     ui: {
-      layoutClassName: "grid grid-cols-1 md:grid-cols-2 gap-2",
+      layoutClassName: "space-y-2",
       fields: [
         placedNpcField(),
+        placedNpcNodeField(),
+        placedNpcLayerField(),
         {
           ...boolField("value", "Valor"),
           disabledWhen: (_factory, effect) =>
-            !(effect as LeafByType<"setPlacedNpcVisible">).npcId,
+            effect.type !== "setPlacedNpcVisible" || !effect.npcId || !effect.nodeId || !effect.layerId,
         },
       ],
     },
-    makeDefault: (factory) => ({
+    makeDefault: () => ({
       type: "setPlacedNpcVisible",
-      nodeId: factory.ctx.nodeId,
+      nodeId: "",
+      layerId: "",
       npcId: "",
       value: true,
     }),
     summarize: ({ idx }, effect) =>
-      `NPC: ${idx.getPlacedNpcLabel(effect.npcId)} = ${String(effect.value)}`,
-    normalize: (factory, effect) => ({
+      `NPC: ${idx.getPlacedNpcContextLabel(effect.nodeId, effect.layerId, effect.npcId)} = ${String(effect.value)}`,
+    normalize: (_factory, effect) => ({
       ...effect,
-      nodeId: factory.ctx.nodeId,
+      nodeId: String(effect.nodeId ?? "").trim(),
+      layerId: String(effect.layerId ?? "").trim(),
       npcId: String(effect.npcId ?? "").trim(),
       value: Boolean(effect.value),
     }),
@@ -732,27 +1036,31 @@ export const EFFECT_REGISTRY: { [K in EnabledEffectType]: EffectSpec<Extract<Ena
     familyId: "npc",
     label: "Alcanzable",
     ui: {
-      layoutClassName: "grid grid-cols-1 md:grid-cols-2 gap-2",
+      layoutClassName: "space-y-2",
       fields: [
         placedNpcField(),
+        placedNpcNodeField(),
+        placedNpcLayerField(),
         {
           ...boolField("value", "Valor"),
           disabledWhen: (_factory, effect) =>
-            !(effect as LeafByType<"setPlacedNpcReachable">).npcId,
+            effect.type !== "setPlacedNpcReachable" || !effect.npcId || !effect.nodeId || !effect.layerId,
         },
       ],
     },
-    makeDefault: (factory) => ({
+    makeDefault: () => ({
       type: "setPlacedNpcReachable",
-      nodeId: factory.ctx.nodeId,
+      nodeId: "",
+      layerId: "",
       npcId: "",
       value: true,
     }),
     summarize: ({ idx }, effect) =>
-      `NPC: ${idx.getPlacedNpcLabel(effect.npcId)} = ${String(effect.value)}`,
-    normalize: (factory, effect) => ({
+      `NPC: ${idx.getPlacedNpcContextLabel(effect.nodeId, effect.layerId, effect.npcId)} = ${String(effect.value)}`,
+    normalize: (_factory, effect) => ({
       ...effect,
-      nodeId: factory.ctx.nodeId,
+      nodeId: String(effect.nodeId ?? "").trim(),
+      layerId: String(effect.layerId ?? "").trim(),
       npcId: String(effect.npcId ?? "").trim(),
       value: Boolean(effect.value),
     }),
@@ -996,15 +1304,6 @@ export const EFFECT_REGISTRY: { [K in EnabledEffectType]: EffectSpec<Extract<Ena
     }),
   },
 
-  pauseMusic: {
-    familyId: "audio",
-    label: "Pausar música",
-    ui: { layoutClassName: "grid grid-cols-1 gap-2", fields: [] },
-    makeDefault: () => ({ type: "pauseMusic" }),
-    summarize: () => "Pausar música",
-    normalize: (_factory, effect) => ({ ...effect }),
-  },
-
   stopMusic: {
     familyId: "audio",
     label: "Detener música",
@@ -1042,18 +1341,48 @@ export const EFFECT_REGISTRY: { [K in EnabledEffectType]: EffectSpec<Extract<Ena
     label: "Finalizar juego",
     ui: {
       layoutClassName: "grid grid-cols-1 gap-2",
-      fields: [textField("message", "Mensaje final")],
+      fields: [
+        textField("ending.message", "Mensaje final"),
+        textField("ending.dockText", "Texto del dock"),
+        {
+          key: "ending.musicTrackId",
+          label: "Música final",
+          path: "ending.musicTrackId",
+          control: "id-select",
+          optionsResolver: (factory) => factory.idx.getMusicOptions(),
+        },
+      ],
     },
-    makeDefault: () => ({ type: "endGame", message: "" }),
-    summarize: (_factory, effect) => {
-      const text = String(effect.message ?? "").trim();
-      return text
-        ? `“${text.length > 40 ? `${text.slice(0, 40)}…` : text}”`
+    makeDefault: () => ({
+      type: "endGame",
+      ending: {
+        message: "",
+        lines: [],
+        dockText: "",
+        musicTrackId: "",
+      },
+    }),
+    summarize: ({ idx }, effect) => {
+      const message = String(effect.ending?.message ?? "").trim();
+      const dockText = String(effect.ending?.dockText ?? "").trim();
+      const music = effect.ending?.musicTrackId
+        ? idx.getMusicLabel(effect.ending.musicTrackId)
         : "";
+
+      if (message) return `Mensaje: “${message.length > 40 ? `${message.slice(0, 40)}…` : message}”`;
+      if (dockText) return `Dock: “${dockText.length > 40 ? `${dockText.slice(0, 40)}…` : dockText}”`;
+      if (music) return `Música: ${music}`;
+
+      return "";
     },
     normalize: (_factory, effect) => ({
       ...effect,
-      message: String(effect.message ?? ""),
+      ending: {
+        message: String(effect.ending?.message ?? ""),
+        lines: effect.ending?.lines ?? [],
+        dockText: String(effect.ending?.dockText ?? ""),
+        musicTrackId: String(effect.ending?.musicTrackId ?? "").trim(),
+      },
     }),
   },
 };
@@ -1110,7 +1439,9 @@ function getEffectVarKindFromEffect(factory: FactoryCtx, effect: EnabledEffect):
     case "toggleHotspotVar":
     case "incHotspotVar":
     case "decHotspotVar":
-      return factory.idx.getHotspotVarKind(factory.ctx.nodeId, effect.hotspotId, effect.varId);
+      const hotspot = factory.idx.getHotspotById(effect.hotspotId);
+      const def = hotspot?.vars?.find((entry) => entry.id === effect.varId) ?? null;
+      return !def ? "unknown" : def.type === "boolean" ? "boolean" : "number";
 
     case "setPlayerVar":
     case "togglePlayerVar":
@@ -1141,7 +1472,11 @@ export function hasSelectedPrimaryEffectEntity(effect: EnabledEffect): boolean {
     case "removeItem":
     case "setPlacedItemVisible":
     case "setPlacedItemReachable":
-      return Boolean(effect.placedItemId);
+      return Boolean(effect.itemInstanceId);
+
+    case "transformItem":
+    case "combineItems":
+      return Boolean(effect.sourceItemInstanceId);
 
     case "setHotspotVisible":
     case "setHotspotReachable":
@@ -1172,7 +1507,6 @@ export function hasSelectedPrimaryEffectEntity(effect: EnabledEffect): boolean {
     case "showMessage":
     case "playSfx":
     case "playMusic":
-    case "pauseMusic":
     case "stopMusic":
     case "startDialogue":
     case "endDialogue":
@@ -1187,6 +1521,38 @@ export function hasSelectedPrimaryEffectEntity(effect: EnabledEffect): boolean {
 export function getAvailableEffectTypesForCurrentSelection(factory: FactoryCtx, familyId: EffectFamilyId, effect: EnabledEffect): EnabledEffectType[] {
   const enabled = getEnabledEffectTypesByFamily(factory, familyId);
 
+  if (familyId === "item") {
+    const itemInstanceId =
+      effect.type === "transformItem" || effect.type === "combineItems"
+        ? effect.sourceItemInstanceId
+        : effect.type === "addItem" ||
+          effect.type === "removeItem" ||
+          effect.type === "setPlacedItemVisible" ||
+          effect.type === "setPlacedItemReachable"
+          ? effect.itemInstanceId
+          : "";
+
+    const baseItemTypes: EnabledEffectType[] = ["addItem", "removeItem", "transformItem", "combineItems"];
+
+    const sceneItemTypes: EnabledEffectType[] = [
+      ...baseItemTypes,
+      "setPlacedItemVisible",
+      "setPlacedItemReachable",
+    ];
+
+    if (!itemInstanceId) {
+      return enabled.filter((type) => sceneItemTypes.includes(type));
+    }
+
+    const isPlacedItem = factory.idx.isPlacedItemInstance(itemInstanceId);
+
+    return enabled.filter((type) =>
+      isPlacedItem
+        ? sceneItemTypes.includes(type)
+        : baseItemTypes.includes(type)
+    );
+  }
+
   if (familyId === "hotspot") {
     const hotspotId = effect.type === "setHotspotVisible" || effect.type === "setHotspotReachable" || effect.type === "setHotspotVar" ||
       effect.type === "toggleHotspotVar" || effect.type === "incHotspotVar" || effect.type === "decHotspotVar" ? effect.hotspotId : "";
@@ -1195,7 +1561,8 @@ export function getAvailableEffectTypesForCurrentSelection(factory: FactoryCtx, 
 
     if (!hotspotId) return enabled.filter((type) => structural.includes(type));
 
-    const hasVars = factory.idx.getHotspotVarOptions(factory.ctx.nodeId, hotspotId).length > 0;
+    const hotspot = factory.idx.getHotspotById(hotspotId);
+    const hasVars = (hotspot?.vars?.length ?? 0) > 0;
 
     if (!hasVars) return enabled.filter((type) => structural.includes(type));
 
@@ -1212,14 +1579,16 @@ export function getAvailableEffectTypesForCurrentSelection(factory: FactoryCtx, 
 
   if (familyId === "npc") {
     const npcId = effect.type === "setPlacedNpcVisible" || effect.type === "setPlacedNpcReachable" || effect.type === "giveItemToNpc" ||
-        effect.type === "receiveItemFromNpc" || effect.type === "setNpcVar" || effect.type === "toggleNpcVar" || effect.type === "incNpcVar" ||
-        effect.type === "decNpcVar" ? effect.npcId : "";
+      effect.type === "receiveItemFromNpc" || effect.type === "setNpcVar" || effect.type === "toggleNpcVar" || effect.type === "incNpcVar" ||
+      effect.type === "decNpcVar" ? effect.npcId : "";
 
     const structural: EnabledEffectType[] = ["setPlacedNpcVisible", "setPlacedNpcReachable", "giveItemToNpc", "receiveItemFromNpc"];
 
     if (!npcId) return enabled.filter((type) => structural.includes(type));
 
     const hasVars = factory.idx.getNpcVarOptions(npcId).length > 0;
+
+    if (!hasVars) return enabled.filter((type) => structural.includes(type));
 
     if (!hasVars) return enabled.filter((type) => structural.includes(type));
 
@@ -1236,7 +1605,7 @@ export function getAvailableEffectTypesForCurrentSelection(factory: FactoryCtx, 
 
   if (familyId === "player") {
     const playerId = effect.type === "setPlacedPlayerVisible" || effect.type === "setPlacedPlayerImage" || effect.type === "setPlayerVar" ||
-        effect.type === "togglePlayerVar" || effect.type === "incPlayerVar" || effect.type === "decPlayerVar" ? effect.playerId : "";
+      effect.type === "togglePlayerVar" || effect.type === "incPlayerVar" || effect.type === "decPlayerVar" ? effect.playerId : "";
 
     const canChangeImage = playerId
       ? factory.idx.getPlayerImageOptions(playerId).length > 1

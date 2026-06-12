@@ -119,7 +119,7 @@ export function HomePage() {
           <img
             src="/logo.png"
             alt="Logo"
-            className="h-32 w-32 rounded-2xl border-3 border-white object-contain"
+            className="h-32 w-32 rounded-2xl border-3 border-fuchsia-500 object-contain"
           />
         </div>
 

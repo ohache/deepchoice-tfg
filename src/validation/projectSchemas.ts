@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { Project, AssetDef, ItemDef, NpcDef, PlayerDef, PlayerImage, MusicTrackDef, SoundEffectDef,
-  WorldMap, MapVisualSource, MapRegion, NodeMapLocation } from "@/domain/types";
+  WorldMap, MapVisualSource, MapRegion, NodeMapLocation, InventoryItemInstance } from "@/domain/types";
 import { IdSchema, VarDefSchema, regionShapeSchema } from "@/validation/genericSchemas";
 import { nodeSchema } from "@/features/editor/scene/node/nodeSchemas";
 
@@ -33,12 +33,20 @@ export const ItemSchema = z.object({
   description: z.string().trim().max(200).optional(),
 }) satisfies z.ZodType<ItemDef>;
 
+/* Inventory */
+export const InventoryItemInstanceSchema = z.object({
+  itemInstanceId: IdSchema,
+  itemId: IdSchema,
+  label: z.string().trim().min(1).max(60),
+}) satisfies z.ZodType<InventoryItemInstance>;
+
 /* NPCs */
 export const NpcSchema = z.object({
   id: IdSchema,
   name: z.string().trim().min(1).max(60),
   description: z.string().trim().max(200).optional(),
   vars: z.array(VarDefSchema).optional(),
+  initialInventory: z.array(InventoryItemInstanceSchema).optional(),
 }) satisfies z.ZodType<NpcDef>;
 
 /* Players */
@@ -54,6 +62,7 @@ export const PlayerSchema = z.object({
   images: z.array(PlayerImageSchema).min(1),
   defaultImageId: IdSchema.optional(),
   vars: z.array(VarDefSchema).optional(),
+  initialInventory: z.array(InventoryItemInstanceSchema).optional(),
 }) satisfies z.ZodType<PlayerDef>;
 
 /* Maps */

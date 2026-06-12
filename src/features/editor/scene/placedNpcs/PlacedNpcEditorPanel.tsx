@@ -1,5 +1,5 @@
 import type { RefObject } from "react";
-import type { ID, ClickRule, UseItemRule, NpcDef, BaseInteractionRule, Project } from "@/domain/types";
+import type { ID, ClickRule, UseItemRule, NpcDef, BaseInteractionRule, Project, RulePhrase } from "@/domain/types";
 import type { PlacedNpcDraft, PlacedNpcRuleChannel } from "@/features/editor/scene/placedNpcs/placedNpcEditorTypes";
 import type { Condition } from "@/domain/conditions";
 import type { Effect } from "@/domain/effects";
@@ -58,7 +58,7 @@ type PlacedNpcEditorPanelProps = {
   onRemoveUseItemRule: (placedItemId: ID, index: number) => void;
 
   onCloseRuleModal: () => void;
-  onSaveRule: (rule: { id: ID; when?: Condition; phrase?: string; effects: Effect[] }) => void;
+  onSaveRule: (rule: { id: ID; when?: Condition; phrase?: RulePhrase; effects: Effect[] }) => void;
 
   panelError: string | null;
   showRulesRequiredError: boolean;

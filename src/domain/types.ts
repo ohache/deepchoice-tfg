@@ -33,6 +33,14 @@ export type RegionShape = {
   h: number;
 };
 
+/* Instancia de un item en inventario */
+export interface InventoryItemInstance {
+  itemInstanceId: ID;
+  itemId: ID;
+  label: string;
+  rules?: InteractionRules;
+}
+
 /* Variables (dominio) */
 export type VarType = "number" | "boolean";
 
@@ -64,7 +72,7 @@ export interface EntityBase {
 }
 
 /* Items */
-export interface ItemDef extends EntityBase {}
+export interface ItemDef extends EntityBase { }
 
 /* Players */
 export interface PlayerImage {
@@ -76,11 +84,13 @@ export interface PlayerDef extends EntityBase {
   images: PlayerImage[];
   defaultImageId?: ID;
   vars?: VarDef[];
+  initialInventory?: InventoryItemInstance[];
 }
 
 /* PNJs */
 export interface NpcDef extends EntityBase {
   vars?: VarDef[];
+  initialInventory?: InventoryItemInstance[];
 }
 
 /* Audio (catálogo global) */
@@ -90,10 +100,10 @@ export interface AudioDefBase {
 }
 
 /* Sfx */
-export interface SoundEffectDef extends AudioDefBase {}
+export interface SoundEffectDef extends AudioDefBase { }
 
 /* Música */
-export interface MusicTrackDef extends AudioDefBase {}
+export interface MusicTrackDef extends AudioDefBase { }
 
 type ResolvedMusicBase = {
   trackId: ID;
@@ -106,17 +116,27 @@ export type ResolvedMusic =
   | (ResolvedMusicBase & { sourceType: "region" })
 
 /* INTERACCIONES */
+export type RulePhraseSpeaker =
+  | { kind: "narrator" }
+  | { kind: "player"; playerId: ID }
+  | { kind: "npc"; npcId: ID };
+
+export type RulePhrase = {
+  text: string;
+  speaker?: RulePhraseSpeaker;
+};
+
 export type BaseInteractionRule = {
   id: ID;
   when?: Condition;
-  phrase?: string;
+  phrase?: RulePhrase;
   effects: Effect[];
 };
 
 export type ClickRule = BaseInteractionRule;
 
 export type UseItemRule = BaseInteractionRule & {
-  placedItemId: ID;
+  itemInstanceId: ID;
 };
 
 export type InteractionRules = {
@@ -232,9 +252,7 @@ export interface MapComposedVisualSource {
   backgroundAssetId: ID;
 }
 
-export type MapVisualSource =
-  | MapSingleImageVisualSource
-  | MapComposedVisualSource;
+export type MapVisualSource = MapSingleImageVisualSource | MapComposedVisualSource;
 
 export interface MapRegion {
   id: ID;
@@ -260,6 +278,25 @@ export interface NodeMapLocation {
   regionId: ID;
   isEntry?: boolean;
 }
+
+/* Efecto EndGame */
+export type EndGameSpeaker =
+  | { kind: "narrator" }
+  | { kind: "player"; playerId: ID }
+  | { kind: "npc"; npcId: ID };
+
+export type EndGameLine = {
+  id: ID;
+  text: string;
+  speaker?: EndGameSpeaker;
+};
+
+export type EndGameContent = {
+  message?: string;
+  lines?: EndGameLine[];
+  dockText?: string;
+  musicTrackId?: ID;
+};
 
 /* Capa visual de escena: imagen + textos asociados */
 export type SceneImageLayer = {

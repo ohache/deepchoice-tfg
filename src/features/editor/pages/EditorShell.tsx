@@ -6,6 +6,7 @@ import { BottomBar } from "@/features/editor/layout/BottomBar";
 import { EditorLayout } from "@/features/editor/layout/EditorLayout";
 import { useEditorStore } from "@/store/editorStore";
 import { runShortcutMap } from "@/shared/keyboard";
+import { DeleteImpactModal } from "@/features/editor/delete/DeleteImpactModal";
 
 function isTypingTarget(target: EventTarget | null): boolean {
   const element = target as HTMLElement | null;
@@ -32,6 +33,10 @@ export function EditorShell() {
   const downloadProjectJson = useEditorStore((s) => s.downloadProjectJson);
   const exportProject = useEditorStore((s) => s.exportProject);
 
+  const pendingDeleteImpact = useEditorStore((s) => s.pendingDeleteImpact);
+  const confirmPendingDelete = useEditorStore((s) => s.confirmPendingDelete);
+  const cancelPendingDelete = useEditorStore((s) => s.cancelPendingDelete);
+
   const zoomIn = useEditorStore((s) => s.zoomIn);
   const zoomOut = useEditorStore((s) => s.zoomOut);
   const zoomReset = useEditorStore((s) => s.zoomReset);
@@ -52,6 +57,11 @@ export function EditorShell() {
   }, [project, location.state, initNewProject, navigate]);
 
   const closeModalOrCancel = useCallback(() => {
+    if (pendingDeleteImpact) {
+      cancelPendingDelete();
+      return;
+    }
+
     if (isHelpOpen) {
       setIsHelpOpen(false);
       return;
@@ -97,7 +107,7 @@ export function EditorShell() {
     if (cancelButton && isVisibleElement(cancelButton)) {
       cancelButton.click();
     }
-  }, [isHelpOpen]);
+  }, [isHelpOpen, cancelPendingDelete, pendingDeleteImpact]);
 
   const focusSearch = useCallback(() => {
     const root = rootRef.current;
@@ -193,6 +203,12 @@ export function EditorShell() {
       <TopBar />
       <BottomBar />
       <EditorLayout />
+
+      <DeleteImpactModal
+        report={pendingDeleteImpact}
+        onConfirm={confirmPendingDelete}
+        onCancel={cancelPendingDelete}
+      />
 
       {isHelpOpen ? (
         <div

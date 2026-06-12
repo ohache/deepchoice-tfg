@@ -6,85 +6,84 @@ type ResolveAssetUrl = (assetId: ID, project: Project) => string | null;
 export interface AudioAdapter {
   playSfx(state: GameState, sfxId: ID): void;
   playSfxUrl(url: string): void;
+  setSfxVolume(volume: number): void;
   dispose(): void;
 }
 
 export interface CreateAudioAdapterOptions {
   audioEl: HTMLAudioElement;
   resolveAssetUrl: ResolveAssetUrl;
-  pumpMinIntervalMs?: number;
+}
+
+function cleanupAudioElement(audio: HTMLAudioElement) {
+  audio.pause();
+  audio.currentTime = 0;
+  audio.removeAttribute("src");
+  audio.load();
+}
+
+function clampVolume(volume: number): number {
+  return Math.max(0, Math.min(1, volume));
 }
 
 export function createAudioAdapter(opts: CreateAudioAdapterOptions): AudioAdapter {
   const { audioEl, resolveAssetUrl } = opts;
-
   const activeSfx = new Set<HTMLAudioElement>();
 
-  function registerSfx(el: HTMLAudioElement) {
-    activeSfx.add(el);
+  let sfxVolume = 1;
+
+  function registerSfx(audio: HTMLAudioElement) {
+    activeSfx.add(audio);
 
     const cleanup = () => {
-      el.pause();
-      el.currentTime = 0;
-      el.removeAttribute("src");
-      el.load();
-      activeSfx.delete(el);
+      cleanupAudioElement(audio);
+      activeSfx.delete(audio);
     };
 
-    el.addEventListener("ended", cleanup, { once: true });
-    el.addEventListener("error", cleanup, { once: true });
+    audio.addEventListener("ended", cleanup, { once: true });
+    audio.addEventListener("error", cleanup, { once: true });
 
     return cleanup;
   }
 
-  function playSfx(state: GameState, sfxId: ID) {
-    const def = (state.project.soundEffects ?? []).find((s) => s.id === sfxId) ?? null;
-    if (!def) return;
+  function setSfxVolume(volume: number) {
+    sfxVolume = clampVolume(volume);
 
-    const url = resolveAssetUrl(def.id, state.project);
-    if (!url) return;
-
-    const el = new Audio(url);
-    el.preload = "auto";
-    registerSfx(el);
-
-    void el.play().catch(() => {
-      el.pause();
-      el.currentTime = 0;
-      el.removeAttribute("src");
-      el.load();
-      activeSfx.delete(el);
-    });
+    for (const audio of activeSfx) {
+      audio.volume = sfxVolume;
+    }
   }
 
   function playSfxUrl(url: string) {
-    const el = new Audio(url);
-    el.preload = "auto";
-    registerSfx(el);
+    const audio = new Audio(url);
+    audio.preload = "auto";
+    audio.volume = sfxVolume;
 
-    void el.play().catch(() => {
-      el.pause();
-      el.currentTime = 0;
-      el.removeAttribute("src");
-      el.load();
-      activeSfx.delete(el);
+    const cleanup = registerSfx(audio);
+
+    void audio.play().catch(() => {
+      cleanup();
     });
   }
 
-  function dispose() {
-    for (const el of activeSfx) {
-      el.pause();
-      el.currentTime = 0;
-      el.removeAttribute("src");
-      el.load();
-    }
-    activeSfx.clear();
+  function playSfx(state: GameState, sfxId: ID) {
+    const soundEffect = (state.project.soundEffects ?? []).find((sfx) => sfx.id === sfxId);
+    if (!soundEffect) return;
 
-    audioEl.pause();
-    audioEl.currentTime = 0;
-    audioEl.removeAttribute("src");
-    audioEl.load();
+    const url = resolveAssetUrl(soundEffect.id, state.project);
+    if (!url) return;
+
+    playSfxUrl(url);
   }
 
-  return { playSfx, playSfxUrl, dispose };
+  function dispose() {
+    for (const audio of activeSfx) {
+      cleanupAudioElement(audio);
+    }
+
+    activeSfx.clear();
+    cleanupAudioElement(audioEl);
+  }
+
+  return { playSfx, playSfxUrl, setSfxVolume, dispose };
 }

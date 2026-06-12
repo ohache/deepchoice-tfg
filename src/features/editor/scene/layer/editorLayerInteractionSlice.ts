@@ -1,7 +1,11 @@
 import type { ID, Node, SceneImageLayer, Hotspot, PlacedItem, PlacedNpc, PlacedPlayer } from "@/domain/types";
-import { appendHotspot, appendPlacedItem, ensureInteractionsArrays, readActiveLayer, removeHotspotFromCollection, removePlacedItemFromCollection,
+import {
+  appendHotspot, appendPlacedItem, ensureInteractionsArrays, readActiveLayer, removeHotspotFromCollection, removePlacedItemFromCollection,
   removePlacedNpcFromCollection, removePlacedPlayerFromCollection, reorderHotspotCollection, reorderPlacedItemCollection, updateHotspotInCollection,
-  updatePlacedItemInCollection, upsertPlacedNpcInCollection, upsertPlacedPlayerInCollection } from "@/features/editor/scene/layer/editorLayerInteractionHelpersSlice";
+  updatePlacedItemInCollection, upsertPlacedNpcInCollection, upsertPlacedPlayerInCollection
+} from "@/features/editor/scene/layer/editorLayerInteractionHelpersSlice";
+import type { DeleteTarget } from "@/features/editor/delete/deleteTypes";
+import type { DeleteApplyFn } from "@/features/editor/delete/editorDeleteSlice";
 
 export type InteractionKind = "hotspot" | "placedItem" | "placedNpc" | "placedPlayer";
 
@@ -9,6 +13,10 @@ export type InteractionKind = "hotspot" | "placedItem" | "placedNpc" | "placedPl
 type EditorStoreLike = {
   nodeDraft: Node | null;
   activeLayerId: ID | null;
+  requestDelete: (input: {
+    target: DeleteTarget;
+    apply: DeleteApplyFn;
+  }) => void;
 };
 
 export interface EditorLayerInteractionsSlice {
@@ -21,25 +29,25 @@ export interface EditorLayerInteractionsSlice {
 
   addHotspot: (hotspot: Hotspot) => void;
   updateHotspot: (hotspotId: ID, patch: Partial<Hotspot>) => void;
-  removeHotspot: (hotspotId: ID) => void;
+  removeHotspot: (hotspotId: ID, options?: { withConfirmation?: boolean }) => void;
   reorderHotspots: (fromIndex: number, toIndex: number) => void;
   getActiveHotspots: () => Hotspot[];
   setActiveHotspots: (hotspots: Hotspot[]) => void;
 
   addPlacedItem: (placedItem: PlacedItem) => void;
   updatePlacedItem: (placedItemId: ID, patch: Partial<PlacedItem>) => void;
-  removePlacedItem: (placedItemId: ID) => void;
+  removePlacedItem: (placedItemId: ID, options?: { withConfirmation?: boolean }) => void;
   reorderPlacedItems: (fromIndex: number, toIndex: number) => void;
   getActivePlacedItems: () => PlacedItem[];
   setActivePlacedItems: (placedItems: PlacedItem[]) => void;
 
   upsertPlacedNpc: (placedNpc: PlacedNpc) => void;
-  removePlacedNpc: (npcId: ID) => void;
+  removePlacedNpc: (npcId: ID, options?: { withConfirmation?: boolean }) => void;
   getActivePlacedNpcs: () => PlacedNpc[];
   setActivePlacedNpcs: (placedNpcs: PlacedNpc[]) => void;
 
   upsertPlacedPlayer: (placedPlayer: PlacedPlayer) => void;
-  removePlacedPlayer: (playerId: ID) => void;
+  removePlacedPlayer: (playerId: ID, options?: { withConfirmation?: boolean }) => void;
   getActivePlacedPlayers: () => PlacedPlayer[];
   setActivePlacedPlayers: (placedPlayers: PlacedPlayer[]) => void;
 }
@@ -48,6 +56,135 @@ type Store = EditorStoreLike & EditorLayerInteractionsSlice;
 
 export function createEditorLayerInteractionsSlice(set: (partial: | Partial<Store> | ((state: Store) => Partial<Store> | Store)) => void,
   get: () => Store): EditorLayerInteractionsSlice {
+
+  function removeHotspotFromState(state: Store, hotspotId: ID): Store {
+    if (!state.nodeDraft || !state.activeLayerId) return state;
+
+    const layers0 = state.nodeDraft.layers ?? [];
+    const layerIndex = layers0.findIndex((layer) => layer.id === state.activeLayerId);
+    if (layerIndex < 0) return state;
+
+    const layer0 = ensureInteractionsArrays(layers0[layerIndex]!);
+    const nextHotspots = removeHotspotFromCollection(layer0.hotspots, hotspotId);
+    if (!nextHotspots) return state;
+
+    const nextLayers = layers0.slice();
+    nextLayers[layerIndex] = {
+      ...layer0,
+      hotspots: nextHotspots,
+    };
+
+    const removedSelected =
+      state.selectedInteractionKind === "hotspot" &&
+      state.selectedInteractionId === hotspotId;
+
+    return {
+      ...state,
+      nodeDraft: {
+        ...state.nodeDraft,
+        layers: nextLayers,
+      },
+      selectedInteractionKind: removedSelected ? null : state.selectedInteractionKind,
+      selectedInteractionId: removedSelected ? null : state.selectedInteractionId,
+    };
+  }
+
+  function removePlacedItemFromState(state: Store, placedItemId: ID): Store {
+    if (!state.nodeDraft || !state.activeLayerId) return state;
+
+    const layers0 = state.nodeDraft.layers ?? [];
+    const layerIndex = layers0.findIndex((layer) => layer.id === state.activeLayerId);
+    if (layerIndex < 0) return state;
+
+    const layer0 = ensureInteractionsArrays(layers0[layerIndex]!);
+    const nextPlacedItems = removePlacedItemFromCollection(layer0.placedItems, placedItemId);
+    if (!nextPlacedItems) return state;
+
+    const nextLayers = layers0.slice();
+    nextLayers[layerIndex] = {
+      ...layer0,
+      placedItems: nextPlacedItems,
+    };
+
+    const removedSelected =
+      state.selectedInteractionKind === "placedItem" &&
+      state.selectedInteractionId === placedItemId;
+
+    return {
+      ...state,
+      nodeDraft: {
+        ...state.nodeDraft,
+        layers: nextLayers,
+      },
+      selectedInteractionKind: removedSelected ? null : state.selectedInteractionKind,
+      selectedInteractionId: removedSelected ? null : state.selectedInteractionId,
+    };
+  }
+
+  function removePlacedNpcFromState(state: Store, npcId: ID): Store {
+    if (!state.nodeDraft || !state.activeLayerId) return state;
+
+    const layers0 = state.nodeDraft.layers ?? [];
+    const layerIndex = layers0.findIndex((layer) => layer.id === state.activeLayerId);
+    if (layerIndex < 0) return state;
+
+    const layer0 = ensureInteractionsArrays(layers0[layerIndex]!);
+    const nextPlacedNpcs = removePlacedNpcFromCollection(layer0.placedNpcs, npcId);
+    if (!nextPlacedNpcs) return state;
+
+    const nextLayers = layers0.slice();
+    nextLayers[layerIndex] = {
+      ...layer0,
+      placedNpcs: nextPlacedNpcs,
+    };
+
+    const removedSelected =
+      state.selectedInteractionKind === "placedNpc" &&
+      state.selectedInteractionId === npcId;
+
+    return {
+      ...state,
+      nodeDraft: {
+        ...state.nodeDraft,
+        layers: nextLayers,
+      },
+      selectedInteractionKind: removedSelected ? null : state.selectedInteractionKind,
+      selectedInteractionId: removedSelected ? null : state.selectedInteractionId,
+    };
+  }
+
+  function removePlacedPlayerFromState(state: Store, playerId: ID): Store {
+    if (!state.nodeDraft || !state.activeLayerId) return state;
+
+    const layers0 = state.nodeDraft.layers ?? [];
+    const layerIndex = layers0.findIndex((layer) => layer.id === state.activeLayerId);
+    if (layerIndex < 0) return state;
+
+    const layer0 = ensureInteractionsArrays(layers0[layerIndex]!);
+    const nextPlacedPlayers = removePlacedPlayerFromCollection(layer0.placedPlayers, playerId);
+    if (!nextPlacedPlayers) return state;
+
+    const nextLayers = layers0.slice();
+    nextLayers[layerIndex] = {
+      ...layer0,
+      placedPlayers: nextPlacedPlayers,
+    };
+
+    const removedSelected =
+      state.selectedInteractionKind === "placedPlayer" &&
+      state.selectedInteractionId === playerId;
+
+    return {
+      ...state,
+      nodeDraft: {
+        ...state.nodeDraft,
+        layers: nextLayers,
+      },
+      selectedInteractionKind: removedSelected ? null : state.selectedInteractionKind,
+      selectedInteractionId: removedSelected ? null : state.selectedInteractionId,
+    };
+  }
+
   function withActiveLayer(updater: (layer: SceneImageLayer) => SceneImageLayer): void {
     set((state) => {
       if (!state.nodeDraft || !state.activeLayerId) return state;
@@ -65,7 +202,7 @@ export function createEditorLayerInteractionsSlice(set: (partial: | Partial<Stor
       const layers1 = layers0.slice();
       layers1[index] = next;
 
-      return { ...state, nodeDraft: { ...state.nodeDraft, layers: layers1 }};
+      return { ...state, nodeDraft: { ...state.nodeDraft, layers: layers1 } };
     });
   }
 
@@ -108,16 +245,31 @@ export function createEditorLayerInteractionsSlice(set: (partial: | Partial<Stor
       });
     },
 
-    removeHotspot: (hotspotId) => {
-      withActiveLayer((layer) => {
-        const nextHotspots = removeHotspotFromCollection(layer.hotspots, hotspotId);
-        if (!nextHotspots) return layer;
+    removeHotspot: (hotspotId, options) => {
+      const withConfirmation = options?.withConfirmation ?? false;
 
-        return {
-          ...layer,
-          hotspots: nextHotspots,
-        };
-      });
+      const state = get();
+      const nodeId = state.nodeDraft?.id;
+      const layerId = state.activeLayerId;
+
+      if (!nodeId || !layerId) return;
+
+      if (withConfirmation) {
+        state.requestDelete({
+          target: {
+            kind: "hotspot",
+            nodeId,
+            layerId,
+            hotspotId,
+          },
+          apply: (currentState) =>
+            removeHotspotFromState(currentState as unknown as Store, hotspotId),
+        });
+
+        return;
+      }
+
+      set((currentState) => removeHotspotFromState(currentState, hotspotId));
     },
 
     reorderHotspots: (fromIndex, toIndex) => {
@@ -164,16 +316,31 @@ export function createEditorLayerInteractionsSlice(set: (partial: | Partial<Stor
       });
     },
 
-    removePlacedItem: (placedItemId) => {
-      withActiveLayer((layer) => {
-        const nextPlacedItems = removePlacedItemFromCollection(layer.placedItems, placedItemId);
-        if (!nextPlacedItems) return layer;
+    removePlacedItem: (placedItemId, options) => {
+      const withConfirmation = options?.withConfirmation ?? false;
 
-        return {
-          ...layer,
-          placedItems: nextPlacedItems,
-        };
-      });
+      const state = get();
+      const nodeId = state.nodeDraft?.id;
+      const layerId = state.activeLayerId;
+
+      if (!nodeId || !layerId) return;
+
+      if (withConfirmation) {
+        state.requestDelete({
+          target: {
+            kind: "placedItem",
+            nodeId,
+            layerId,
+            placedItemId,
+          },
+          apply: (currentState) =>
+            removePlacedItemFromState(currentState as unknown as Store, placedItemId),
+        });
+
+        return;
+      }
+
+      set((currentState) => removePlacedItemFromState(currentState, placedItemId));
     },
 
     reorderPlacedItems: (fromIndex, toIndex) => {
@@ -208,21 +375,36 @@ export function createEditorLayerInteractionsSlice(set: (partial: | Partial<Stor
       }));
     },
 
-    removePlacedNpc: (npcId) => {
-      withActiveLayer((layer) => {
-        const nextPlacedNpcs = removePlacedNpcFromCollection(layer.placedNpcs, npcId);
-        if (!nextPlacedNpcs) return layer;
+    removePlacedNpc: (npcId, options) => {
+      const withConfirmation = options?.withConfirmation ?? false;
 
-        return {
-          ...layer,
-          placedNpcs: nextPlacedNpcs,
-        };
-      });
+      const state = get();
+      const nodeId = state.nodeDraft?.id;
+      const layerId = state.activeLayerId;
+
+      if (!nodeId || !layerId) return;
+
+      if (withConfirmation) {
+        state.requestDelete({
+          target: {
+            kind: "placedNpc",
+            nodeId,
+            layerId,
+            npcId,
+          },
+          apply: (currentState) =>
+            removePlacedNpcFromState(currentState as unknown as Store, npcId),
+        });
+
+        return;
+      }
+
+      set((currentState) => removePlacedNpcFromState(currentState, npcId));
     },
 
     getActivePlacedNpcs: () => {
       const layer = readActiveLayer(get());
-      return layer?.placedNpcs ?? []; 
+      return layer?.placedNpcs ?? [];
     },
 
     setActivePlacedNpcs: (placedNpcs) => {
@@ -240,16 +422,31 @@ export function createEditorLayerInteractionsSlice(set: (partial: | Partial<Stor
       }));
     },
 
-    removePlacedPlayer: (playerId) => {
-      withActiveLayer((layer) => {
-        const nextPlacedPlayers = removePlacedPlayerFromCollection(layer.placedPlayers, playerId);
-        if (!nextPlacedPlayers) return layer;
+    removePlacedPlayer: (playerId, options) => {
+      const withConfirmation = options?.withConfirmation ?? false;
 
-        return {
-          ...layer,
-          placedPlayers: nextPlacedPlayers,
-        };
-      });
+      const state = get();
+      const nodeId = state.nodeDraft?.id;
+      const layerId = state.activeLayerId;
+
+      if (!nodeId || !layerId) return;
+
+      if (withConfirmation) {
+        state.requestDelete({
+          target: {
+            kind: "placedPlayer",
+            nodeId,
+            layerId,
+            playerId,
+          },
+          apply: (currentState) =>
+            removePlacedPlayerFromState(currentState as unknown as Store, playerId),
+        });
+
+        return;
+      }
+
+      set((currentState) => removePlacedPlayerFromState(currentState, playerId));
     },
 
     getActivePlacedPlayers: () => {

@@ -18,7 +18,7 @@ export type EditorMode<EntityIdKey extends string> =
 
 export type RuleChannel =
   | { type: "onClick" }
-  | { type: "onUseItem"; placedItemId: ID };
+  | { type: "onUseItem"; itemInstanceId: ID };
 
 export type BaseInteractiveDraft<Rules> = {
   id: ID;

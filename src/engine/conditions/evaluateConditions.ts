@@ -1,155 +1,173 @@
-import type { Condition, NumberOp, BoolOp } from "@/domain/conditions";
+import type { BoolOp, Condition, NumberOp } from "@/domain/conditions";
 import type { ID } from "@/domain/types";
-import type { GameState } from "@/engine/state/runtimeState";
+import type { GameState, NodeRuntimeState } from "@/engine/state/runtimeState";
 
-function cmpBool(actual: boolean, op: BoolOp, expected: boolean) {
+function compareBool(actual: boolean, op: BoolOp, expected: boolean): boolean {
   return op === "==" ? actual === expected : actual !== expected;
 }
 
-function cmpNum(actual: number, op: NumberOp, expected: number) {
+function compareNumber(actual: number, op: NumberOp, expected: number): boolean {
   switch (op) {
-    case "==": return actual === expected;
-    case "!=": return actual !== expected;
-    case ">": return actual > expected;
-    case ">=": return actual >= expected;
-    case "<": return actual < expected;
-    case "<=": return actual <= expected;
-    default: return false;
+    case "==":
+      return actual === expected;
+    case "!=":
+      return actual !== expected;
+    case ">":
+      return actual > expected;
+    case ">=":
+      return actual >= expected;
+    case "<":
+      return actual < expected;
+    case "<=":
+      return actual <= expected;
+    default:
+      return false;
   }
 }
 
-function toBool(v: unknown): boolean {
-  if (typeof v === "boolean") return v;
-  if (typeof v === "number") return v !== 0;
+function toBooleanValue(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
   return false;
 }
 
-function toNum(v: unknown): number {
-  if (typeof v === "number") return v;
-  if (typeof v === "boolean") return v ? 1 : 0;
+function toNumberValue(value: unknown): number {
+  if (typeof value === "number") return value;
+  if (typeof value === "boolean") return value ? 1 : 0;
   return 0;
 }
 
-function evalVarCondition(actualRaw: unknown, op: BoolOp | NumberOp, value: boolean | number): boolean {
-  if (typeof value === "boolean") {
-    return cmpBool(toBool(actualRaw), op as BoolOp, value);
+function evaluateVarCondition(actualRaw: unknown, op: BoolOp | NumberOp, expected: boolean | number): boolean {
+  if (typeof expected === "boolean") return compareBool(toBooleanValue(actualRaw), op as BoolOp, expected);
+
+  return compareNumber(toNumberValue(actualRaw), op as NumberOp, expected);
+}
+
+function findInMaterializedNodes<T>(state: GameState, selector: (nodeRuntime: NodeRuntimeState) => T | undefined): T | undefined {
+  for (const nodeRuntime of Object.values(state.nodes)) {
+    const result = selector(nodeRuntime);
+    if (result) return result;
   }
-  return cmpNum(toNum(actualRaw), op as NumberOp, value);
+
+  return undefined;
+}
+
+function getNodeRuntime(state: GameState, nodeId: ID): NodeRuntimeState | undefined {
+  return state.nodes[nodeId];
 }
 
 function getHotspotRuntime(state: GameState, hotspotId: ID) {
-  for (const node of Object.values(state.nodes)) {
-    const hotspot = node.hotspots?.[hotspotId];
-    if (hotspot) return hotspot;
-  }
-  return undefined;
+  return findInMaterializedNodes(state, (nodeRuntime) => nodeRuntime.hotspots?.[hotspotId]);
 }
 
 function getPlacedItemRuntime(state: GameState, placedItemId: ID) {
-  for (const node of Object.values(state.nodes)) {
-    const placedItem = node.placedItems?.[placedItemId];
-    if (placedItem) return placedItem;
-  }
-  return undefined;
+  return findInMaterializedNodes(state, (nodeRuntime) => nodeRuntime.placedItems?.[placedItemId]);
 }
 
-function getPlacedNpcRuntime(state: GameState, npcId: string) {
-  for (const node of Object.values(state.nodes)) {
-    const npc = node.placedNpcs?.[npcId];
-    if (npc) return npc;
-  }
-  return undefined;
-}
+export function evaluateCondition(state: GameState, condition?: Condition): boolean {
+  if (!condition) return true;
 
-function getPlacedPlayerRuntime(state: GameState, playerId: string) {
-  for (const node of Object.values(state.nodes)) {
-    const player = node.placedPlayers?.[playerId];
-    if (player) return player;
-  }
-  return undefined;
-}
-
-export function evaluateCondition(state: GameState, cond?: Condition): boolean {
-  if (!cond) return true;
-
-  switch (cond.type) {
+  switch (condition.type) {
     case "and":
-      return (cond.all ?? []).every((c) => evaluateCondition(state, c));
+      return condition.all.every((child) => evaluateCondition(state, child));
 
     case "or":
-      return (cond.any ?? []).some((c) => evaluateCondition(state, c));
+      return condition.any.some((child) => evaluateCondition(state, child));
 
     case "not":
-      return !evaluateCondition(state, cond.cond);
+      return !evaluateCondition(state, condition.cond);
 
     case "nodeVisited": {
-      const actual = state.visitedNodes[cond.nodeId] ?? false;
-      return cmpBool(actual, cond.op, cond.value);
+      const actual = state.visitedNodes[condition.nodeId] ?? false;
+      return compareBool(actual, condition.op, condition.value);
     }
 
     case "hasItem": {
-      const actual = state.inventory.some((entry) => entry.instanceId === cond.placedItemId);
-      return cmpBool(actual, cond.op, cond.value);
+      // Actualmente el motor mantiene un único inventario global del jugador.
+      // condition.playerId se conserva para coherencia con el editor, pero no se usa
+      // hasta que el runtime soporte inventarios separados por player.
+      const actual = state.inventory.some((entry) => entry.itemInstanceId === condition.itemInstanceId);
+
+      return compareBool(actual, condition.op, condition.value);
+    }
+
+    case "npcHasItem": {
+      const actual = (state.npcInventory[condition.npcId] ?? []).some(
+        (entry) => entry.itemInstanceId === condition.itemInstanceId
+      );
+
+      return compareBool(actual, condition.op, condition.value);
     }
 
     case "playerVar": {
-      const vars = state.playerVars[cond.playerId];
-      if (!vars || !(cond.varId in vars)) return false;
-      return evalVarCondition(vars[cond.varId], cond.op, cond.value);
+      const vars = state.playerVars[condition.playerId];
+      if (!vars || !(condition.varId in vars)) return false;
+
+      return evaluateVarCondition(vars[condition.varId], condition.op, condition.value);
     }
 
     case "npcVar": {
-      const vars = state.npcVars[cond.npcId];
-      if (!vars || !(cond.varId in vars)) return false;
-      return evalVarCondition(vars[cond.varId], cond.op, cond.value);
+      const vars = state.npcVars[condition.npcId];
+      if (!vars || !(condition.varId in vars)) return false;
+
+      return evaluateVarCondition(vars[condition.varId], condition.op, condition.value);
     }
 
     case "hotspotVar": {
-      const vars = state.hotspotVars[cond.hotspotId];
-      if (!vars || !(cond.varId in vars)) return false;
-      return evalVarCondition(vars[cond.varId], cond.op, cond.value);
+      const vars = state.hotspotVars[condition.hotspotId];
+      if (!vars || !(condition.varId in vars)) return false;
+
+      return evaluateVarCondition(vars[condition.varId], condition.op, condition.value);
     }
 
     case "hotspotVisible": {
-      const actual = getHotspotRuntime(state, cond.hotspotId)?.visible ?? false;
-      return cmpBool(actual, cond.op, cond.value);
+      const actual = getHotspotRuntime(state, condition.hotspotId)?.visible ?? false;
+      return compareBool(actual, condition.op, condition.value);
     }
 
     case "hotspotReachable": {
-      const actual = getHotspotRuntime(state, cond.hotspotId)?.reachable ?? false;
-      return cmpBool(actual, cond.op, cond.value);
+      const actual = getHotspotRuntime(state, condition.hotspotId)?.reachable ?? false;
+      return compareBool(actual, condition.op, condition.value);
     }
 
     case "placedItemVisible": {
-      const actual = getPlacedItemRuntime(state, cond.placedItemId)?.visible ?? false;
-      return cmpBool(actual, cond.op, cond.value);
+      const actual = getPlacedItemRuntime(state, condition.placedItemId)?.visible ?? false;
+      return compareBool(actual, condition.op, condition.value);
     }
 
     case "placedItemReachable": {
-      const actual = getPlacedItemRuntime(state, cond.placedItemId)?.reachable ?? false;
-      return cmpBool(actual, cond.op, cond.value);
+      const actual = getPlacedItemRuntime(state, condition.placedItemId)?.reachable ?? false;
+      return compareBool(actual, condition.op, condition.value);
     }
 
     case "placedNpcVisible": {
-      const actual = getPlacedNpcRuntime(state, cond.npcId)?.visible ?? false;
-      return cmpBool(actual, cond.op, cond.value);
+      const actual = getNodeRuntime(state, condition.nodeId)?.placedNpcs?.[condition.npcId]?.visible ?? false;
+      return compareBool(actual, condition.op, condition.value);
     }
 
     case "placedNpcReachable": {
-      const actual = getPlacedNpcRuntime(state, cond.npcId)?.reachable ?? false;
-      return cmpBool(actual, cond.op, cond.value);
+      const actual = getNodeRuntime(state, condition.nodeId)?.placedNpcs?.[condition.npcId]?.reachable ?? false;
+      return compareBool(actual, condition.op, condition.value);
     }
 
     case "placedPlayerVisible": {
-      const actual = getPlacedPlayerRuntime(state, cond.playerId)?.visible ?? false;
-      return cmpBool(actual, cond.op, cond.value);
+      const actual = getNodeRuntime(state, condition.nodeId)?.placedPlayers?.[condition.playerId]?.visible ?? false;
+      return compareBool(actual, condition.op, condition.value);
+    }
+
+    case "placedPlayerImage": {
+      const actualImageId = getNodeRuntime(state, condition.nodeId)?.placedPlayerImageId?.[condition.playerId];
+      const actual = actualImageId === condition.imageId;
+
+      return compareBool(actual, condition.op, condition.value);
     }
 
     case "mapRegionVisited": {
-      const actual = state.project.nodes.some((node) =>
-          node.mapLocation?.mapId === cond.mapId && node.mapLocation?.regionId === cond.regionId && state.visitedNodes[node.id] === true);
+      const actual = state.project.nodes.some((node) => {
+        return (node.mapLocation?.mapId === condition.mapId && node.mapLocation?.regionId === condition.regionId && state.visitedNodes[node.id] === true);
+      });
 
-      return cmpBool(actual, cond.op, cond.value);
+      return compareBool(actual, condition.op, condition.value);
     }
 
     default:

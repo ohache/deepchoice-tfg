@@ -17,27 +17,36 @@ export function buildSaveGameData(project: Project, gameState: GameState): SaveG
   };
 }
 
-export function downloadSaveFile(save: SaveGameData) {
+function buildTimestamp(date: Date): string {
+  return (
+    date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0") + "-" + String(date.getDate()).padStart(2, "0") +
+    "_" + String(date.getHours()).padStart(2, "0") + "-" + String(date.getMinutes()).padStart(2, "0"));
+}
+
+function sanitizeFilename(text: string): string {
+  const safe = text.trim().replace(/[^\w\d]+/g, "_").replace(/^_+|_+$/g, "");
+  return safe || "save";
+}
+
+export function downloadSaveFile(save: SaveGameData, customName?: string) {
   const json = JSON.stringify(save, null, 2);
 
   const blob = new Blob([json], { type: "application/json" });
   const url = URL.createObjectURL(blob);
 
-  const date = new Date(save.savedAt);
-  const timestamp = date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0") + "-" +
-    String(date.getDate()).padStart(2, "0") + "_" + String(date.getHours()).padStart(2, "0") + "-" + String(date.getMinutes()).padStart(2, "0");
+  const timestamp = buildTimestamp(new Date(save.savedAt));
 
-  const safeTitle = save.projectTitle.replace(/[^\w\d]+/g, "_");
+  const filename = customName?.trim()
+    ? `${sanitizeFilename(customName)}.json`
+    : `${sanitizeFilename(save.projectTitle)}_save_${timestamp}.json`;
 
-  const filename = `${safeTitle}_save_${timestamp}.json`;
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
 
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
 
-  a.click();
-
-  document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }

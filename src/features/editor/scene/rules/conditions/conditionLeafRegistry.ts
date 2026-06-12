@@ -5,10 +5,22 @@ import type { ProjectIndex } from "@/features/editor/scene/rules/conditions/cond
 
 type LeafByType<T extends Condition["type"]> = Extract<Condition, { type: T }>;
 
+type NpcPlacementCondition = LeafByType<"placedNpcVisible"> | LeafByType<"placedNpcReachable">;
+type PlayerPlacementCondition = LeafByType<"placedPlayerVisible"> | LeafByType<"placedPlayerImage">;
+
+function isNpcPlacementCondition(cond: EnabledLeafCondition): cond is NpcPlacementCondition {
+  return cond.type === "placedNpcVisible" || cond.type === "placedNpcReachable";
+}
+
+function isPlayerPlacementCondition(cond: EnabledLeafCondition): cond is PlayerPlacementCondition {
+  return cond.type === "placedPlayerVisible" || cond.type === "placedPlayerImage";
+}
+
 /* Subconjunto de condiciones soportadas en UI */
 export type EnabledLeafCondition =
   | LeafByType<"nodeVisited">
   | LeafByType<"hasItem">
+  | LeafByType<"npcHasItem">
   | LeafByType<"playerVar">
   | LeafByType<"npcVar">
   | LeafByType<"hotspotVar">
@@ -19,6 +31,7 @@ export type EnabledLeafCondition =
   | LeafByType<"placedNpcVisible">
   | LeafByType<"placedNpcReachable">
   | LeafByType<"placedPlayerVisible">
+  | LeafByType<"placedPlayerImage">
   | LeafByType<"mapRegionVisited">;
 
 export type EnabledLeafType = EnabledLeafCondition["type"];
@@ -56,10 +69,10 @@ export type ConditionFamilySpec = {
 
 const CONDITION_FAMILIES: ConditionFamilySpec[] = [
   { id: "progress", label: "Progreso", leafTypes: ["nodeVisited", "mapRegionVisited"] },
-  { id: "item", label: "Item", leafTypes: ["hasItem", "placedItemVisible", "placedItemReachable"] },
+  { id: "item", label: "Item", leafTypes: ["placedItemVisible", "placedItemReachable"] },
   { id: "hotspot", label: "Hotspot", leafTypes: ["hotspotVisible", "hotspotReachable", "hotspotVar"] },
-  { id: "npc", label: "NPC", leafTypes: ["placedNpcVisible", "placedNpcReachable", "npcVar"] },
-  { id: "player", label: "Player", leafTypes: ["placedPlayerVisible", "playerVar"] },
+  { id: "npc", label: "NPC", leafTypes: ["placedNpcVisible", "placedNpcReachable", "npcVar", "npcHasItem"] },
+  { id: "player", label: "Player", leafTypes: ["placedPlayerVisible", "placedPlayerImage", "playerVar", "hasItem"] },
 ];
 
 function getVarKindFromDef(def: VarDef | null): LeafVarKind {
@@ -82,9 +95,19 @@ function normalizeBoolean(value: unknown): boolean {
   return Boolean(value);
 }
 
-function normalizeNumber(value: unknown): number {
+function normalizeNumber(value: unknown): number | "" {
+  if (value === "") return "";
+
   const n = Number(value);
-  return Number.isFinite(n) ? n : 0;
+  return Number.isFinite(n) ? n : "";
+}
+
+function getVarDefForCondition(ctx: LeafCtx, cond: EnabledLeafCondition): VarDef | null {
+  if (cond.type === "playerVar") return ctx.idx.getVarDef("player", cond.playerId, cond.varId);
+  if (cond.type === "npcVar") return ctx.idx.getVarDef("npc", cond.npcId, cond.varId);
+  if (cond.type === "hotspotVar") return ctx.idx.getVarDef("hotspot", cond.hotspotId, cond.varId);
+
+  return null;
 }
 
 /* Normalización común para condiciones con variables */
@@ -100,10 +123,10 @@ function normalizeVarLeaf(ctx: LeafCtx, next: Extract<EnabledLeafCondition, { ty
       const kind = getVarKindFromDef(def);
 
       n.op = normalizeOpForVarKind(n.op, kind) as typeof n.op;
+
       n.value = kind === "boolean"
         ? normalizeBoolean(n.value)
-        : normalizeNumber(n.value);
-
+        : normalizeNumber(n.value) as typeof n.value;
       return n;
     }
 
@@ -116,7 +139,7 @@ function normalizeVarLeaf(ctx: LeafCtx, next: Extract<EnabledLeafCondition, { ty
       n.op = normalizeOpForVarKind(n.op, kind) as typeof n.op;
       n.value = kind === "boolean"
         ? normalizeBoolean(n.value)
-        : normalizeNumber(n.value);
+        : normalizeNumber(n.value) as typeof n.value;
 
       return n;
     }
@@ -130,7 +153,7 @@ function normalizeVarLeaf(ctx: LeafCtx, next: Extract<EnabledLeafCondition, { ty
       n.op = normalizeOpForVarKind(n.op, kind) as typeof n.op;
       n.value = kind === "boolean"
         ? normalizeBoolean(n.value)
-        : normalizeNumber(n.value);
+        : normalizeNumber(n.value) as typeof n.value;
 
       return n;
     }
@@ -159,11 +182,16 @@ function hasVarsForCondition(ctx: LeafCtx, cond: EnabledLeafCondition): boolean 
   switch (cond.type) {
     case "playerVar":
     case "placedPlayerVisible":
+    case "placedPlayerImage":
+      return ctx.idx.getVarOptions("player", cond.playerId).length > 0;
+
+    case "hasItem":
       return ctx.idx.getVarOptions("player", cond.playerId).length > 0;
 
     case "npcVar":
     case "placedNpcVisible":
     case "placedNpcReachable":
+    case "npcHasItem":
       return ctx.idx.getVarOptions("npc", cond.npcId).length > 0;
 
     case "hotspotVar":
@@ -211,25 +239,67 @@ export const LEAF_REGISTRY: { [K in EnabledLeafType]: LeafSpec<K> } = {
   },
 
   hasItem: {
-    label: "En inventario",
-    makeDefault: () => ({ type: "hasItem", placedItemId: "", op: "==", value: true }),
-    summarize: ({ idx }, c) => `Item en inventario: ${idx.getPlacedItemLabel(c.placedItemId)} = ${String(c.value)}`,
+    label: "Tiene item",
+    makeDefault: () => ({ type: "hasItem", playerId: "", itemInstanceId: "", op: "==", value: true }),
+    summarize: ({ idx }, c) => `Player tiene item: ${idx.getPlayerLabel(c.playerId)} · ${idx.getGameItemLabel(c.itemInstanceId)} = ${String(c.value)}`,
     ui: {
       layoutClassName: "grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_140px] gap-2",
       fields: [
         {
-          key: "placedItemId",
-          label: "Item",
-          path: "placedItemId",
+          key: "playerId",
+          label: "Player",
+          path: "playerId",
           control: "id-select",
-          optionsSource: "items",
+          optionsSource: "placedPlayers",
+        },
+        {
+          key: "itemInstanceId",
+          label: "Item",
+          path: "itemInstanceId",
+          control: "id-select",
+          optionsResolver: (ctx) => ctx.idx.getGameItemOptions(),
+          disabledWhen: (cond) => !(cond as LeafByType<"hasItem">).playerId,
         },
         {
           key: "value",
           label: "Valor",
           path: "value",
           control: "bool",
-          disabledWhen: (cond) => !(cond as LeafByType<"hasItem">).placedItemId,
+          disabledWhen: (cond) => !(cond as LeafByType<"hasItem">).itemInstanceId,
+        },
+      ],
+    },
+  },
+
+  npcHasItem: {
+    label: "Tiene item",
+    makeDefault: () => ({ type: "npcHasItem", npcId: "", itemInstanceId: "", op: "==", value: true }),
+    summarize: ({ idx }, c) =>
+      `NPC tiene item: ${idx.getNpcLabel(c.npcId)} · ${idx.getGameItemLabel(c.itemInstanceId)} = ${String(c.value)}`,
+    ui: {
+      layoutClassName: "space-y-2",
+      fields: [
+        {
+          key: "npcId",
+          label: "NPC",
+          path: "npcId",
+          control: "id-select",
+          optionsSource: "npcs",
+        },
+        {
+          key: "itemInstanceId",
+          label: "Item",
+          path: "itemInstanceId",
+          control: "id-select",
+          optionsResolver: (ctx) => ctx.idx.getGameItemOptions(),
+          disabledWhen: (cond) => !(cond as LeafByType<"npcHasItem">).npcId,
+        },
+        {
+          key: "value",
+          label: "Valor",
+          path: "value",
+          control: "bool",
+          disabledWhen: (cond) => !(cond as LeafByType<"npcHasItem">).itemInstanceId,
         },
       ],
     },
@@ -478,10 +548,11 @@ export const LEAF_REGISTRY: { [K in EnabledLeafType]: LeafSpec<K> } = {
 
   placedNpcVisible: {
     label: "Visible",
-    makeDefault: () => ({ type: "placedNpcVisible", npcId: "", op: "==", value: true }),
-    summarize: ({ idx }, c) => `NPC visible: ${idx.getPlacedNpcLabel(c.npcId)} = ${String(c.value)}`,
+    makeDefault: () => ({ type: "placedNpcVisible", nodeId: "", layerId: "", npcId: "", op: "==", value: true }),
+    summarize: ({ idx }, c) =>
+      `NPC visible: ${idx.getPlacedNpcContextLabel(c.nodeId, c.layerId, c.npcId)} = ${String(c.value)}`,
     ui: {
-      layoutClassName: "grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_140px] gap-2",
+      layoutClassName: "space-y-2",
       fields: [
         {
           key: "npcId",
@@ -491,11 +562,31 @@ export const LEAF_REGISTRY: { [K in EnabledLeafType]: LeafSpec<K> } = {
           optionsSource: "npcs",
         },
         {
+          key: "nodeId",
+          label: "Escena",
+          path: "nodeId",
+          control: "id-select",
+          optionsResolver: (ctx, cond) =>
+            isNpcPlacementCondition(cond) ? ctx.idx.getPlacedNpcNodeOptions(cond.npcId) : [],
+          disabledWhen: (cond) =>
+            !isNpcPlacementCondition(cond) || !cond.npcId,
+        },
+        {
+          key: "layerId",
+          label: "Capa",
+          path: "layerId",
+          control: "id-select",
+          optionsResolver: (ctx, cond) =>
+            isNpcPlacementCondition(cond) ? ctx.idx.getPlacedNpcLayerOptions(cond.npcId, cond.nodeId) : [],
+          disabledWhen: (cond) =>
+            !isNpcPlacementCondition(cond) || !cond.nodeId,
+        },
+        {
           key: "value",
           label: "Valor",
           path: "value",
           control: "bool",
-          disabledWhen: (cond) => !(cond as LeafByType<"placedNpcVisible">).npcId,
+          disabledWhen: (cond) => !(cond as any).layerId,
         },
       ],
     },
@@ -503,10 +594,11 @@ export const LEAF_REGISTRY: { [K in EnabledLeafType]: LeafSpec<K> } = {
 
   placedNpcReachable: {
     label: "Alcanzable",
-    makeDefault: () => ({ type: "placedNpcReachable", npcId: "", op: "==", value: true }),
-    summarize: ({ idx }, c) => `NPC alcanzable: ${idx.getPlacedNpcLabel(c.npcId)} = ${String(c.value)}`,
+    makeDefault: () => ({ type: "placedNpcReachable", nodeId: "", layerId: "", npcId: "", op: "==", value: true }),
+    summarize: ({ idx }, c) =>
+      `NPC alcanzable: ${idx.getPlacedNpcContextLabel(c.nodeId, c.layerId, c.npcId)} = ${String(c.value)}`,
     ui: {
-      layoutClassName: "grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_140px] gap-2",
+      layoutClassName: "space-y-2",
       fields: [
         {
           key: "npcId",
@@ -516,11 +608,32 @@ export const LEAF_REGISTRY: { [K in EnabledLeafType]: LeafSpec<K> } = {
           optionsSource: "npcs",
         },
         {
+          key: "nodeId",
+          label: "Escena",
+          path: "nodeId",
+          control: "id-select",
+          optionsResolver: (ctx, cond) =>
+            isNpcPlacementCondition(cond) ? ctx.idx.getPlacedNpcNodeOptions(cond.npcId) : [],
+          disabledWhen: (cond) =>
+            !isNpcPlacementCondition(cond) || !cond.npcId,
+        },
+        {
+          key: "layerId",
+          label: "Capa",
+          path: "layerId",
+          control: "id-select",
+          optionsResolver: (ctx, cond) =>
+            isNpcPlacementCondition(cond) ? ctx.idx.getPlacedNpcLayerOptions(cond.npcId, cond.nodeId) : [],
+          disabledWhen: (cond) =>
+            !isNpcPlacementCondition(cond) || !cond.nodeId,
+        },
+        {
           key: "value",
           label: "Valor",
           path: "value",
           control: "bool",
-          disabledWhen: (cond) => !(cond as LeafByType<"placedNpcReachable">).npcId,
+          disabledWhen: (cond) =>
+            !isNpcPlacementCondition(cond) || !cond.layerId,
         },
       ],
     },
@@ -528,10 +641,11 @@ export const LEAF_REGISTRY: { [K in EnabledLeafType]: LeafSpec<K> } = {
 
   placedPlayerVisible: {
     label: "Visible",
-    makeDefault: () => ({ type: "placedPlayerVisible", playerId: "", op: "==", value: true }),
-    summarize: ({ idx }, c) => `Player visible: ${idx.getPlacedPlayerLabel(c.playerId)} = ${String(c.value)}`,
+    makeDefault: () => ({ type: "placedPlayerVisible", nodeId: "", layerId: "", playerId: "", op: "==", value: true }),
+    summarize: ({ idx }, c) =>
+      `Player visible: ${idx.getPlacedPlayerContextLabel(c.nodeId, c.layerId, c.playerId)} = ${String(c.value)}`,
     ui: {
-      layoutClassName: "grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_140px] gap-2",
+      layoutClassName: "space-y-2",
       fields: [
         {
           key: "playerId",
@@ -541,11 +655,99 @@ export const LEAF_REGISTRY: { [K in EnabledLeafType]: LeafSpec<K> } = {
           optionsSource: "placedPlayers",
         },
         {
+          key: "nodeId",
+          label: "Escena",
+          path: "nodeId",
+          control: "id-select",
+          optionsResolver: (ctx, cond) =>
+            isPlayerPlacementCondition(cond) ? ctx.idx.getPlacedPlayerNodeOptions(cond.playerId) : [],
+          disabledWhen: (cond) =>
+            !isPlayerPlacementCondition(cond) || !cond.playerId,
+        },
+        {
+          key: "layerId",
+          label: "Capa",
+          path: "layerId",
+          control: "id-select",
+          optionsResolver: (ctx, cond) =>
+            isPlayerPlacementCondition(cond) ? ctx.idx.getPlacedPlayerLayerOptions(cond.playerId, cond.nodeId) : [],
+          disabledWhen: (cond) =>
+            !isPlayerPlacementCondition(cond) || !cond.nodeId,
+        },
+        {
           key: "value",
           label: "Valor",
           path: "value",
           control: "bool",
-          disabledWhen: (cond) => !(cond as LeafByType<"placedPlayerVisible">).playerId,
+          disabledWhen: (cond) =>
+            !isPlayerPlacementCondition(cond) || !cond.layerId,
+        },
+      ],
+    },
+  },
+
+  placedPlayerImage: {
+    label: "Imagen",
+    makeDefault: () => ({
+      type: "placedPlayerImage",
+      nodeId: "",
+      layerId: "",
+      playerId: "",
+      imageId: "",
+      op: "==",
+      value: true,
+    }),
+    summarize: ({ idx }, c) =>
+      `Player imagen: ${idx.getPlacedPlayerContextLabel(c.nodeId, c.layerId, c.playerId)} · ${idx.getPlayerImageLabel(c.playerId, c.imageId)} = ${String(c.value)}`,
+    ui: {
+      layoutClassName: "space-y-2",
+      fields: [
+        {
+          key: "playerId",
+          label: "Player",
+          path: "playerId",
+          control: "id-select",
+          optionsSource: "placedPlayers",
+        },
+        {
+          key: "nodeId",
+          label: "Escena",
+          path: "nodeId",
+          control: "id-select",
+          optionsResolver: (ctx, cond) =>
+            isPlayerPlacementCondition(cond) ? ctx.idx.getPlacedPlayerNodeOptions(cond.playerId) : [],
+          disabledWhen: (cond) =>
+            !isPlayerPlacementCondition(cond) || !cond.playerId,
+        },
+        {
+          key: "layerId",
+          label: "Capa",
+          path: "layerId",
+          control: "id-select",
+          optionsResolver: (ctx, cond) =>
+            isPlayerPlacementCondition(cond) ? ctx.idx.getPlacedPlayerLayerOptions(cond.playerId, cond.nodeId) : [],
+          disabledWhen: (cond) =>
+            !isPlayerPlacementCondition(cond) || !cond.nodeId,
+        },
+        {
+          key: "imageId",
+          label: "Imagen",
+          path: "imageId",
+          control: "id-select",
+          optionsResolver: (ctx, cond) => {
+            const c = cond as LeafByType<"placedPlayerImage">;
+            return ctx.idx.getPlayerImageOptions(c.playerId);
+          },
+          disabledWhen: (cond) =>
+            !isPlayerPlacementCondition(cond) || !cond.layerId,
+        },
+        {
+          key: "value",
+          label: "Valor",
+          path: "value",
+          control: "bool",
+          disabledWhen: (cond) =>
+            cond.type !== "placedPlayerImage" || !cond.imageId,
         },
       ],
     },
@@ -604,7 +806,6 @@ const FAMILY_BY_TYPE: Record<EnabledLeafType, ConditionFamilyId> = {
   nodeVisited: "progress",
   mapRegionVisited: "progress",
 
-  hasItem: "item",
   placedItemVisible: "item",
   placedItemReachable: "item",
 
@@ -615,9 +816,12 @@ const FAMILY_BY_TYPE: Record<EnabledLeafType, ConditionFamilyId> = {
   placedNpcVisible: "npc",
   placedNpcReachable: "npc",
   npcVar: "npc",
+  npcHasItem: "npc",
 
   placedPlayerVisible: "player",
+  placedPlayerImage: "player",
   playerVar: "player",
+  hasItem: "player",
 };
 
 export function leafFamily(type: EnabledLeafType): ConditionFamilyId {
@@ -657,33 +861,153 @@ export function createDefaultLeaf<T extends EnabledLeafType>(type: T): Extract<E
   return LEAF_REGISTRY[type].makeDefault();
 }
 
-export function createSiblingLeafPreservingSelection(ctx: LeafCtx, prev: EnabledLeafCondition, nextType: EnabledLeafType): EnabledLeafCondition {
+export function createSiblingLeafPreservingSelection(
+  ctx: LeafCtx,
+  prev: EnabledLeafCondition,
+  nextType: EnabledLeafType,
+): EnabledLeafCondition {
   const base = createDefaultLeaf(nextType) as EnabledLeafCondition;
 
   if (prev.type === nextType) return prev;
 
-  if ((prev.type === "hasItem" || prev.type === "placedItemVisible" || prev.type === "placedItemReachable") &&
-    (nextType === "hasItem" || nextType === "placedItemVisible" || nextType === "placedItemReachable")) {
-    const placedItemId = prev.placedItemId;
-    return applyLeafPatch(ctx, { ...base, placedItemId } as EnabledLeafCondition, {});
+  if (
+    (prev.type === "hasItem" || prev.type === "placedItemVisible" || prev.type === "placedItemReachable") &&
+    (nextType === "hasItem" || nextType === "placedItemVisible" || nextType === "placedItemReachable")
+  ) {
+    if (prev.type === "hasItem" && nextType === "hasItem") {
+      return applyLeafPatch(ctx, { ...base, itemInstanceId: prev.itemInstanceId } as EnabledLeafCondition, {});
+    }
+
+    if (prev.type !== "hasItem" && nextType !== "hasItem") {
+      return applyLeafPatch(ctx, { ...base, placedItemId: prev.placedItemId } as EnabledLeafCondition, {});
+    }
+
+    return applyLeafPatch(ctx, base, {});
   }
 
-  if ((prev.type === "hotspotVisible" || prev.type === "hotspotReachable" || prev.type === "hotspotVar") &&
-    (nextType === "hotspotVisible" || nextType === "hotspotReachable" || nextType === "hotspotVar")) {
-    const hotspotId = prev.hotspotId;
-    return applyLeafPatch(ctx, { ...base, hotspotId } as EnabledLeafCondition, {});
+  if (
+    (prev.type === "hotspotVisible" || prev.type === "hotspotReachable" || prev.type === "hotspotVar") &&
+    (nextType === "hotspotVisible" || nextType === "hotspotReachable" || nextType === "hotspotVar")
+  ) {
+    return applyLeafPatch(ctx, { ...base, hotspotId: prev.hotspotId } as EnabledLeafCondition, {});
   }
 
-  if ((prev.type === "placedNpcVisible" || prev.type === "placedNpcReachable" || prev.type === "npcVar") &&
-    (nextType === "placedNpcVisible" || nextType === "placedNpcReachable" || nextType === "npcVar")) {
-    const npcId = prev.npcId;
-    return applyLeafPatch(ctx, { ...base, npcId } as EnabledLeafCondition, {});
+  if (
+    (prev.type === "placedNpcVisible" || prev.type === "placedNpcReachable" || prev.type === "npcVar" || prev.type === "npcHasItem") &&
+    (nextType === "placedNpcVisible" || nextType === "placedNpcReachable" || nextType === "npcVar" || nextType === "npcHasItem")
+  ) {
+    if (nextType === "placedNpcVisible") {
+      const next: LeafByType<"placedNpcVisible"> = {
+        type: "placedNpcVisible",
+        npcId: "npcId" in prev ? prev.npcId : "",
+        nodeId: isNpcPlacementCondition(prev) ? prev.nodeId : "",
+        layerId: isNpcPlacementCondition(prev) ? prev.layerId : "",
+        op: "==",
+        value: true,
+      };
+
+      return applyLeafPatch(ctx, next, {});
+    }
+
+    if (nextType === "placedNpcReachable") {
+      const next: LeafByType<"placedNpcReachable"> = {
+        type: "placedNpcReachable",
+        npcId: "npcId" in prev ? prev.npcId : "",
+        nodeId: isNpcPlacementCondition(prev) ? prev.nodeId : "",
+        layerId: isNpcPlacementCondition(prev) ? prev.layerId : "",
+        op: "==",
+        value: true,
+      };
+
+      return applyLeafPatch(ctx, next, {});
+    }
+
+    if (nextType === "npcVar") {
+      const next: LeafByType<"npcVar"> = {
+        type: "npcVar",
+        npcId: "npcId" in prev ? prev.npcId : "",
+        varId: "",
+        op: "==",
+        value: 0,
+      };
+
+      return applyLeafPatch(ctx, next, {});
+    }
+
+    const next: LeafByType<"npcHasItem"> = {
+      type: "npcHasItem",
+      npcId: "npcId" in prev ? prev.npcId : "",
+      itemInstanceId: "",
+      op: "==",
+      value: true,
+    };
+
+    return applyLeafPatch(ctx, next, {});
   }
 
-  if ((prev.type === "placedPlayerVisible" || prev.type === "playerVar") &&
-    (nextType === "placedPlayerVisible" || nextType === "playerVar")) {
-    const playerId = prev.playerId;
-    return applyLeafPatch(ctx, { ...base, playerId } as EnabledLeafCondition, {});
+  if (
+    (prev.type === "placedPlayerVisible" || prev.type === "placedPlayerImage" || prev.type === "playerVar" || prev.type === "hasItem") &&
+    (nextType === "placedPlayerVisible" || nextType === "placedPlayerImage" || nextType === "playerVar" || nextType === "hasItem")
+  ) {
+    if (nextType === "placedPlayerVisible") {
+      const next: LeafByType<"placedPlayerVisible"> = {
+        type: "placedPlayerVisible",
+        playerId:
+          prev.type === "placedPlayerVisible" || prev.type === "placedPlayerImage" || prev.type === "playerVar" || prev.type === "hasItem"
+            ? prev.playerId
+            : "",
+        nodeId: isPlayerPlacementCondition(prev) ? prev.nodeId : "",
+        layerId: isPlayerPlacementCondition(prev) ? prev.layerId : "",
+        op: "==",
+        value: true,
+      };
+
+      return applyLeafPatch(ctx, next, {});
+    }
+
+    if (nextType === "placedPlayerImage") {
+      const next: LeafByType<"placedPlayerImage"> = {
+        type: "placedPlayerImage",
+        playerId:
+          prev.type === "placedPlayerVisible" || prev.type === "placedPlayerImage" || prev.type === "playerVar" || prev.type === "hasItem"
+            ? prev.playerId
+            : "",
+        nodeId: isPlayerPlacementCondition(prev) ? prev.nodeId : "",
+        layerId: isPlayerPlacementCondition(prev) ? prev.layerId : "",
+        imageId: prev.type === "placedPlayerImage" ? prev.imageId : "",
+        op: "==",
+        value: true,
+      };
+
+      return applyLeafPatch(ctx, next, {});
+    }
+
+    if (nextType === "playerVar") {
+      const next: LeafByType<"playerVar"> = {
+        type: "playerVar",
+        playerId:
+          prev.type === "placedPlayerVisible" || prev.type === "placedPlayerImage" || prev.type === "playerVar" || prev.type === "hasItem"
+            ? prev.playerId
+            : "",
+        varId: "",
+        op: "==",
+        value: 0,
+      };
+
+      return applyLeafPatch(ctx, next, {});
+    }
+
+    const next: LeafByType<"hasItem"> = {
+      type: "hasItem",
+      playerId: prev.type === "placedPlayerVisible" || prev.type === "playerVar" || prev.type === "hasItem"
+        ? prev.playerId
+        : "",
+      itemInstanceId: prev.type === "hasItem" ? prev.itemInstanceId : "",
+      op: "==",
+      value: true,
+    };
+
+    return applyLeafPatch(ctx, next, {});
   }
 
   if (nextType === "mapRegionVisited") {
@@ -725,6 +1049,37 @@ export function getVarOpOptions(ctx: LeafCtx, cond: EnabledLeafCondition): Optio
   return opOptionsForVarKind(kind);
 }
 
+export function getLeafValidationError(ctx: LeafCtx, cond: EnabledLeafCondition | null): string | null {
+  if (!cond) return null;
+
+  if (cond.type !== "playerVar" && cond.type !== "npcVar" && cond.type !== "hotspotVar") {
+    return null;
+  }
+
+  const def = getVarDefForCondition(ctx, cond);
+  if (!def || def.type !== "number") return null;
+
+const value = cond.value;
+
+if (typeof value !== "number" || !Number.isFinite(value)) {
+  return "El valor debe ser numérico.";
+}
+
+  if (value < def.min || value > def.max) {
+    return `El valor debe estar entre ${def.min} y ${def.max}.`;
+  }
+
+  if (cond.op === "<" && value < def.min + 1) {
+    return `Con el operador <, el valor debe ser al menos ${def.min + 1}.`;
+  }
+
+  if (cond.op === ">" && value > def.max - 1) {
+    return `Con el operador >, el valor debe ser como máximo ${def.max - 1}.`;
+  }
+
+  return null;
+}
+
 export function applyLeafPatch(ctx: LeafCtx, prev: EnabledLeafCondition, patch: Partial<EnabledLeafCondition>): EnabledLeafCondition {
   const next = { ...prev, ...patch } as EnabledLeafCondition;
 
@@ -746,6 +1101,10 @@ export function applyLeafPatch(ctx: LeafCtx, prev: EnabledLeafCondition, patch: 
         if (prev.type === "mapRegionVisited" && prev.mapId !== normalized.mapId) normalized.regionId = "";
       }
 
+      if (normalized.type === "npcHasItem") {
+        if (prev.type === "npcHasItem" && prev.npcId !== normalized.npcId) normalized.itemInstanceId = "";
+      }
+
       return normalized;
     }
   }
@@ -759,24 +1118,31 @@ export function enabledLeafTypesForContext(ctx: LeafCtx): EnabledLeafType[] {
   const hasHotspots = ctx.idx.getHotspots().length > 0;
   const hasPlacedNpcs = ctx.idx.getPlacedNpcs().length > 0;
   const hasPlacedPlayers = ctx.idx.getPlacedPlayers().length > 0;
+  const hasPlacedPlayerImages = ctx.idx.getPlacedPlayers().some((placedPlayer) => {
+    const player = p.players?.find((item) => item.id === placedPlayer.playerId);
+    return (player?.images?.length ?? 0) > 0;
+  });
 
   const hasHotspotVars = ctx.idx.getHotspots().some((h) => h.vars?.length);
   const hasNpcVars = p.npcs?.some((n) => n.vars?.length);
-  const hasPlayerVars = ctx.idx.getPlacedPlayers().some((pl) =>
-    p.players.find((p) => p.id === pl.playerId)?.vars?.length
-  );
+  const hasPlayerVars = ctx.idx.getPlacedPlayers().some((pl) => p.players.find((p) => p.id === pl.playerId)?.vars?.length);
+
+  const hasGameItems = ctx.idx.getGameItemOptions().length > 0;
 
   const hasRegions = p.maps?.some((m) => m.regions?.length);
 
   const out: EnabledLeafType[] = ["nodeVisited"];
 
-  if (hasPlacedItems) out.push("hasItem", "placedItemVisible", "placedItemReachable");
+  if (hasGameItems) out.push("hasItem");
+  if (hasPlacedItems) out.push("placedItemVisible", "placedItemReachable");
   if (hasHotspots) out.push("hotspotVisible", "hotspotReachable");
   if (hasHotspotVars) out.push("hotspotVar");
   if (hasPlacedNpcs) out.push("placedNpcVisible", "placedNpcReachable");
   if (hasNpcVars) out.push("npcVar");
+  if (hasGameItems) out.push("npcHasItem");
   if (hasPlacedPlayers) {
     out.push("placedPlayerVisible");
+    if (hasPlacedPlayerImages) out.push("placedPlayerImage");
     if (hasPlayerVars) out.push("playerVar");
   }
   if (hasRegions) out.push("mapRegionVisited");

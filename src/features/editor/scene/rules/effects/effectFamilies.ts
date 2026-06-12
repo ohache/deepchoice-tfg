@@ -29,12 +29,12 @@ export const EFFECT_FAMILIES: EffectFamilyDefinition[] = [
   {
     id: "item",
     label: "Item",
-    isAvailable: (factory) => factory.idx.getPlacedItems().length > 0,
+    isAvailable: (factory) => factory.idx.getGameItemOptions().length > 0,
   },
   {
     id: "hotspot",
     label: "Hotspot",
-    isAvailable: (factory) => factory.idx.getNodeHotspots(factory.ctx.nodeId).length > 0,
+    isAvailable: (factory) => factory.idx.getHotspots().length > 0,
   },
   {
     id: "npc",

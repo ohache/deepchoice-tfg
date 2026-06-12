@@ -1,6 +1,6 @@
 import JSZip from "jszip";
-import type { AssetDef, ConditionalTextEntry, Dialogue, DialogueNode, Hotspot, ID, ItemDef, MapRegion, MapVisualSource, MusicTrackDef, Node, NodeMapLocation, NpcDef,
-  PlacedItem, PlacedNpc, PlacedPlayer, PlaceableState, PlayerDef, PlayerImage, Project, RegionShape, SceneImageLayer, SoundEffectDef, VarDef, WorldMap} from "@/domain/types";
+import type { AssetDef, ConditionalTextEntry, Dialogue, DialogueNode, Hotspot, ID, ItemDef, MapRegion, MapVisualSource, MusicTrackDef, Node, NodeMapLocation, NpcDef, RulePhrase, 
+  InventoryItemInstance, PlacedItem, PlacedNpc, PlacedPlayer, PlaceableState, PlayerDef, PlayerImage, Project, RegionShape, SceneImageLayer, SoundEffectDef, VarDef, WorldMap} from "@/domain/types";
 import { toast } from "@/shared/toast/toastStore";
 
 /* Paths y nombres */
@@ -79,6 +79,14 @@ function serializeVarDef(variable: VarDef) {
   };
 }
 
+function serializeInventoryItemInstance(item: InventoryItemInstance) {
+  return {
+    itemInstanceId: item.itemInstanceId,
+    itemId: item.itemId,
+    label: item.label,
+  };
+}
+
 function serializeItem(item: ItemDef) {
   return {
     id: item.id,
@@ -93,6 +101,7 @@ function serializeNpc(npc: NpcDef) {
     name: npc.name,
     description: npc.description,
     vars: npc.vars?.map(serializeVarDef),
+    initialInventory: npc.initialInventory?.map(serializeInventoryItemInstance),
   };
 }
 
@@ -111,6 +120,7 @@ function serializePlayer(player: PlayerDef) {
     images: player.images.map(serializePlayerImage),
     defaultImageId: player.defaultImageId,
     vars: player.vars?.map(serializeVarDef),
+    initialInventory: player.initialInventory?.map(serializeInventoryItemInstance),
   };
 }
 
@@ -146,19 +156,28 @@ function serializePlaceableState(state: PlaceableState) {
   };
 }
 
+function serializeRulePhrase(phrase?: RulePhrase) {
+  if (!phrase) return undefined;
+
+  return {
+    text: phrase.text,
+    speaker: phrase.speaker,
+  };
+}
+
 function serializeInteractionRules(rules: Hotspot["rules"] | PlacedItem["rules"] | PlacedNpc["rules"]) {
   return {
     onClick: rules.onClick?.map((rule) => ({
       id: rule.id,
       when: rule.when,
-      phrase: rule.phrase,
+      phrase: serializeRulePhrase(rule.phrase),
       effects: rule.effects,
     })),
     onUseItem: rules.onUseItem?.map((rule) => ({
       id: rule.id,
       when: rule.when,
-      phrase: rule.phrase,
-      placedItemId: rule.placedItemId,
+      phrase: serializeRulePhrase(rule.phrase),
+      itemInstanceId: rule.itemInstanceId,
       effects: rule.effects,
     })),
   };

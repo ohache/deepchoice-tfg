@@ -427,7 +427,7 @@ export function SceneLayersField({ active, onToggle, onTextPreview, onClearTextP
       const current = findLayerById(layers, layerEditSession.layerId);
       cleanupAssetSafe(current?.assetId);
 
-      removeNodeLayer(layerEditSession.layerId);
+      removeNodeLayer(layerEditSession.layerId, { withConfirmation: false });
       exitEdit();
       return;
     }
@@ -483,13 +483,11 @@ export function SceneLayersField({ active, onToggle, onTextPreview, onClearTextP
   }
 
   /* Borra la capa actualmente editada */
-  function handleDelete() {
-    if (layerEditSession.mode !== "editing") return;
+function handleDelete() {
+  if (layerEditSession.mode !== "editing") return;
 
-    removeNodeLayer(layerEditSession.layerId);
-    setActiveLayerId(layers[0]?.id ?? null);
-    exitEdit();
-  }
+  removeNodeLayer(layerEditSession.layerId, { withConfirmation: true });
+}
 
   /* Recibe un asset ya subido/seleccionado para la capa */
   function handleCommitAssetId(nextAssetId: ID) {

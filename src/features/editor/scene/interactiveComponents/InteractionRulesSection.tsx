@@ -1,4 +1,4 @@
-import type { BaseInteractionRule, ClickRule, ID, Project, UseItemRule } from "@/domain/types";
+import type { BaseInteractionRule, ClickRule, ID, Project, RulePhrase, UseItemRule } from "@/domain/types";
 import type { Condition } from "@/domain/conditions";
 import type { Effect } from "@/domain/effects";
 import type { EffectOwner } from "@/features/editor/scene/rules/effects/effectFactory";
@@ -8,7 +8,7 @@ import { Pencil, Trash2 } from "lucide-react";
 
 type RuleChannel =
   | { type: "onClick" }
-  | { type: "onUseItem"; placedItemId: ID };
+  | { type: "onUseItem"; itemInstanceId: ID };
 
 type UseItemOption = Option<ID>;
 
@@ -32,12 +32,12 @@ type InteractionRulesSectionProps = {
   onOpenEditClickRule: (index: number) => void;
   onRemoveClickRule: (index: number) => void;
 
-  onOpenAddUseItemRule: (placedItemId: ID) => void;
-  onOpenEditUseItemRule: (placedItemId: ID, index: number) => void;
-  onRemoveUseItemRule: (placedItemId: ID, index: number) => void;
+  onOpenAddUseItemRule: (itemInstanceId: ID) => void;
+  onOpenEditUseItemRule: (itemInstanceId: ID, index: number) => void;
+  onRemoveUseItemRule: (itemInstanceId: ID, index: number) => void;
 
   onCloseRuleModal: () => void;
-  onSaveRule: (rule: { id: ID; when?: Condition; phrase?: string; effects: Effect[] }) => void;
+  onSaveRule: (rule: { id: ID; when?: Condition; phrase?: RulePhrase; effects: Effect[] }) => void;
 
   requiredErrorText?: string | null;
 };
@@ -141,7 +141,7 @@ export function InteractionRulesSection({ owner, project, nodeId, disableAllEdit
   onSaveRule, requiredErrorText }: InteractionRulesSectionProps) {
   const firstUseItemId = useItemOptions[0]?.id ?? "";
 
-  const selectedUseItemId = activeChannel.type === "onUseItem" ? activeChannel.placedItemId : firstUseItemId;
+  const selectedUseItemId = activeChannel.type === "onUseItem" ? activeChannel.itemInstanceId : firstUseItemId;
 
   const canOpenRuleModal = ruleModalOpen && owner && currentRuleValue;
 
@@ -169,7 +169,7 @@ export function InteractionRulesSection({ owner, project, nodeId, disableAllEdit
           activeChannel={activeChannel}
           disableAllEditorFields={disableAllEditorFields}
           onSelectOnClick={() => setActiveChannel({ type: "onClick" })}
-          onSelectOnUseItem={() => { setActiveChannel({ type: "onUseItem", placedItemId: activeChannel.type === "onUseItem" ? activeChannel.placedItemId : firstUseItemId})}}
+          onSelectOnUseItem={() => { setActiveChannel({ type: "onUseItem", itemInstanceId: activeChannel.type === "onUseItem" ? activeChannel.itemInstanceId : firstUseItemId})}}
         />
 
         {/* Reglas del canal onClick */}
@@ -210,7 +210,7 @@ export function InteractionRulesSection({ owner, project, nodeId, disableAllEdit
 
               <Select<ID>
                 value={selectedUseItemId}
-                onChange={(value) => setActiveChannel({ type: "onUseItem", placedItemId: value })}
+                onChange={(value) => setActiveChannel({ type: "onUseItem", itemInstanceId: value })}
                 options={useItemOptions}
                 placeholder="Selecciona…"
                 disabled={disableAllEditorFields || !hasUseItemOptions}

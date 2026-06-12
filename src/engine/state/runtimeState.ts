@@ -1,8 +1,9 @@
-import type { ID, PlaceableState, PlacedPlayerState, Project } from "@/domain/types";
+import type { Project, ID, PlaceableState, PlacedPlayerState, EndGameContent } from "@/domain/types";
 import { createInitialMusicRuntime, type MusicRuntimeState } from "@/engine/state/slices/musicSlice";
 
 export type DialoguePhase = "speaking" | "choosing";
 
+/* Estado runtime del mapa durante la partida */
 export interface WorldMapRuntime {
   isOpen: boolean;
   activeMapId?: ID;
@@ -12,11 +13,14 @@ export interface WorldMapRuntime {
   currentRegionIdByMap: Record<ID, ID | undefined>;
 }
 
+/* Entrada concreta del inventario */
 export interface InventoryEntry {
-  instanceId: ID;
+  itemInstanceId: ID;
   itemId: ID;
+  label?: string;
 }
 
+/* Diálogo actualmente activo en el player */
 export interface ActiveDialogueState {
   nodeId: ID;
   dialogueId: ID;
@@ -24,7 +28,7 @@ export interface ActiveDialogueState {
   phase: DialoguePhase;
 }
 
-/* Estado runtime por nodo (persistente por nodeId) */
+/* Estado runtime persistente de una escena concreta */
 export interface NodeRuntimeState {
   hotspots: Record<ID, PlaceableState>;
   placedItems: Record<ID, PlaceableState>;
@@ -33,24 +37,32 @@ export interface NodeRuntimeState {
   placedPlayerImageId?: Record<ID, ID | undefined>;
 }
 
-/* GameState (runtime) */
+/* Estado global de una partida en ejecución */
 export interface GameState {
   project: Project;
+  nodes: Record<ID, NodeRuntimeState>;
   currentNodeId: ID;
+  visitedNodes: Record<ID, boolean>;
   activeDialogue?: ActiveDialogueState;
   inventory: InventoryEntry[];
-  visitedNodes: Record<ID, boolean>;
   hotspotVars: Record<ID, Record<ID, boolean | number>>;
   playerVars: Record<ID, Record<ID, boolean | number>>;
+  npcInventory: Record<ID, InventoryEntry[]>;
   npcVars: Record<ID, Record<ID, boolean | number>>;
   map: WorldMapRuntime;
   music: MusicRuntimeState;
-  nodes: Record<ID, NodeRuntimeState>;
   gameEnded: boolean;
-  endGameMessage?: string;
+  ending?: EndGameContent;
+  endingLineIndex?: number;
 }
 
+type RuntimeVarDef = {
+  id: ID;
+  type: "number" | "boolean";
+  initial: number | boolean;
+};
 
+type RuntimeVars = Record<ID, boolean | number>;
 
 function createInitialMapRuntime(): WorldMapRuntime {
   return {
@@ -63,119 +75,133 @@ function createInitialMapRuntime(): WorldMapRuntime {
   };
 }
 
-/* Helpers: inicializar vars desde defs */
-function initVarsFromDefs(defs?: { id: ID; type: "number" | "boolean"; initial: number | boolean }[]) {
-  const out: Record<ID, boolean | number> = {};
-  for (const d of defs ?? []) out[d.id] = d.initial;
-  return out;
+function initInventoryFromDefs(items?: { itemInstanceId: ID; itemId: ID; label?: string }[]): InventoryEntry[] {
+  return (items ?? []).map((item) => ({
+    itemInstanceId: item.itemInstanceId,
+    itemId: item.itemId,
+    label: item.label,
+  }));
 }
 
-/* Selección de nodo inicial */
+function initVarsFromDefs(defs?: RuntimeVarDef[]): RuntimeVars {
+  const vars: RuntimeVars = {};
+
+  for (const def of defs ?? []) {
+    vars[def.id] = def.initial;
+  }
+
+  return vars;
+}
+
+/* Selecciona la escena inicial de la partida */
 function pickStartNodeId(project: Project): ID {
   if (project.nodes.length === 0) throw new Error("El proyecto no contiene escenas. No se puede iniciar una partida.");
 
-  const startNodes = project.nodes.filter((n) => n.isStart === true);
+  const startNodes = project.nodes.filter((node) => node.isStart === true);
 
   if (startNodes.length > 1) throw new Error("El proyecto tiene más de un nodo marcado como inicio.");
 
   return (startNodes[0] ?? project.nodes[0]).id;
 }
 
+/* Inicializa el runtime del mapa a partir de la localización de la escena inicial */
 function createInitialMapRuntimeFromProject(project: Project, currentNodeId: ID): WorldMapRuntime {
-  const startNode = project.nodes.find((n) => n.id === currentNodeId) ?? null;
-  const loc = startNode?.mapLocation;
+  const startNode = project.nodes.find((node) => node.id === currentNodeId);
+  const location = startNode?.mapLocation;
 
-  if (!loc) {
-    return createInitialMapRuntime();
-  }
+  if (!location) return createInitialMapRuntime();
 
   return {
     isOpen: false,
-    activeMapId: loc.mapId,
-    selectedRegionId: loc.regionId,
-    visibleRegionIdsByMap: {
-      [loc.mapId]: [loc.regionId],
-    },
-    unlockedRegionIdsByMap: {
-      [loc.mapId]: [loc.regionId],
-    },
-    currentRegionIdByMap: {
-      [loc.mapId]: loc.regionId,
-    },
+    activeMapId: location.mapId,
+    selectedRegionId: location.regionId,
+    visibleRegionIdsByMap: { [location.mapId]: [location.regionId] },
+    unlockedRegionIdsByMap: { [location.mapId]: [location.regionId] },
+    currentRegionIdByMap: { [location.mapId]: location.regionId },
   };
 }
 
-/* Inicializa runtime global (sin materializar nodos aún) */
+/* Crea el estado inicial de una partida */
 export function createInitialGameState(project: Project): GameState {
   const currentNodeId = pickStartNodeId(project);
 
-  const mapRuntime = createInitialMapRuntimeFromProject(project, currentNodeId);
-
   const playerVars: GameState["playerVars"] = {};
-  for (const p of project.players ?? []) playerVars[p.id] = initVarsFromDefs(p.vars);
+  for (const player of project.players ?? []) {
+    playerVars[player.id] = initVarsFromDefs(player.vars);
+  }
+
+  const initialPlayerInventory = (project.players ?? []).flatMap((player) => initInventoryFromDefs(player.initialInventory));
 
   const npcVars: GameState["npcVars"] = {};
-  for (const n of project.npcs ?? []) npcVars[n.id] = initVarsFromDefs(n.vars);
+  for (const npc of project.npcs ?? []) {
+    npcVars[npc.id] = initVarsFromDefs(npc.vars);
+  }
+
+  const npcInventory: GameState["npcInventory"] = {};
+
+  for (const npc of project.npcs ?? []) {
+    npcInventory[npc.id] = initInventoryFromDefs(npc.initialInventory);
+  }
 
   return {
     project,
     currentNodeId,
     activeDialogue: undefined,
-    inventory: [],
+    inventory: initialPlayerInventory,
+    npcInventory,
     visitedNodes: { [currentNodeId]: true },
     hotspotVars: {},
     playerVars,
     npcVars,
-    map: mapRuntime,
+    map: createInitialMapRuntimeFromProject(project, currentNodeId),
     music: createInitialMusicRuntime(),
     nodes: {},
     gameEnded: false,
-    endGameMessage: undefined,
+    ending: undefined,
+    endingLineIndex: undefined,
   };
 }
 
+/* Devuelve la escena actual */
 export function getCurrentNode(state: GameState) {
-  const node = state.project.nodes.find((n) => n.id === state.currentNodeId);
+  const node = state.project.nodes.find((projectNode) => projectNode.id === state.currentNodeId);
 
   if (!node) throw new Error(`No se encontró el nodo actual id=${state.currentNodeId}`);
 
   return node;
 }
 
-/* Materializa estado runtime por nodeId usando initialState */
+/* Materializa el runtime de una escena si todavía no existe */
 export function ensureNodeRuntime(state: GameState, nodeId: ID): GameState {
   if (state.nodes[nodeId]) return state;
 
-  const node = state.project.nodes.find((n) => n.id === nodeId);
+  const node = state.project.nodes.find((projectNode) => projectNode.id === nodeId);
 
-  if (!node) {
-    throw new Error(`ensureNodeRuntime: nodeId inexistente "${nodeId}"`);
-  }
+  if (!node) throw new Error(`ensureNodeRuntime: nodeId inexistente "${nodeId}"`);
 
   const hotspots: Record<ID, PlaceableState> = {};
   const placedItems: Record<ID, PlaceableState> = {};
   const placedNpcs: Record<ID, PlaceableState> = {};
   const placedPlayers: Record<ID, PlacedPlayerState> = {};
   const placedPlayerImageId: Record<ID, ID | undefined> = {};
-  const hotspotVarsForNode: Record<ID, Record<ID, boolean | number>> = {};
+  const hotspotVarsForNode: GameState["hotspotVars"] = {};
 
   for (const layer of node.layers ?? []) {
-    for (const h of layer.hotspots ?? []) {
-      hotspots[h.id] = { ...h.initialState };
-      hotspotVarsForNode[h.id] = initVarsFromDefs(h.vars);
+    for (const hotspot of layer.hotspots ?? []) {
+      hotspots[hotspot.id] = { ...hotspot.initialState };
+      hotspotVarsForNode[hotspot.id] = initVarsFromDefs(hotspot.vars);
     }
 
-    for (const pi of layer.placedItems ?? []) {
-      placedItems[pi.id] = { ...pi.initialState };
+    for (const placedItem of layer.placedItems ?? []) {
+      placedItems[placedItem.id] = { ...placedItem.initialState };
     }
 
-    for (const pn of layer.placedNpcs ?? []) {
-      placedNpcs[pn.npcId] = { ...pn.initialState };
+    for (const placedNpc of layer.placedNpcs ?? []) {
+      placedNpcs[placedNpc.npcId] = { ...placedNpc.initialState };
     }
 
-    for (const pp of layer.placedPlayers ?? []) {
-      placedPlayers[pp.playerId] = { ...pp.initialState };
-      placedPlayerImageId[pp.playerId] = pp.initialImageId;
+    for (const placedPlayer of layer.placedPlayers ?? []) {
+      placedPlayers[placedPlayer.playerId] = { ...placedPlayer.initialState };
     }
   }
 

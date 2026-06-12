@@ -6,7 +6,6 @@ import { hasDuplicateFileByLinkedAssetId } from "@/validation/genericValidator";
 import { type AssetDraftFieldErrors } from "@/validation/validateAssetBackedDraft";
 import { useAssetDraftPanel } from "@/features/editor/history/shared/useAssetDraftPanel";
 import { useAudioFileDraft } from "@/features/editor/history/shared/useAudioFileDraft";
-import { DeleteProjectEntityModal } from "@/features/editor/modals/DeleteProjectEntityModal";
 import { PlayIcon, StopIcon } from "@heroicons/react/24/solid";
 import { toast } from "@/shared/toast/toastStore";
 
@@ -31,11 +30,6 @@ export function HistorySfxPanel() {
   const nameInputRef = useRef<HTMLInputElement | null>(null);
 
   const sfxList = useMemo(() => project?.soundEffects ?? [], [project]);
-
-  const selectedSfx = useMemo(() => {
-    if (!selectedSfxId || !project) return null;
-    return sfxList.find((sfx) => sfx.id === selectedSfxId) ?? null;
-  }, [selectedSfxId, project, sfxList]);
 
   const inferredMode: "none" | "edit" = selectedSfxId ? "edit" : "none";
 
@@ -62,7 +56,7 @@ export function HistorySfxPanel() {
     },
   });
 
-  useEffect(()  => setSelectedSfxId(null), [setSelectedSfxId]);
+  useEffect(() => setSelectedSfxId(null), [setSelectedSfxId]);
 
   const loadDraftFromSelectedSfx = (sfx: SoundEffectDef) => {
     setDraftName(sfx.name);
@@ -99,9 +93,11 @@ export function HistorySfxPanel() {
 
     const { ok, errors } = validateSfxDraft(
       { name: draftName, file: audio.draftFile ?? undefined },
-      { mode: mode === "edit" ? "edit" : "new",
+      {
+        mode: mode === "edit" ? "edit" : "new",
         project,
-        currentSfxId: selectedSfxId ?? undefined },
+        currentSfxId: selectedSfxId ?? undefined
+      },
     );
 
     setFieldErrors(errors);
@@ -157,14 +153,9 @@ export function HistorySfxPanel() {
     if (mode === "edit") handleUpdate();
   };
 
-  const handleConfirmDelete = () => {
-    if (selectedSfxId) {
-      const deletedName = selectedSfx?.name ?? "Efecto";
-      removeSfx(selectedSfxId);
-      toast.success("Efecto eliminado", `“${deletedName}”`);
-    }
-
-    panel.reset();
+  const handleDeleteSfx = () => {
+    if (!selectedSfxId) return;
+    removeSfx(selectedSfxId);
   };
 
   if (!project) return null;
@@ -260,12 +251,12 @@ export function HistorySfxPanel() {
                   <label className="block text-[14px] text-slate-100 mb-1 text-center">Archivo de sonido</label>
 
                   <div
-                    className={ "group relative mt-1.5 px-3 py-3.5 rounded-md flex flex-col items-center justify-center text-[12px] " +
+                    className={"group relative mt-1.5 px-3 py-3.5 rounded-md flex flex-col items-center justify-center text-[12px] " +
                       "transition-colors duration-150 border-2 border-dashed cursor-pointer " +
                       (audio.isDragging
                         ? "border-indigo-400 bg-indigo-800"
                         : "border-indigo-800 bg-slate-900/40 " +
-                          (audio.isHoveringSelectButton ? "" : "hover:bg-indigo-900/60"))}
+                        (audio.isHoveringSelectButton ? "" : "hover:bg-indigo-900/60"))}
                     onDragOver={audio.handleDragOver}
                     onDragLeave={audio.handleDragLeave}
                     onDrop={audio.handleDrop}
@@ -317,7 +308,7 @@ export function HistorySfxPanel() {
                     type="button"
                     onClick={audio.handlePlayToggle}
                     disabled={!audio.hasAudioLoaded}
-                    className={ "min-w-35 px-6 py-2 rounded-md text-[12px] font-semibold text-white " +
+                    className={"min-w-35 px-6 py-2 rounded-md text-[12px] font-semibold text-white " +
                       "inline-flex justify-center disabled:opacity-40 disabled:cursor-not-allowed " +
                       (audio.isPlaying
                         ? "bg-red-800 hover:bg-red-700"
@@ -343,7 +334,7 @@ export function HistorySfxPanel() {
                 <div className="mt-auto flex justify-between">
                   <button
                     type="button"
-                    onClick={panel.openDelete}
+                    onClick={handleDeleteSfx}
                     disabled={!selectedSfxId}
                     className="btn btn-danger text-[12px] disabled:opacity-40 disabled:cursor-not-allowed"
                   >
@@ -372,14 +363,6 @@ export function HistorySfxPanel() {
           </div>
         </section>
       </div>
-
-      <DeleteProjectEntityModal
-        open={panel.isDeleteModalOpen}
-        entityName={selectedSfx?.name ?? ""}
-        description="El archivo dejará de estar disponible para las escenas que lo usen."
-        onConfirm={handleConfirmDelete}
-        onCancel={panel.cancelDelete}
-      />
     </div>
   );
 }

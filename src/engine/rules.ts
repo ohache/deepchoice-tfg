@@ -1,42 +1,71 @@
-import type { GameState } from "@/engine/state/runtimeState";
-import type { InteractionRules, ClickRule, UseItemRule, ID } from "@/domain/types";
+import type { ClickRule, ID, InteractionRules, RulePhrase, UseItemRule } from "@/domain/types";
 import { evaluateCondition } from "@/engine/conditions/evaluateConditions";
+import type { GameState } from "@/engine/state/runtimeState";
 
-type RuleMatchResult<T extends ClickRule | UseItemRule> =
+type Rule = ClickRule | UseItemRule;
+
+const DEFAULT_BLOCKED_PHRASE: RulePhrase = {
+  text: "No puedes hacer eso.",
+  speaker: { kind: "narrator" },
+};
+
+export type RuleMatchResult<T extends Rule> =
   | { kind: "matched"; rule: T }
-  | { kind: "blocked"; rule: T; phrase: string }
+  | { kind: "blocked"; rule: T; phrase: RulePhrase }
   | { kind: "none" };
 
-/* Regla onClick: primera que cumpla */
-export function pickClickRule(state: GameState, rules: InteractionRules = {}): RuleMatchResult<ClickRule> {
-  const list = rules.onClick ?? [];
+function getBlockedPhrase(rule: Rule): RulePhrase | null {
+  const text = rule.phrase?.text.trim();
 
-  for (const rule of list) {
+  if (!text) return null;
+
+  return {
+    ...rule.phrase,
+    text,
+    speaker: rule.phrase?.speaker ?? { kind: "narrator" },
+  };
+}
+
+function pickFirstMatchingRule<T extends Rule>(state: GameState, rules: T[]): RuleMatchResult<T> {
+  let firstBlockedRule: T | null = null;
+
+  for (const rule of rules) {
     if (!rule.when || evaluateCondition(state, rule.when)) {
       return { kind: "matched", rule };
     }
 
-    if (rule.phrase?.trim()) {
-      return { kind: "blocked", rule, phrase: rule.phrase.trim() };
+    const blockedPhrase = getBlockedPhrase(rule);
+
+    if (blockedPhrase) {
+      return {
+        kind: "blocked",
+        rule,
+        phrase: blockedPhrase,
+      };
     }
+
+    firstBlockedRule ??= rule;
+  }
+
+  if (firstBlockedRule) {
+    return {
+      kind: "blocked",
+      rule: firstBlockedRule,
+      phrase: DEFAULT_BLOCKED_PHRASE,
+    };
   }
 
   return { kind: "none" };
 }
 
-/* Regla onUseItem: primera que cumpla para ese itemId */
-export function pickUseItemRule(state: GameState, rules: InteractionRules = {}, placedItemId: ID): RuleMatchResult<UseItemRule> {
-  const list = (rules.onUseItem ?? []).filter((rule) => rule.placedItemId === placedItemId);
+/* Devuelve la primera regla onClick aplicable */
+export function pickClickRule(state: GameState, rules: InteractionRules = {}): RuleMatchResult<ClickRule> {
+  return pickFirstMatchingRule(state, rules.onClick ?? []);
+}
 
-  for (const rule of list) {
-    if (!rule.when || evaluateCondition(state, rule.when)) {
-      return { kind: "matched", rule };
-    }
+/* Devuelve la primera regla onUseItem aplicable para el objeto usado */
+export function pickUseItemRule(state: GameState, rules: InteractionRules = {}, itemInstanceId: ID): RuleMatchResult<UseItemRule> {
+  const matchingItemRules = (rules.onUseItem ?? []).filter((rule) => rule.itemInstanceId === itemInstanceId);
 
-    if (rule.phrase?.trim()) {
-      return { kind: "blocked", rule, phrase: rule.phrase.trim() };
-    }
-  }
-
-  return { kind: "none" };
+  return pickFirstMatchingRule(state, matchingItemRules);
 }

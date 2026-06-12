@@ -4,6 +4,7 @@ import type { Condition } from "@/domain/conditions";
 import type { Effect } from "@/domain/effects";
 import type { EffectOwner } from "@/features/editor/scene/rules/effects/effectFactory";
 import { useEditorStore } from "@/store/editorStore";
+import { buildGameItemOptions } from "@/features/editor/scene/interactiveComponents/gameItemOptions";
 import { ToggleFieldBlock } from "@/features/editor/scene/SceneFieldBlocks";
 import { ConfirmDangerModal } from "@/features/editor/modals/ConfirmDangerModal";
 import type { VarRowErrors } from "@/shared/vars/varRow";
@@ -219,12 +220,10 @@ export function SceneHotspotField({ label = "Hotspots", active, onToggle,  layer
     toast.success("Variable eliminada", "Se ha eliminado correctamente.");
   };
 
-  const useItemSourceOptions = useMemo(() => {
-    const allPlacedItems =
-      liveProject?.nodes?.flatMap((node) => (node.layers ?? []).flatMap((sceneLayer) => sceneLayer.placedItems ?? [])) ?? [];
-
-    return allPlacedItems.map((placedItem) => ({ id: placedItem.id, label: placedItem.label?.trim() || placedItem.id }));
-  }, [liveProject]);
+const useItemSourceOptions = useMemo(
+  () => buildGameItemOptions(liveProject),
+  [liveProject],
+);
 
   const { activeChannel, setActiveChannel, clickRules, useItemRulesForSelected, ruleModalOpen, currentRuleValue, openAddClickRule,
     openEditClickRule, openAddUseItemRule, openEditUseItemRule, removeClickRule, removeUseItemRule, closeRuleModal,
@@ -372,27 +371,25 @@ export function SceneHotspotField({ label = "Hotspots", active, onToggle,  layer
     toast.success("Hotspot guardado", "El hotspot ya forma parte de la escena.");
   };
 
-  const handleDelete = (id: ID) => {
-    if (hasBlockingVarEdit) {
-      warnBlockingVarEdit();
-      return;
-    }
+const handleDelete = (id: ID) => {
+  if (hasBlockingVarEdit) {
+    warnBlockingVarEdit();
+    return;
+  }
 
-    removeHotspot(id);
+  removeHotspot(id, { withConfirmation: true });
 
-    const isSelectedHotspot =
-      selectedInteractionKind === "hotspot" && selectedInteractionId === id;
+  const isSelectedHotspot =
+    selectedInteractionKind === "hotspot" && selectedInteractionId === id;
 
-    if (isSelectedHotspot) clearInteractionSelection();
+  if (isSelectedHotspot) clearInteractionSelection();
 
-    const isEditingThisDraft = draft?.id === id;
-    if (isEditingThisDraft) {
-      resetCollisionGuard();
-      cancelHotspotDraft();
-    }
-
-    toast.success("Hotspot eliminado", "Se ha eliminado correctamente.");
-  };
+  const isEditingThisDraft = draft?.id === id;
+  if (isEditingThisDraft) {
+    resetCollisionGuard();
+    cancelHotspotDraft();
+  }
+};
 
   const handleAskNukeAll = () => {
     if (hasBlockingVarEdit) {

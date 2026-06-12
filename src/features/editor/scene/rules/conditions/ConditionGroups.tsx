@@ -3,10 +3,14 @@ import type { Project, ID } from "@/domain/types";
 import { generateId } from "@/utils/id";
 import { conditionSchema } from "@/validation/rulesSchemas";
 import { createProjectIndex } from "@/features/editor/scene/rules/conditions/conditionProjectIndex";
-import { createDefaultLeaf, createSiblingLeafPreservingSelection, getConditionFamilies, leafFamily, leafLabel, summarize, type ConditionFamilyId,
-  type EnabledLeafType, type EnabledLeafCondition } from "@/features/editor/scene/rules/conditions/conditionLeafRegistry";
-import { ensureAtLeastOneGroup, makeAtom, moveAtomBetweenGroups, pruneEmptyGroups, uiDraftToCondition,
-  type UiDraft, type UiGroup } from "@/features/editor/scene/rules/conditions/conditionDraftMapper";
+import {
+  createDefaultLeaf, createSiblingLeafPreservingSelection, getConditionFamilies, leafFamily, leafLabel, getLeafValidationError, summarize,
+  type ConditionFamilyId, type EnabledLeafType, type EnabledLeafCondition
+} from "@/features/editor/scene/rules/conditions/conditionLeafRegistry";
+import {
+  ensureAtLeastOneGroup, makeAtom, moveAtomBetweenGroups, pruneEmptyGroups, uiDraftToCondition,
+  type UiDraft, type UiGroup
+} from "@/features/editor/scene/rules/conditions/conditionDraftMapper";
 import { ConditionLeafEditor } from "@/features/editor/scene/rules/conditions/ConditionLeafEditor";
 import { Select, type Option } from "@/components/Select";
 import { Pencil, Trash2 } from "lucide-react";
@@ -96,6 +100,7 @@ export function ConditionGroups({ project, currentNodeId, value, onChange, onBus
   const [composerNot, setComposerNot] = useState(false);
   const [targetGroup, setTargetGroup] = useState<ID | "new" | "">("");
   const [initialSnapshot, setInitialSnapshot] = useState("");
+  const [composerError, setComposerError] = useState<string | null>(null);
 
   const [collapsedGroups, setCollapsedGroups] = useState<Record<ID, boolean>>({});
   const [editRef, setEditRef] = useState<EditRef | null>(null);
@@ -115,17 +120,20 @@ export function ConditionGroups({ project, currentNodeId, value, onChange, onBus
   const hasAnyCondition = useMemo(() => groups.some((group) => (group.atoms?.length ?? 0) > 0), [groups]);
 
   const currentSnapshot = useMemo(() =>
-      buildComposerSnapshot({
-        family: composerFamily,
-        cond: composerCond,
-        not: composerNot,
-        groupId: targetGroup,
-      }), [composerFamily, composerCond, composerNot, targetGroup]
+    buildComposerSnapshot({
+      family: composerFamily,
+      cond: composerCond,
+      not: composerNot,
+      groupId: targetGroup,
+    }), [composerFamily, composerCond, composerNot, targetGroup]
   );
 
   const composerValidation = useMemo(() => {
     if (!composerFamily || !composerCond) return { ok: false };
-    return { ok: validateComposerCondition(composerCond, composerNot) };
+
+    return {
+      ok: validateComposerCondition(composerCond, composerNot),
+    };
   }, [composerFamily, composerCond, composerNot]);
 
   const canSave = useMemo(() => {
@@ -146,11 +154,11 @@ export function ConditionGroups({ project, currentNodeId, value, onChange, onBus
     }));
   }, [availableFamilies, composerFamily]);
 
-  useEffect(() => { onBusyChange?.(composerOpen || isEditing);}, [composerOpen, isEditing, onBusyChange]);
+  useEffect(() => { onBusyChange?.(composerOpen || isEditing); }, [composerOpen, isEditing, onBusyChange]);
 
   const isGroupCollapsed = (groupId: ID) => Boolean(collapsedGroups[groupId]);
 
-  const toggleGroupCollapsed = (groupId: ID) => { setCollapsedGroups((prev) => ({ ...prev, [groupId]: !prev[groupId] }))};
+  const toggleGroupCollapsed = (groupId: ID) => { setCollapsedGroups((prev) => ({ ...prev, [groupId]: !prev[groupId] })) };
 
   const resetComposerState = () => {
     setComposerFamily("");
@@ -159,6 +167,7 @@ export function ConditionGroups({ project, currentNodeId, value, onChange, onBus
     setTargetGroup("");
     setEditRef(null);
     setInitialSnapshot("");
+    setComposerError(null);
   };
 
   const closeComposer = () => {
@@ -230,10 +239,10 @@ export function ConditionGroups({ project, currentNodeId, value, onChange, onBus
     const newAtom = { ...atom, not, cond };
 
     const nextGroups = draft.groups.map((group) =>
-        group.id === fromGroupId
-          ? { ...group, atoms: group.atoms.filter((item) => item.id !== atomId) }
-          : group
-      ).concat([{ id: newGroupId, atoms: [newAtom] }]);
+      group.id === fromGroupId
+        ? { ...group, atoms: group.atoms.filter((item) => item.id !== atomId) }
+        : group
+    ).concat([{ id: newGroupId, atoms: [newAtom] }]);
 
     const pruned = pruneEmptyGroups({ ...draft, groups: nextGroups });
 
@@ -336,7 +345,15 @@ export function ConditionGroups({ project, currentNodeId, value, onChange, onBus
       return;
     }
 
+    const semanticError = getLeafValidationError(ctx, composerCond);
+
+    if (semanticError) {
+      setComposerError(semanticError);
+      return;
+    }
+
     const draft = ensureAtLeastOneGroup(value);
+    setComposerError(null);
 
     if (editRef) {
       const { groupId: fromGroupId, atomId } = editRef;
@@ -423,7 +440,7 @@ export function ConditionGroups({ project, currentNodeId, value, onChange, onBus
       return;
     }
 
-    onChange(moveAtomBetweenGroups({ draft: value, fromGroupId: drag.fromGroupId, fromIndex: drag.fromIndex, toGroupId, toIndex: null}));
+    onChange(moveAtomBetweenGroups({ draft: value, fromGroupId: drag.fromGroupId, fromIndex: drag.fromIndex, toGroupId, toIndex: null }));
   };
 
   return (
@@ -483,8 +500,18 @@ export function ConditionGroups({ project, currentNodeId, value, onChange, onBus
                     selectedFamily={composerFamily}
                     familyTypeOptions={familyLeafTypeOptions}
                     onChangeType={handleChangeLeafType}
-                    onChange={(next) => setComposerCond(next)}
+                    onChange={(next) => {
+                      setComposerCond(next);
+                      setComposerError(null);
+                    }}
                   />
+
+                  {composerError ? (
+                    <div className="mt-2 rounded-md border border-red-500/60 bg-red-950/30 px-3 py-2 text-left text-[12px] text-red-200">
+                      {composerError}
+                    </div>
+                  ) : null}
+
                 </div>
               </div>
             </div>

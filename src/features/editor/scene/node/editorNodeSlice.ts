@@ -2,11 +2,11 @@ import type { ID, Node, Project, NodeMapLocation, NodeMeta } from "@/domain/type
 import { createDefaultNodeMeta, deepClonePojo, safeTrim } from "@/features/editor/core/editorGenericSlice";
 import type { HotspotEditorState } from "@/features/editor/scene/hotspots/hotspotEditorTypes";
 import { initialHotspotEditorState } from "@/features/editor/scene/interactiveComponents/interactiveEditorHelpers";
-import {
-  cleanupUnusedBackgroundAssets, computeNewNodeFallbackLayout, createEmptyDraftNode, ensureDraftHasLayout, indexNodeIssues, reconcileNodeMapEntries,
-  reconcileRegionEntryAfterNodeDeletion, rebuildMapsFromNodes, sameMapLocation, validateNodeDraft,
-  type NodeValidationIssue
-} from "@/features/editor/scene/node/editorNodeHelpersSlice";
+import { cleanupUnusedBackgroundAssets, computeNewNodeFallbackLayout, createEmptyDraftNode, ensureDraftHasLayout, indexNodeIssues, reconcileNodeMapEntries,
+  rebuildMapsFromNodes, sameMapLocation, validateNodeDraft, type NodeValidationIssue} from "@/features/editor/scene/node/editorNodeHelpersSlice";
+import type { DeleteTarget } from "@/features/editor/delete/deleteTypes";
+import { applyDeleteWithCleanup } from "@/features/editor/delete/deleteReferenceCleaner";
+import type { DeleteApplyFn } from "@/features/editor/delete/editorDeleteSlice";
 
 export type NodeMode = "creating" | "editing";
 
@@ -17,6 +17,10 @@ type EditorStoreLike = {
   hotspotEditor: HotspotEditorState;
   selectedInteractionKind: "hotspot" | "placedItem" | "placedNpc" | "placedPlayer" | null;
   selectedInteractionId: ID | null;
+  requestDelete: (input: {
+    target: DeleteTarget;
+    apply: DeleteApplyFn;
+  }) => void;
 };
 
 export interface EditorNodesSlice {
@@ -48,6 +52,56 @@ export interface EditorNodesSlice {
   deleteNode: (nodeId: ID) => { deletedId: ID; deletedWasStart: boolean } | null;
   clearNodeIssues: () => void;
 }
+
+const applyNodeDeleteTarget = (
+  target: Extract<DeleteTarget, { kind: "node" }>,
+): DeleteApplyFn => (state) => {
+  if (!state.project) return state;
+
+  const node = state.project.nodes.find((entry) => entry.id === target.nodeId);
+  if (!node) return state;
+
+  const deletedWasStart = Boolean(node.isStart);
+
+  let nextProject = applyDeleteWithCleanup(state.project, target);
+
+  if (deletedWasStart && nextProject.nodes.length > 0) {
+    const firstId = nextProject.nodes[0]!.id;
+
+    nextProject = {
+      ...nextProject,
+      nodes: nextProject.nodes.map((entry) =>
+        entry.id === firstId
+          ? { ...entry, isStart: true }
+          : { ...entry, isStart: false },
+      ),
+    };
+  }
+
+  const cleaned = cleanupUnusedBackgroundAssets({
+    project: nextProject,
+    assetFiles: state.assetFiles,
+    nodes: nextProject.nodes,
+  });
+
+  const draftKilled = state.editingNodeId === target.nodeId;
+  const selectedKilled = state.selectedNodeId === target.nodeId;
+
+  return {
+    ...state,
+    project: cleaned.project,
+    assetFiles: cleaned.assetFiles,
+    selectedNodeId: selectedKilled ? null : state.selectedNodeId,
+    nodeMode: draftKilled ? "creating" : state.nodeMode,
+    editingNodeId: draftKilled ? null : state.editingNodeId,
+    nodeDraft: draftKilled ? null : state.nodeDraft,
+    nodeIssues: [],
+    activeLayerId: draftKilled || selectedKilled ? null : state.activeLayerId,
+    hotspotEditor: draftKilled || selectedKilled ? initialHotspotEditorState : state.hotspotEditor,
+    selectedInteractionKind: draftKilled || selectedKilled ? null : state.selectedInteractionKind,
+    selectedInteractionId: draftKilled || selectedKilled ? null : state.selectedInteractionId,
+  };
+};
 
 type Store = EditorStoreLike & EditorNodesSlice;
 
@@ -98,14 +152,6 @@ export function createEditorNodesSlice(set: (partial: Partial<Store> | ((state: 
         node.id === newNode.id
           ? { ...node, isStart: true }
           : { ...node, isStart: false }
-      );
-    }
-
-    if (newNode.isFinal) {
-      nextNodes = nextNodes.map((node) =>
-        node.id === newNode.id
-          ? { ...node, isFinal: true }
-          : { ...node, isFinal: false }
       );
     }
 
@@ -173,10 +219,6 @@ export function createEditorNodesSlice(set: (partial: Partial<Store> | ((state: 
 
     if (nextNode.isStart) {
       nextNodes = nextNodes.map((node) => node.id === editingId ? node : { ...node, isStart: false });
-    }
-
-    if (nextNode.isFinal) {
-      nextNodes = nextNodes.map((node) => node.id === editingId ? node : { ...node, isFinal: false });
     }
 
     nextNodes = reconcileNodeMapEntries(nextNodes, nextNode.id, prev.mapLocation);
@@ -357,21 +399,75 @@ export function createEditorNodesSlice(set: (partial: Partial<Store> | ((state: 
         };
       }),
 
-    setNodeMapLocation: (loc) =>
-      set((state) => {
-        if (!state.nodeDraft) return state;
+setNodeMapLocation: (loc) =>
+  set((state) => {
+    if (!state.nodeDraft) return state;
 
-        const nextMapLocation = loc ?? undefined;
-        if (sameMapLocation(state.nodeDraft.mapLocation, nextMapLocation)) return state;
+    const nodeId = state.nodeDraft.id;
+    const prevMapLocation = state.nodeDraft.mapLocation;
+    const nextMapLocation = loc ?? undefined;
 
-        return {
-          ...state,
-          nodeDraft: {
-            ...state.nodeDraft,
-            mapLocation: nextMapLocation,
-          },
-        };
-      }),
+    if (sameMapLocation(prevMapLocation, nextMapLocation)) return state;
+
+    const shouldClearPreviousEntry =
+      prevMapLocation?.isEntry &&
+      prevMapLocation.mapId &&
+      prevMapLocation.regionId;
+
+    const shouldSetNextEntry =
+      nextMapLocation?.isEntry &&
+      nextMapLocation.mapId &&
+      nextMapLocation.regionId;
+
+    const nextProject = state.project
+      ? {
+          ...state.project,
+          maps: state.project.maps.map((map) => ({
+            ...map,
+            regions: map.regions.map((region) => {
+              const isPreviousEntry =
+                shouldClearPreviousEntry &&
+                map.id === prevMapLocation.mapId &&
+                region.id === prevMapLocation.regionId &&
+                region.entrySceneId === nodeId;
+
+              const isNextEntry =
+                shouldSetNextEntry &&
+                map.id === nextMapLocation.mapId &&
+                region.id === nextMapLocation.regionId;
+
+              if (isNextEntry) {
+                return {
+                  ...region,
+                  entrySceneId: nodeId,
+                  sceneIds: region.sceneIds.includes(nodeId)
+                    ? region.sceneIds
+                    : [...region.sceneIds, nodeId],
+                };
+              }
+
+              if (isPreviousEntry) {
+                return {
+                  ...region,
+                  entrySceneId: undefined,
+                };
+              }
+
+              return region;
+            }),
+          })),
+        }
+      : state.project;
+
+    return {
+      ...state,
+      project: nextProject,
+      nodeDraft: {
+        ...state.nodeDraft,
+        mapLocation: nextMapLocation,
+      },
+    };
+  }),
 
     setNodeLayout: (nodeId, layout) =>
       set((state) => {
@@ -457,48 +553,14 @@ export function createEditorNodesSlice(set: (partial: Partial<Store> | ((state: 
       const project = state.project;
       if (!project) return null;
 
-      const nodes0 = project.nodes ?? [];
-      const node = nodes0.find((entry) => entry.id === nodeId) ?? null;
+      const node = (project.nodes ?? []).find((entry) => entry.id === nodeId);
       if (!node) return null;
 
       const deletedWasStart = Boolean(node.isStart);
-      let nextNodes = nodes0.filter((entry) => entry.id !== nodeId);
 
-      if (deletedWasStart && nextNodes.length > 0) {
-        const firstId = nextNodes[0]!.id;
-        nextNodes = nextNodes.map((entry) => entry.id === firstId
-          ? { ...entry, isStart: true }
-          : { ...entry, isStart: false }
-        );
-      }
-
-      nextNodes = reconcileRegionEntryAfterNodeDeletion(nextNodes, node.mapLocation);
-      const nextMaps = rebuildMapsFromNodes(project.maps ?? [], nextNodes);
-
-      const cleaned = cleanupUnusedBackgroundAssets({
-        project: { ...project, nodes: nextNodes, maps: nextMaps },
-        assetFiles: state.assetFiles,
-        nodes: nextNodes,
-      });
-
-      set((currentState) => {
-        const draftKilled = currentState.editingNodeId === nodeId;
-        const selectedKilled = currentState.selectedNodeId === nodeId;
-
-        return {
-          ...currentState,
-          project: cleaned.project,
-          assetFiles: cleaned.assetFiles,
-          selectedNodeId: selectedKilled ? null : currentState.selectedNodeId,
-          nodeMode: draftKilled ? "creating" : currentState.nodeMode,
-          editingNodeId: draftKilled ? null : currentState.editingNodeId,
-          nodeDraft: draftKilled ? null : currentState.nodeDraft,
-          nodeIssues: [],
-          activeLayerId: draftKilled || selectedKilled ? null : currentState.activeLayerId,
-          hotspotEditor: draftKilled || selectedKilled ? initialHotspotEditorState : currentState.hotspotEditor,
-          selectedInteractionKind: draftKilled || selectedKilled ? null : currentState.selectedInteractionKind,
-          selectedInteractionId: draftKilled || selectedKilled ? null : currentState.selectedInteractionId,
-        };
+      state.requestDelete({
+        target: { kind: "node", nodeId },
+        apply: applyNodeDeleteTarget({ kind: "node", nodeId }),
       });
 
       return { deletedId: nodeId, deletedWasStart };

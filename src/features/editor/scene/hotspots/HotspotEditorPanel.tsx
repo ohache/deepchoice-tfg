@@ -1,5 +1,5 @@
 import type { RefObject } from "react";
-import type { ID, ClickRule, UseItemRule, BaseInteractionRule, Project } from "@/domain/types";
+import type { ID, ClickRule, UseItemRule, BaseInteractionRule, Project, RulePhrase } from "@/domain/types";
 import type { Condition } from "@/domain/conditions";
 import type { Effect } from "@/domain/effects";
 import type { HotspotRuleChannel, HotspotDraft } from "@/features/editor/scene/hotspots/hotspotEditorTypes";
@@ -72,7 +72,7 @@ type HotspotEditorPanelProps = {
   onRemoveUseItemRule: (itemId: ID, index: number) => void;
 
   onCloseRuleModal: () => void;
-  onSaveRule: (rule: { id: ID; when?: Condition; phrase?: string; effects: Effect[] }) => void;
+  onSaveRule: (rule: { id: ID; when?: Condition; phrase?: RulePhrase; effects: Effect[] }) => void;
 
   onDelete: () => void;
   onCancel: () => void;

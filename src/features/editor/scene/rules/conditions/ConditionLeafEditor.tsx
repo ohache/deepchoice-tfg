@@ -2,7 +2,7 @@ import React, { useMemo } from "react";
 import type { ID } from "@/domain/types";
 import {
   type EnabledLeafCondition, type EnabledLeafType, type LeafCtx, type LeafVarKind, applyLeafPatch, getLeafOptions, getLeafUi, getVarOpOptions,
-  type LeafFieldSpec, getAvailableLeafTypesForFamily, leafFamily
+  type LeafFieldSpec, getAvailableLeafTypesForFamily, leafFamily,
 } from "@/features/editor/scene/rules/conditions/conditionLeafRegistry";
 import { Select, type Option } from "@/components/Select";
 
@@ -22,12 +22,34 @@ function Field({ label, children, className }: { label: string; children: React.
 }
 
 /* Input numérico reutilizable */
-function NumberInput({ value, onChange, disabled }: { value: number; onChange: (value: number) => void; disabled?: boolean }) {
+function NumberInput({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: number | "";
+  onChange: (value: number | "") => void;
+  disabled?: boolean;
+}) {
   return (
     <input
-      type="number"
-      value={Number.isFinite(value) ? value : 0}
-      onChange={(e) => onChange(Number(e.currentTarget.value))}
+      type="text"
+      inputMode="decimal"
+      value={value === "" ? "" : String(value)}
+      onChange={(e) => {
+        const raw = e.currentTarget.value.trim();
+
+        if (raw === "") {
+          onChange("");
+          return;
+        }
+
+        const next = Number(raw);
+
+        if (Number.isFinite(next)) {
+          onChange(next);
+        }
+      }}
       disabled={disabled}
       className="input-conditions disabled:opacity-50"
     />
@@ -98,6 +120,8 @@ function hasSelectedPrimaryEntity(cond: EnabledLeafCondition): boolean {
       return Boolean(cond.regionId || cond.mapId);
 
     case "hasItem":
+      return Boolean(cond.playerId);
+
     case "placedItemVisible":
     case "placedItemReachable":
       return Boolean(cond.placedItemId);
@@ -110,9 +134,11 @@ function hasSelectedPrimaryEntity(cond: EnabledLeafCondition): boolean {
     case "placedNpcVisible":
     case "placedNpcReachable":
     case "npcVar":
+    case "npcHasItem":
       return Boolean(cond.npcId);
 
     case "placedPlayerVisible":
+    case "placedPlayerImage":
     case "playerVar":
       return Boolean(cond.playerId);
 
@@ -200,10 +226,15 @@ export function ConditionLeafEditor({ ctx, cond, familyTypeOptions = [], selecte
           <Field key={field.key} label={field.label} className={field.className}>
             <Select<ID>
               value={(value as ID) ?? ""}
-              onChange={(nextValue) => patch({ [String(field.path)]: nextValue } as Partial<EnabledLeafCondition>)}
+              onChange={(nextValue) => {
+                patch({ [String(field.path)]: nextValue } as Partial<EnabledLeafCondition>);
+              }}
               options={options as Option<ID>[]}
               disabled={disabled}
               placeholder="Selecciona…"
+              buttonClassName="border-slate-700"
+              menuClassName="editor-scroll"
+              optionClassName="truncate"
             />
           </Field>
         );
@@ -223,7 +254,7 @@ export function ConditionLeafEditor({ ctx, cond, familyTypeOptions = [], selecte
         return (
           <Field key={field.key} label={field.label} className={field.className}>
             <NumberInput
-              value={typeof value === "number" ? value : 0}
+              value={typeof value === "number" ? value : ""}
               disabled={disabled}
               onChange={(nextValue) => patch({ [String(field.path)]: nextValue } as Partial<EnabledLeafCondition>)}
             />
@@ -254,7 +285,7 @@ export function ConditionLeafEditor({ ctx, cond, familyTypeOptions = [], selecte
               />
             ) : (
               <NumberInput
-                value={typeof value === "number" ? value : 0}
+                value={typeof value === "number" ? value : ""}
                 disabled={disabled}
                 onChange={(nextValue) => patch({ [String(field.path)]: nextValue } as Partial<EnabledLeafCondition>)}
               />
@@ -334,6 +365,95 @@ export function ConditionLeafEditor({ ctx, cond, familyTypeOptions = [], selecte
         <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_160px_140px] gap-2">
           {renderField(fieldMap.varId)}
           {renderField(fieldMap.op)}
+          {renderField(fieldMap.value)}
+        </div>
+      </div>
+    );
+  }
+
+  if (cond.type === "hasItem") {
+    return (
+      <div className="space-y-3">
+        <div className="grid grid-cols-1 gap-2">
+          {renderField(fieldMap.playerId)}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-[180px_minmax(0,1fr)_140px] gap-2">
+          {optionField}
+          {renderField(fieldMap.itemInstanceId)}
+          {renderField(fieldMap.value)}
+        </div>
+      </div>
+    );
+  }
+
+  if (cond.type === "npcHasItem") {
+    return (
+      <div className="space-y-3">
+        {/* NPC arriba */}
+        <div className="grid grid-cols-1 gap-2">
+          {renderField(fieldMap.npcId)}
+        </div>
+
+        {/* Línea compacta */}
+        <div className="grid grid-cols-1 md:grid-cols-[180px_minmax(0,1fr)_140px] gap-2">
+          {optionField}
+          {renderField(fieldMap.itemInstanceId)}
+          {renderField(fieldMap.value)}
+        </div>
+      </div>
+    );
+  }
+
+  if (cond.type === "placedNpcVisible" || cond.type === "placedNpcReachable") {
+    return (
+      <div className="space-y-3">
+        <div className="grid grid-cols-1 gap-2">
+          {renderField(fieldMap.npcId)}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-[100px_minmax(0,2fr)_minmax(0,2fr)_96px] gap-2">
+          {optionField}
+          {renderField(fieldMap.nodeId)}
+          {renderField(fieldMap.layerId)}
+          {renderField(fieldMap.value)}
+        </div>
+      </div>
+    );
+  }
+
+  if (cond.type === "placedPlayerVisible") {
+    return (
+      <div className="space-y-3">
+        <div className="grid grid-cols-1 gap-2">
+          {renderField(fieldMap.playerId)}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-[100px_minmax(0,2fr)_minmax(0,2fr)_90px] gap-2">
+          {optionField}
+          {renderField(fieldMap.nodeId)}
+          {renderField(fieldMap.layerId)}
+          {renderField(fieldMap.value)}
+        </div>
+      </div>
+    );
+  }
+
+  if (cond.type === "placedPlayerImage") {
+    return (
+      <div className="space-y-3">
+        <div className="grid grid-cols-1 gap-2">
+          {renderField(fieldMap.playerId)}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-[110px_minmax(0,1fr)] gap-2">
+          {optionField}
+          {renderField(fieldMap.imageId)}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-[minmax(0,2fr)_minmax(0,2fr)_90px] gap-2">
+          {renderField(fieldMap.nodeId)}
+          {renderField(fieldMap.layerId)}
           {renderField(fieldMap.value)}
         </div>
       </div>

@@ -4,14 +4,16 @@ import type { Condition } from "@/domain/conditions";
 import type { Effect } from "@/domain/effects";
 import type { EffectOwner } from "@/features/editor/scene/rules/effects/effectFactory";
 import { useEditorStore } from "@/store/editorStore";
-import { ToggleFieldBlock } from "@/features/editor/scene/SceneFieldBlocks";
-import { toast } from "@/shared/toast/toastStore";
 import { ConfirmDangerModal } from "@/features/editor/modals/ConfirmDangerModal";
 import { InteractiveListPanel, type InteractiveListEntry } from "@/features/editor/scene/interactiveComponents/InteractiveListPanel";
 import { PlacedItemEditorPanel } from "@/features/editor/scene/placedItems/PlacedItemEditorPanel";
 import { useEntityRulesEditor } from "@/features/editor/scene/rules/entityRulesEditor";
 import { useEntityCollisionGuard } from "@/features/editor/scene/useEntityCollisionGuard";
-import { buildClickableRegions, normKey, useActiveSceneLayer, useFocusWhenEnabled } from "@/features/editor/scene/interactiveComponents/fieldHelpers";
+import { buildClickableRegions, useActiveSceneLayer, useFocusWhenEnabled } from "@/features/editor/scene/interactiveComponents/fieldHelpers";
+import { ToggleFieldBlock } from "@/features/editor/scene/SceneFieldBlocks";
+import { hasDuplicatedItemInstanceLabel } from "@/validation/itemInstanceLabels";
+import { toast } from "@/shared/toast/toastStore";
+import { buildGameItemOptions } from "../interactiveComponents/gameItemOptions";
 
 type PlacedItemEditorError =
   | { kind: "panel"; message: string }
@@ -111,13 +113,10 @@ export function ScenePlacedItemField({ label = "Items", active, onToggle, layerI
 
   const collisionResetKey = `${layerId}:${draft?.id ?? "none"}:${placedItemEditor.mode.type}`;
 
-  const useItemSourceOptions = useMemo(() => {
-    const allPlacedItems = effectiveProject?.nodes?.flatMap((node) =>
-        (node.layers ?? []).flatMap((sceneLayer) => sceneLayer.placedItems ?? [])) ?? [];
-
-    return allPlacedItems.filter((placedItem) => !draft || placedItem.id !== draft.id)
-      .map((placedItem) => ({ id: placedItem.id, label: placedItem.label?.trim() || placedItem.id }));
-  }, [effectiveProject, draft]);
+const useItemSourceOptions = useMemo(
+  () => buildGameItemOptions(effectiveProject, draft?.id),
+  [effectiveProject, draft?.id],
+);
 
   const owner = useMemo<EffectOwner | null>(() => {
     if (!draft || !draft.shape) return null;
@@ -127,22 +126,15 @@ export function ScenePlacedItemField({ label = "Items", active, onToggle, layerI
         shape: draft.shape, initialState: draft.initialState, rules: draft.rules }};
   }, [draft, layerId]);
 
-  const labelKey = normKey(draft?.label);
+const dupLabel = useMemo(() => {
+  if (!effectiveProject || !draft) return false;
 
-  const dupLabel = useMemo(() => {
-    if (!draft || !labelKey) return false;
-
-    return (
-      effectiveProject?.nodes.some((node) =>
-        node.layers.some((sceneLayer) =>
-          (sceneLayer.placedItems ?? []).some((item) => {
-            if (item.id === draft.id) return false;
-            return normKey(item.label) === labelKey;
-          }),
-        ),
-      ) ?? false
-    );
-  }, [draft, labelKey, effectiveProject?.nodes]);
+  return hasDuplicatedItemInstanceLabel(
+    effectiveProject,
+    draft.label,
+    draft.id,
+  );
+}, [effectiveProject, draft]);
 
   const isExistingPlacedItem = useMemo(() => {
     if (!draft?.id) return false;
@@ -266,22 +258,22 @@ export function ScenePlacedItemField({ label = "Items", active, onToggle, layerI
     toast.success("Item guardado", "El item ya forma parte de la escena.");
   };
 
-  const handleDelete = (id: ID) => {
-    removePlacedItem(id);
+const handleDelete = (id: ID) => {
+  removePlacedItem(id, { withConfirmation: true });
 
-    const isSelectedPlacedItem =
-      selectedInteractionKind === "placedItem" && selectedInteractionId === id;
+  const isSelectedPlacedItem =
+    selectedInteractionKind === "placedItem" && selectedInteractionId === id;
 
-    if (isSelectedPlacedItem) clearInteractionSelection();
+  if (isSelectedPlacedItem) clearInteractionSelection();
 
-    const isEditingThisDraft = draft?.id === id;
-    if (isEditingThisDraft) {
-      resetCollisionGuard();
-      cancelPlacedItemDraft();
-    }
+  const isEditingThisDraft = draft?.id === id;
+  if (isEditingThisDraft) {
+    resetCollisionGuard();
+    cancelPlacedItemDraft();
+  }
 
-    toast.success("Item eliminado", "Se ha eliminado correctamente.");
-  };
+  toast.success("Item eliminado", "Se ha eliminado correctamente.");
+};
 
   const handleAskNukeAll = () => {
     if (!placedItems.length) return;

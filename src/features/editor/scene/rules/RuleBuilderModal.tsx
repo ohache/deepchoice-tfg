@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { z } from "zod";
 import { buildInlineErrorMapByPath } from "@/shared/zodIssues";
-import type { ID, Project } from "@/domain/types";
+import type { ID, Project, RulePhrase, RulePhraseSpeaker } from "@/domain/types";
 import type { Condition } from "@/domain/conditions";
 import type { Effect } from "@/domain/effects";
 import { IdSchema } from "@/validation/genericSchemas";
-import { conditionSchema, effectSchema } from "@/validation/rulesSchemas";
+import { conditionSchema, effectSchema, rulePhraseSchema } from "@/validation/rulesSchemas";
 import { conditionToUiDraft, createDefaultRootCondition, pruneEmptyGroups, uiDraftToCondition, type UiDraft } from "@/features/editor/scene/rules/conditions/conditionDraftMapper";
 import { ConditionGroups } from "@/features/editor/scene/rules/conditions/ConditionGroups";
 import { type EffectCtx, type EffectOwner, type FactoryCtx, createProjectIndex, isEnabledEffect, type EnabledEffect } from "@/features/editor/scene/rules/effects/effectFactory";
@@ -13,19 +13,26 @@ import { EffectPanel } from "@/features/editor/scene/rules/effects/EffectPanel";
 import { ConfirmExitModal } from "@/features/editor/modals/ConfirmExitModal";
 import { ConfirmDangerModal } from "@/features/editor/modals/ConfirmDangerModal";
 import { toast } from "@/shared/toast/toastStore";
+import { Select } from "@/components/Select";
 
 /* Schema */
 const RuleSchema = z.object({
   id: IdSchema,
   when: conditionSchema.optional(),
-  phrase: z.string().trim().optional(),
+  phrase: rulePhraseSchema.optional(),
   effects: z.array(effectSchema).default([]),
 });
+
+type PhraseSpeakerOption = {
+  id: string;
+  label: string;
+  speaker?: RulePhraseSpeaker;
+};
 
 type RuleDraft = {
   id: ID;
   when: Condition | null;
-  phrase: string;
+  phrase: RulePhrase;
   effects: EnabledEffect[];
 };
 
@@ -36,15 +43,15 @@ type Props = {
   nodeId: ID;
   owner: EffectOwner;
   interactionKind?: "onClick" | "onUseItem";
-  value?: { id: ID; when?: Condition | null; phrase?: string; effects?: unknown[] } | null;
+  value?: { id: ID; when?: Condition | null; phrase?: RulePhrase; effects?: unknown[] } | null;
   onClose: () => void;
-  onSave: (rule: { id: ID; when?: Condition; phrase?: string; effects: Effect[] }) => void;
-  onApply?: (rule: { id: ID; when?: Condition; phrase?: string; effects: Effect[] }) => void;
+  onSave: (rule: { id: ID; when?: Condition; phrase?: RulePhrase; effects: Effect[] }) => void;
+  onApply?: (rule: { id: ID; when?: Condition; phrase?: RulePhrase; effects: Effect[] }) => void;
 };
 
 type ValidateRuleResult =
   | { ok: false }
-  | { ok: true; data: { id: ID; when?: Condition; phrase?: string; effects: EnabledEffect[] } };
+  | { ok: true; data: { id: ID; when?: Condition; phrase?: RulePhrase; effects: EnabledEffect[] } };
 
 /* Firma estable del estado de la regla */
 function signatureOfRule(draft: RuleDraft, condDraft: UiDraft): string {
@@ -56,7 +63,7 @@ function signatureOfRule(draft: RuleDraft, condDraft: UiDraft): string {
     })),
   };
 
-  return JSON.stringify({ cond: minimalCond, phrase: draft.phrase ?? "", effects: draft.effects ?? [] });
+  return JSON.stringify({ cond: minimalCond, phrase: draft.phrase, effects: draft.effects ?? [] });
 }
 
 /*Normaliza el valor inicial recibido desde fuera para trabajar siempre con un draft consistente en UI */
@@ -64,13 +71,67 @@ function makeInitialDraft(value: Props["value"]): RuleDraft {
   const rawEffects = value?.effects ?? [];
   const effects = rawEffects.filter((effect): effect is EnabledEffect => isEnabledEffect(effect as Effect));
 
-  return { id: value?.id ?? "", when: value?.when ?? null, phrase: value?.phrase ?? "", effects };
+  return {
+    id: value?.id ?? "",
+    when: value?.when ?? null,
+    phrase: value?.phrase ?? { text: "", speaker: { kind: "narrator" } },
+    effects,
+  };
+}
+
+function speakerOptionId(speaker?: RulePhraseSpeaker): string {
+  if (!speaker || speaker.kind === "narrator") return "narrator";
+  if (speaker.kind === "player") return `player:${speaker.playerId}`;
+  return `npc:${speaker.npcId}`;
+}
+
+function getOwnerLayerId(owner: EffectOwner): ID | null {
+  if ("layerId" in owner && typeof owner.layerId === "string") return owner.layerId;
+  return null;
+}
+
+function buildPhraseSpeakerOptions(project: Project | null, nodeId: ID, owner: EffectOwner): PhraseSpeakerOption[] {
+  const node = project?.nodes.find((candidate) => candidate.id === nodeId);
+  const layerId = getOwnerLayerId(owner);
+  const layer = layerId ? node?.layers.find((candidate) => candidate.id === layerId) : null;
+
+  const options: PhraseSpeakerOption[] = [
+    {
+      id: "narrator",
+      label: "Narrador",
+      speaker: { kind: "narrator" },
+    },
+  ];
+
+  if (!project || !node || !layer) return options;
+
+  for (const placedPlayer of layer.placedPlayers ?? []) {
+    const player = project.players.find((candidate) => candidate.id === placedPlayer.playerId);
+
+    options.push({
+      id: `player:${placedPlayer.playerId}`,
+      label: player?.name?.trim() || placedPlayer.playerId,
+      speaker: { kind: "player", playerId: placedPlayer.playerId },
+    });
+  }
+
+  for (const placedNpc of layer.placedNpcs ?? []) {
+    const npc = project.npcs.find((candidate) => candidate.id === placedNpc.npcId);
+
+    options.push({
+      id: `npc:${placedNpc.npcId}`,
+      label: npc?.name?.trim() || placedNpc.npcId,
+      speaker: { kind: "npc", npcId: placedNpc.npcId },
+    });
+  }
+
+  return options;
 }
 
 export function RuleBuilderModal({ open, project, nodeId, owner, interactionKind, value, onClose, onSave, onApply }: Props) {
   const idx = useMemo(() => createProjectIndex(project), [project]);
 
-  const factory = useMemo<FactoryCtx>(() => ({ idx, ctx: { project, nodeId, owner } satisfies EffectCtx}), [idx, project, nodeId, owner]);
+  const factory = useMemo<FactoryCtx>(() => ({ idx, ctx: { project, nodeId, owner } satisfies EffectCtx }), [idx, project, nodeId, owner]);
 
   const initialDraft = useMemo(() => makeInitialDraft(value), [value]);
 
@@ -101,7 +162,14 @@ export function RuleBuilderModal({ open, project, nodeId, owner, interactionKind
 
   const phraseEnabled = interactionKind === "onUseItem" || hasCond;
 
-  const hasSomethingToClear = hasCond || Boolean(draft.phrase.trim()) || (draft.effects?.length ?? 0) > 0;
+  const phraseSpeakerOptions = useMemo(
+    () => buildPhraseSpeakerOptions(project, nodeId, owner),
+    [project, nodeId],
+  );
+
+  const selectedPhraseSpeakerId = speakerOptionId(draft.phrase.speaker);
+
+  const hasSomethingToClear = hasCond || Boolean(draft.phrase.text.trim()) || (draft.effects?.length ?? 0) > 0;
 
   /* Sincronizar al abrir */
   useEffect(() => {
@@ -117,8 +185,10 @@ export function RuleBuilderModal({ open, project, nodeId, owner, interactionKind
 
   /*En onClick, la phrase solo tiene sentido si hay condición */
   useEffect(() => {
-    if (interactionKind === "onClick" && !hasCond && draft.phrase) setDraft((prev) => ({ ...prev, phrase: "" }));
-  }, [interactionKind, hasCond, draft.phrase]);
+    if (interactionKind === "onClick" && !hasCond && draft.phrase.text) {
+      setDraft((prev) => ({ ...prev, phrase: { text: "", speaker: { kind: "narrator" } } }));
+    }
+  }, [interactionKind, hasCond, draft.phrase.text]);
 
   /* Actions */
   const attemptClose = useCallback(() => {
@@ -157,12 +227,17 @@ export function RuleBuilderModal({ open, project, nodeId, owner, interactionKind
       whenForPayload = parsedCond.data;
     }
 
-    const trimmedPhrase = draft.phrase.trim();
+    const trimmedPhrase = draft.phrase.text.trim();
 
     const payload = {
       id: draft.id || ("rule" as ID),
       when: whenForPayload,
-      phrase: trimmedPhrase || undefined,
+      phrase: trimmedPhrase
+        ? {
+          text: trimmedPhrase,
+          speaker: draft.phrase.speaker ?? { kind: "narrator" },
+        }
+        : undefined,
       effects: draft.effects ?? [],
     };
 
@@ -225,7 +300,7 @@ export function RuleBuilderModal({ open, project, nodeId, owner, interactionKind
     setDraft((prev) => ({
       ...prev,
       when: null,
-      phrase: "",
+      phrase: { text: "", speaker: { kind: "narrator" } },
       effects: [],
     }));
     setCondDraft(conditionToUiDraft(createDefaultRootCondition()));
@@ -280,18 +355,52 @@ export function RuleBuilderModal({ open, project, nodeId, owner, interactionKind
                   Mensaje que se mostrará cuando no se cumplan las condiciones de esta regla
                 </div>
 
-                <div className="pt-2">
+                <div className="pt-2 space-y-3">
                   <textarea
-                    value={draft.phrase}
+                    value={draft.phrase.text}
                     onChange={(e) => {
                       const value = e.currentTarget.value;
-                      setDraft((prev) => ({ ...prev, phrase: value }));
+
+                      setDraft((prev) => ({
+                        ...prev,
+                        phrase: {
+                          ...prev.phrase,
+                          text: value,
+                        },
+                      }));
                     }}
                     placeholder="Ej: Se necesita una llave para abrir esa puerta."
                     rows={3}
                     disabled={!phraseEnabled}
                     className="input-conditions py-2 h-[84px] resize-none overflow-y-auto editor-scroll disabled:opacity-50 disabled:cursor-not-allowed"
                   />
+
+                  <div className="space-y-1">
+                    <div className="text-[12px] text-slate-300">
+                      Emisor de la frase
+                    </div>
+
+                    <Select<string>
+                      value={selectedPhraseSpeakerId}
+                      onChange={(value) => {
+                        const option = phraseSpeakerOptions.find((candidate) => candidate.id === value);
+
+                        setDraft((prev) => ({
+                          ...prev,
+                          phrase: {
+                            ...prev.phrase,
+                            speaker: option?.speaker ?? { kind: "narrator" },
+                          },
+                        }));
+                      }}
+                      options={phraseSpeakerOptions}
+                      placeholder="Selecciona emisor"
+                      disabled={!phraseEnabled}
+                      className="w-full"
+                      buttonClassName="border-slate-700 bg-slate-900/70 py-2"
+                      menuClassName="border-slate-700"
+                    />
+                  </div>
                 </div>
 
                 {inlineErrorsByPath["phrase"] ? (

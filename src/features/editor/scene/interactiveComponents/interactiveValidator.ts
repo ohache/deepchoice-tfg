@@ -2,12 +2,12 @@ import { z, type ZodError } from "zod";
 import { issuesToFieldErrors } from "@/shared/zodIssues";
 import type { Project } from "@/domain/types";
 
-type RuleWithPlacedItemId = {
-  placedItemId: string;
+type RuleWithItemInstanceId = {
+  itemInstanceId: string;
 };
 
 type RulesWithUseItem = {
-  onUseItem?: RuleWithPlacedItemId[];
+  onUseItem?: RuleWithItemInstanceId[];
 };
 
 type HasRulesWithUseItem = {
@@ -19,8 +19,8 @@ export function hasDuplicateUseItemRules(entity: HasRulesWithUseItem): boolean {
   const seen = new Set<string>();
 
   for (const rule of rules) {
-    if (seen.has(rule.placedItemId)) return true;
-    seen.add(rule.placedItemId);
+    if (seen.has(rule.itemInstanceId)) return true;
+    seen.add(rule.itemInstanceId);
   }
 
   return false;

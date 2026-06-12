@@ -1,4 +1,4 @@
-import type { ID, InteractionRules, PlaceableState, PlacedNpc, RegionShape } from "@/domain/types";
+import type { ID, InteractionRules, PlaceableState, PlacedNpc, RegionShape, RulePhrase } from "@/domain/types";
 import type { PlacedNpcEditorState, PlacedNpcRuleChannel } from "@/features/editor/scene/placedNpcs/placedNpcEditorTypes";
 import {
   addRuleToRules, buildContext, buildDraftFromPlacedNpc, buildEmptyPlacedNpcDraft, defaultPlacedNpcChannel, initialPlacedNpcEditorState,
@@ -37,7 +37,7 @@ export interface EditorPlacedNpcsSlice {
   setPlacedNpcDraftInitialState: (patch: Partial<PlaceableState>) => void;
   setPlacedNpcDraftRules: (rules: InteractionRules) => void;
 
-  addRuleToSelectedChannel: (args?: { phrase?: string }) => ID | null;
+  addRuleToSelectedChannel: (args?: { phrase?: RulePhrase }) => ID | null;
   deleteRuleFromSelectedChannel: (ruleId: ID) => void;
 
   validatePlacedNpcDraft: () => { ok: boolean; error?: string };

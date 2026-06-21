@@ -4,11 +4,12 @@ import path from 'node:path'
 import tailwind from '@tailwindcss/vite'
 
 // https://vite.dev/config/
-export default defineConfig({
+export default defineConfig(({ command }) => ({
+  base: command === 'build' ? '/deepchoice-tfg' : '/',
   plugins: [react(), tailwind()],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
-    }
-  }
-})
+    },
+  },
+}))

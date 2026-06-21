@@ -8,6 +8,7 @@ import { UserManualModal } from "@/features/home/components/UserManualModal";
 import { PencilSquareIcon, DocumentTextIcon } from "@heroicons/react/24/outline";
 import { Joystick, LightbulbIcon } from "lucide-react";
 import { toast } from "@/shared/toast/toastStore";
+import { publicPath } from "@/shared/publicPath";
 
 type LoadMode = "edit" | "play" | null;
 
@@ -32,7 +33,7 @@ export function HomePage() {
 
   const startGame = useGameStore((s) => s.startGame);
 
-  /* Crear*/
+  /* Crear */
   const handleCreate = () => {
     setNewTitle("");
     setTitleError(null);
@@ -117,9 +118,9 @@ export function HomePage() {
       <div className="home-card">
         <div className="flex items-center justify-center mb-6">
           <img
-            src="/logo.png"
+            src={publicPath("/logo.png")}
             alt="Logo"
-            className="h-32 w-32 rounded-2xl border-3 border-fuchsia-500 object-contain"
+            className="h-32 w-32 rounded-2xl border-3 border-white object-contain"
           />
         </div>
 
@@ -176,10 +177,8 @@ export function HomePage() {
       <CreateAdventureModal
         open={isCreateModalOpen}
         title={newTitle}
-        onTitleChange={(value) => {
-          setNewTitle(value);
-          setTitleError(validateProjectTitle(value));
-        }}
+        onTitleChange={(value) => setNewTitle(value)}
+        onTitleFocus={() => setTitleError(null)}
         onConfirm={handleConfirmCreate}
         onCancel={handleCancelCreate}
         titleError={titleError}

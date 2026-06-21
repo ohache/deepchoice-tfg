@@ -5,18 +5,17 @@ interface CreateAdventureModalProps {
   open: boolean;
   title: string;
   onTitleChange: (value: string) => void;
+  onTitleFocus: () => void;
   onConfirm: () => void;
   onCancel: () => void;
   titleError?: string | null;
 }
 
-export function CreateAdventureModal({ open, title, onTitleChange, onConfirm, onCancel, titleError }: CreateAdventureModalProps) {
+export function CreateAdventureModal({ open, title, onTitleChange, onTitleFocus, onConfirm, onCancel, titleError }: CreateAdventureModalProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const hasError = Boolean(titleError);
 
   const handleKeyDown = createCommitCancelKeyHandler<HTMLInputElement>(onConfirm, onCancel, {stopPropagation: true});
-
-  const isConfirmDisabled = hasError || title.trim().length === 0;
 
   useEffect(() => {
     if (open && inputRef.current) inputRef.current.focus();
@@ -36,6 +35,7 @@ export function CreateAdventureModal({ open, title, onTitleChange, onConfirm, on
           type="text"
           value={title}
           onChange={(e) => onTitleChange(e.target.value)}
+          onFocus={onTitleFocus}
           onKeyDown={handleKeyDown}
           className={`w-full rounded-md px-3 py-1.5 text-sm bg-slate-950 border focus:outline-none focus:ring-2 focus:border-transparent
             ${hasError ? "border-red-500 focus:ring-red-500" : "border-slate-600 focus:ring-fuchsia-500"}`}
@@ -61,7 +61,6 @@ export function CreateAdventureModal({ open, title, onTitleChange, onConfirm, on
             type="button"
             onClick={onConfirm}
             className="btn btn-create"
-            disabled={isConfirmDisabled}
           >
             Crear aventura
           </button>

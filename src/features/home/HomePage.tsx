@@ -118,7 +118,7 @@ export function HomePage() {
       <div className="home-card">
         <div className="flex items-center justify-center mb-6">
           <img
-            src={publicPath("/logo.png")}
+            src={publicPath("logo.png")}
             alt="Logo"
             className="h-32 w-32 rounded-2xl border-3 border-white object-contain"
           />

@@ -4,6 +4,7 @@ import type { GameState, InventoryEntry } from "@/engine/state/runtimeState";
 import { ensureNodeRuntime } from "@/engine/state/runtimeState";
 import { musicPlay, musicStop } from "@/engine/state/slices/musicSlice";
 import type { AudioAdapter } from "@/engine/adapters/SfxAdapter";
+import { publicPath } from "@/shared/helpers";
 
 export type ApplyEffectCtx = {
   audio?: AudioAdapter;
@@ -380,7 +381,7 @@ export function applyEffect(state: GameState, effect: Effect, ctx: ApplyEffectCt
       const entry = findGameItemEntryInProject(state.project, effect.itemInstanceId);
       if (!entry) throw new Error(`addItem apunta a un itemInstanceId inexistente: "${effect.itemInstanceId}".`);
 
-      ctx.audio?.playSfxUrl("/sounds/add_item.wav");
+      ctx.audio?.playSfxUrl(publicPath("sounds/add_item.wav"));
 
       return addPlayerInventoryEntry(state, effect.playerId, entry);
     }
@@ -399,7 +400,7 @@ export function applyEffect(state: GameState, effect: Effect, ctx: ApplyEffectCt
 
       const nextState = setPlayerInventory(state, found.playerId, addInventoryEntry(withoutSource, resultEntry));
 
-      ctx.audio?.playSfxUrl("/sounds/add_item.wav");
+      ctx.audio?.playSfxUrl(publicPath("sounds/add_item.wav"));
 
       return nextState;
     }
@@ -430,7 +431,7 @@ export function applyEffect(state: GameState, effect: Effect, ctx: ApplyEffectCt
         label: effect.resultItemLabel,
       };
 
-      ctx.audio?.playSfxUrl("/sounds/add_item.wav");
+      ctx.audio?.playSfxUrl(publicPath("sounds/add_item.wav"));
 
       return setPlayerInventory(state, playerId, addInventoryEntry(withoutBoth, resultEntry));
     }
@@ -492,7 +493,7 @@ export function applyEffect(state: GameState, effect: Effect, ctx: ApplyEffectCt
         },
       };
 
-      ctx.audio?.playSfxUrl("/sounds/add_item.wav");
+      ctx.audio?.playSfxUrl(publicPath("sounds/add_item.wav"));
 
       return nextState;
     }

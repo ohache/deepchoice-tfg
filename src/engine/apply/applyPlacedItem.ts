@@ -5,6 +5,7 @@ import { applyBlockedPhrase, applyMessageEffect, canInteractWithPlaceable, findI
 import { pickClickRule, pickUseItemRule } from "@/engine/rules";
 import type { GameState } from "@/engine/state/runtimeState";
 import { ensureNodeRuntime } from "@/engine/state/runtimeState";
+import { publicPath } from "@/shared/helpers";
 
 const DEFAULT_NOT_REACHABLE_MESSAGE = "No puedes alcanzarlo.";
 const DEFAULT_CANNOT_USE_MESSAGE = "No puedes hacer eso.";
@@ -23,7 +24,7 @@ function getPreparedPlacedItemState(state: GameState, nodeId: ID, placedItemId: 
 function pickUpPlacedItem(state: GameState, nodeId: ID, placedItem: ItemInstance, playerId: ID, ctx: ApplyEffectCtx = {}): GameState {
   const nextState = addInventoryInstance(state, playerId, placedItem.itemInstanceId, placedItem.itemId, placedItem.label);
 
-  ctx.audio?.playSfxUrl("/sounds/add_item.wav");
+  ctx.audio?.playSfxUrl(publicPath("sounds/add_item.wav"));
 
   const nodeRuntime = nextState.nodes[nodeId];
   const previous = nodeRuntime?.placedItems[placedItem.itemInstanceId];

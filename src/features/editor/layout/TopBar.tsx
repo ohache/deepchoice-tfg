@@ -7,6 +7,7 @@ import { createCommitCancelKeyHandler } from "@/shared/keyboard";
 import { ExitWithoutSaveModal } from "@/features/editor/modals/ExitWithoutSaveModal";
 import { DocumentArrowDownIcon, ArchiveBoxArrowDownIcon } from "@heroicons/react/24/outline";
 import { toast } from "@/shared/toast/toastStore";
+import { publicPath } from "@/shared/helpers";
 
 export function TopBar() {
   const navigate = useNavigate();
@@ -267,7 +268,7 @@ export function TopBar() {
             title="Volver al inicio"
           >
             <img
-              src="/logo.png"
+              src={publicPath("logo.png")}
               alt="Volver al inicio"
               className="w-10 h-10 rounded-lg border-2 border-fuchsia-600 bg-slate-900 object-contain"
             />

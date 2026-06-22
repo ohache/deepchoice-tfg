@@ -1,3 +1,4 @@
+import { publicPath } from "@/shared/helpers";
 import type { CSSProperties } from "react";
 
 type AnchorRect = { x: number; y: number; w: number; h: number };
@@ -73,14 +74,14 @@ export function PlayerBottomBar({ open, anchorRect, onToggle, onClose, onOpenInv
               <PlayerBottomBarButton
                 label="Abrir mapa"
                 title="Mapa"
-                iconSrc="/ui/map.png"
+                iconSrc={publicPath("ui/map.png")}
                 onClick={onOpenMap}
               />
 
               <PlayerBottomBarButton
                 label="Abrir inventario"
                 title="Inventario"
-                iconSrc="/ui/inventory.png"
+                iconSrc={publicPath("ui/inventory.png")}
                 onClick={onOpenInventory}
               />
 
@@ -88,7 +89,7 @@ export function PlayerBottomBar({ open, anchorRect, onToggle, onClose, onOpenInv
                 <PlayerBottomBarButton
                   label="Abrir configuración"
                   title="Configuración"
-                  iconSrc="/ui/settings.png"
+                  iconSrc={publicPath("ui/settings.png")}
                   onClick={onOpenSettings}
                 />
               ) : null}
@@ -97,7 +98,7 @@ export function PlayerBottomBar({ open, anchorRect, onToggle, onClose, onOpenInv
                 <PlayerBottomBarButton
                   label="Pantalla completa"
                   title="Pantalla completa"
-                  iconSrc="/ui/fullScene.png"
+                  iconSrc={publicPath("ui/fullScene.png")}
                   onClick={onToggleFullscreen}
                 />
               ) : null}

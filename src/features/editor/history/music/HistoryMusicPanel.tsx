@@ -9,6 +9,7 @@ import { useAssetDraftPanel } from "@/features/editor/history/shared/useAssetDra
 import { useAudioFileDraft } from "@/features/editor/history/shared/useAudioFileDraft";
 import { PlayIcon, StopIcon } from "@heroicons/react/24/solid";
 import { toast } from "@/shared/toast/toastStore";
+import { publicPath } from "@/shared/helpers";
 
 export function HistoryMusicPanel() {
   const project = useEditorStore((s) => s.project);
@@ -217,7 +218,7 @@ export function HistoryMusicPanel() {
         <section className="relative flex-1 rounded-lg border border-cyan-700 bg-slate-950 text-sm text-slate-100 flex flex-col overflow-hidden">
           {mode !== "none" && (
             <img
-              src="/ui/music-watermark.jpg"
+              src={publicPath("ui/music-watermark.jpg")}
               alt="Logo de música"
               className="px-3 pointer-events-none absolute right-0 top-54/100 -translate-y-1/2 w-3/4 opacity-[0.05]"
               draggable="false"

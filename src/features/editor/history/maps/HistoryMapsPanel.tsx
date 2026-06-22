@@ -10,6 +10,7 @@ import { useAssetDraftPanel } from "@/features/editor/history/shared/useAssetDra
 import { HistoryMapRegionsPanel } from "@/features/editor/history/maps/HistoryMapRegionPanel";
 import { MapRegionCanvas } from "@/features/editor/history/maps/MapRegionCanvas";
 import { toast } from "@/shared/toast/toastStore";
+import { publicPath } from "@/shared/helpers";
 
 export function HistoryMapsPanel() {
   const project = useEditorStore((s) => s.project);
@@ -283,7 +284,7 @@ export function HistoryMapsPanel() {
         <section className="relative flex-1 rounded-lg border border-amber-700 bg-slate-950 text-sm text-slate-100 flex flex-col overflow-hidden">
           {mode !== "none" && (
             <img
-              src="/ui/map-watermark.png"
+              src={publicPath("ui/map-watermark.png")}
               alt="Logo de mapas"
               className="px-3 pointer-events-none absolute right-[7%] top-52/100 -translate-y-1/2 w-3/4 opacity-[0.06]"
               draggable="false"

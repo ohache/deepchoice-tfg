@@ -12,6 +12,7 @@ import { useResolvedAssetUrl } from "@/features/editor/hooks/useResolvedAssetUrl
 import { InventoryItemRulesEditor } from "@/features/editor/history/shared/inventory/InventoryItemRulesEditor";
 import { useEntityInventoryEditor } from "@/features/editor/history/shared/inventory/useEntityInventoryEditor";
 import { toast } from "@/shared/toast/toastStore";
+import { publicPath } from "@/shared/helpers";
 
 function PlayerImageThumb({ logicalPath }: { logicalPath: string }) {
   const resolved = useResolvedAssetUrl(logicalPath);
@@ -358,7 +359,7 @@ export function HistoryPlayersPanel() {
         <section className="relative flex-1 rounded-lg border border-emerald-700 bg-slate-950 text-sm text-slate-100 flex flex-col overflow-hidden">
           {mode !== "none" && (
             <img
-              src="/ui/player-watermark.png"
+              src={publicPath("ui/player-watermark.png")}
               alt=""
               className="px-3 pointer-events-none absolute left-1/12 top-19/40 -translate-y-1/2 scale-125 opacity-[0.05]"
               draggable="false"

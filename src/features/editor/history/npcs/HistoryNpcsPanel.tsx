@@ -12,6 +12,7 @@ import { useEntityVarsEditor } from "@/shared/vars/useEntityVarsEditor";
 import { InventoryItemRulesEditor } from "@/features/editor/history/shared/inventory/InventoryItemRulesEditor";
 import { useEntityInventoryEditor } from "@/features/editor/history/shared/inventory/useEntityInventoryEditor";
 import { toast } from "@/shared/toast/toastStore";
+import { publicPath } from "@/shared/helpers";
 
 export function HistoryNpcsPanel() {
   const project = useEditorStore((s) => s.project);
@@ -323,7 +324,7 @@ export function HistoryNpcsPanel() {
         <section className="relative flex-1 rounded-lg border border-lime-700 bg-slate-950 text-sm text-slate-100 flex flex-col overflow-hidden">
           {mode !== "none" && (
             <img
-              src="/ui/npc-watermark.png"
+              src={publicPath("ui/npc-watermark.png")}
               alt="Logo de PNJ"
               className="px-3 pointer-events-none absolute right-0 top-11/20 -translate-y-1/2 w-[120%] opacity-[0.06]"
               draggable="false"

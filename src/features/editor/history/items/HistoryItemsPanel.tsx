@@ -8,6 +8,7 @@ import { type AssetDraftFieldErrors } from "@/validation/validateAssetBackedDraf
 import { useImageFileDraft } from "@/features/editor/history/shared/useImageFileDraft";
 import { useAssetDraftPanel } from "@/features/editor/history/shared/useAssetDraftPanel";
 import { toast } from "@/shared/toast/toastStore";
+import { publicPath } from "@/shared/helpers";
 
 export function HistoryItemsPanel() {
   const project = useEditorStore((s) => s.project);
@@ -225,7 +226,7 @@ export function HistoryItemsPanel() {
         <section className="relative flex-1 rounded-lg border border-red-700 bg-slate-950 text-sm text-slate-100 flex flex-col overflow-hidden">
           {mode !== "none" && (
             <img
-              src="/ui/item-watermark.png"
+              src={publicPath("ui/item-watermark.png")}
               alt="Logo de items"
               className="px-3 pointer-events-none absolute right-0 top-46/100 -translate-y-1/2 w-3/4 opacity-[0.06]"
               draggable="false"

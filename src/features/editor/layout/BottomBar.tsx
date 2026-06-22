@@ -1,51 +1,6 @@
 import { useMemo } from "react";
 import { useEditorStore } from "@/store/editorStore";
-import type { EditorPrimaryMode, EditorSecondaryMode } from "@/features/editor/core/editorModes";
-
-type SecondaryTab = {
-  id: EditorSecondaryMode;
-  label: string;
-  title?: string;
-  disabled?: boolean;
-};
-
-type BottomBarCounts = {
-  nodeCount: number;
-  playersCount: number;
-  npcsCount: number;
-  itemsCount: number;
-  musicCount: number;
-  sfxCount: number;
-  mapCount: number;
-};
-
-function buildSecondaryTabs(primaryMode: EditorPrimaryMode, nodeMode: "creating" | "editing", counts: BottomBarCounts, canOpenSceneTest: boolean): SecondaryTab[] {
-  switch (primaryMode) {
-    case "historia":
-      return [
-        { id: "vista", label: "Vista", title: `Nodos: ${counts.nodeCount}` },
-        { id: "jugador", label: "Jugador", title: `Jugadores: ${counts.playersCount}` },
-        { id: "pnjs", label: "PNJs", title: `PNJs: ${counts.npcsCount}` },
-        { id: "items", label: "Items", title: `Items: ${counts.itemsCount}` },
-        { id: "musica", label: "Música", title: `Música: ${counts.musicCount}` },
-        { id: "sfx", label: "Efectos de sonido", title: `Sfx: ${counts.sfxCount}` },
-        { id: "mapa", label: "Mapa", title: `Mapas: ${counts.mapCount}` },
-        { id: "recursos", label: "Recursos" },
-      ];
-
-    case "escena":
-      return [
-        { id: "crear", label: nodeMode === "editing" ? "Editar" : "Crear" },
-        { id: "buscar", label: "Buscar" },
-        { id: "test", label: "Test", disabled: !canOpenSceneTest, title: canOpenSceneTest ? "Probar la escena" : "Guarda la escena para poder abrir Test" },
-      ];
-
-    default: {
-      const exhaustive: never = primaryMode;
-      return exhaustive;
-    }
-  }
-}
+import { buildSecondaryTabs } from "@/features/editor/core/editorNavigation";
 
 export function BottomBar() {
   const project = useEditorStore((s) => s.project);
@@ -53,11 +8,14 @@ export function BottomBar() {
   const primaryMode = useEditorStore((s) => s.primaryMode);
   const secondaryMode = useEditorStore((s) => s.secondaryMode);
   const setSecondaryMode = useEditorStore((s) => s.setSecondaryMode);
+
   const nodeMode = useEditorStore((s) => s.nodeMode);
   const canOpenSceneTest = useEditorStore((s) => s.canOpenSceneTest());
 
   if (!project) return null;
 
+  /*
+ * Construye la lista de pestañas secundarias visibles */
   const tabs = useMemo(() =>
     buildSecondaryTabs(primaryMode, nodeMode, {
       nodeCount: project.nodes.length,

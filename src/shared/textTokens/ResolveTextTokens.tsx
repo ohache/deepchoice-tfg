@@ -1,31 +1,22 @@
 import type { ID, Project, WorldMap } from "@/domain/types";
-import { findTextTokens, parseTextToken, type TextTokenKind } from "@/features/editor/scene/textTokens/tokenFormat";
+import { findTextTokens, parseTextToken, type TextTokenKind } from "@/shared/textTokens/tokenFormat";
 
-export type ResolvedTokenPart =
-  | { type: "text"; value: string }
-  | { type: "token"; raw: string; resolvedText: string | null };
-
+export type ResolvedTokenPart = { type: "text"; value: string } | { type: "token"; raw: string; displayText: string | null };
 
 /* Busca el nombre visible de una entidad del proyecto */
 function getEntityName(project: Project, kind: TextTokenKind, id: ID): string | null {
   switch (kind) {
     case "players": return project.players.find((player) => player.id === id)?.name ?? null;
-
     case "npcs": return project.npcs.find((npc) => npc.id === id)?.name ?? null;
-
     case "items": return project.items.find((item) => item.id === id)?.name ?? null;
-
     case "maps": return project.maps.find((map) => map.id === id)?.name ?? null;
-
     case "music": return project.musicTracks.find((track) => track.id === id)?.name ?? null;
   }
 }
 
 /* Devuelve el nombre de una variable de player o npc */
 function getVarName(project: Project, kind: "players" | "npcs", entityId: ID, varId: ID): string | null {
-  const entity = kind === "players"
-      ? project.players.find((player) => player.id === entityId)
-      : project.npcs.find((npc) => npc.id === entityId);
+  const entity = kind === "players" ? project.players.find((player) => player.id === entityId) : project.npcs.find((npc) => npc.id === entityId);
 
   if (!entity) return null;
 
@@ -52,9 +43,7 @@ function resolveSingleToken(raw: string, project: Project | null): string | null
 
   switch (parsed.prop) {
     case "name": return getEntityName(project, parsed.kind, parsed.entityId);
-
     case "vars": return getVarName(project, parsed.kind, parsed.entityId, parsed.varId);
-
     case "regions": return getMapRegionName(project, parsed.entityId, parsed.regionId);
   }
 }
@@ -72,7 +61,7 @@ export function resolveTextTokensToParts(input: string, project: Project | null)
   for (const token of tokens) {
     if (token.start > cursor) parts.push({ type: "text", value: input.slice(cursor, token.start) });
 
-    parts.push({ type: "token", raw: token.raw, resolvedText: resolveSingleToken(token.raw, project) });
+    parts.push({ type: "token", raw: token.raw, displayText: resolveSingleToken(token.raw, project) });
 
     cursor = token.end;
   }
@@ -84,7 +73,7 @@ export function resolveTextTokensToParts(input: string, project: Project | null)
 
 export function countBrokenTokens(parts: ResolvedTokenPart[]): number {
   return parts.reduce((count, part) => {
-    if (part.type === "token" && !part.resolvedText) return count + 1;
+    if (part.type === "token" && !part.displayText) return count + 1;
     return count;
   }, 0);
 }
@@ -113,15 +102,11 @@ export function ResolvedTextRenderer({ parts, emptyText = "No hay texto.", wrapp
   return (
     <p className={wrapperClassName}>
       {parts.map((part, index) => {
-        if (part.type === "text") {
-          return (<span key={index} className={textClassName}>{part.value}</span>);
-        }
+        if (part.type === "text") return (<span key={index} className={textClassName}>{part.value}</span>);
 
-        if (!part.resolvedText) {
-          return (<span key={index} className={brokenTokenClassName} title={brokenTokenTitle}>⟦{part.raw}⟧</span>);
-        }
+        if (!part.displayText) return (<span key={index} className={brokenTokenClassName} title={brokenTokenTitle}>⟦{part.raw}⟧</span>);
 
-        return (<span key={index} className={resolvedTokenClassName} title={part.raw}>{part.resolvedText}</span>);
+        return (<span key={index} className={resolvedTokenClassName} title={part.raw}>{part.displayText}</span>);
       })}
     </p>
   );

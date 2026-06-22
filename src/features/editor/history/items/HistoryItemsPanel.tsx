@@ -3,16 +3,11 @@ import type { ItemDef } from "@/domain/types";
 import { useEditorStore } from "@/store/editorStore";
 import { validateItemDraft } from "@/features/editor/history/items/itemValidator";
 import { hasDuplicateFileByLinkedAssetId } from "@/validation/genericValidator";
+import { getDraftPanelTitle } from "@/features/editor/history/shared/genericHelpers";
 import { type AssetDraftFieldErrors } from "@/validation/validateAssetBackedDraft";
 import { useImageFileDraft } from "@/features/editor/history/shared/useImageFileDraft";
 import { useAssetDraftPanel } from "@/features/editor/history/shared/useAssetDraftPanel";
 import { toast } from "@/shared/toast/toastStore";
-
-function getModeTitle(mode: "none" | "new" | "edit") {
-  if (mode === "new") return "Nuevo item";
-  if (mode === "edit") return "Editar item";
-  return "Detalle de item";
-}
 
 export function HistoryItemsPanel() {
   const project = useEditorStore((s) => s.project);
@@ -54,8 +49,10 @@ export function HistoryItemsPanel() {
     },
   });
 
+  /* Al entrar en el panel se limpia la selección previa */
   useEffect(() => () => setSelectedItemId(null), [setSelectedItemId]);
 
+  /* Carga el draft desde el efecto seleccionado */
   const loadDraftFromSelectedItem = (item: ItemDef) => {
     setDraftName(item.name ?? "");
     setDraftDescription(item.description ?? "");
@@ -68,6 +65,7 @@ export function HistoryItemsPanel() {
     image.loadPreviewFromExistingFile(assetFiles?.[item.id]);
   };
 
+  /* Limpia el formulario */
   const resetDraftFields = () => {
     setDraftName("");
     setDraftDescription("");
@@ -75,6 +73,7 @@ export function HistoryItemsPanel() {
     image.resetImageDraft();
   };
 
+  /* Comportamiento común de selección / edición / creación */
   const panel = useAssetDraftPanel<ItemDef>({
     hasProject: !!project,
     selectedId: selectedItemId,
@@ -85,25 +84,23 @@ export function HistoryItemsPanel() {
     onResetDraftFields: resetDraftFields,
   });
 
+  /* Estado visual actual del panel */
   const mode = panel.mode;
-  const rightTitle = getModeTitle(mode);
+  const rightTitle = getDraftPanelTitle(mode, {
+    detail: "Detalle de objeto",
+    create: "Nuevo objeto",
+    edit: "Editar objeto",
+  });
 
+  /* Validación del formulario */
   const validateDraft = (): boolean => {
     if (!project) return false;
 
     const descTrim = draftDescription.trim();
 
     const { ok, errors } = validateItemDraft(
-      {
-        name: draftName,
-        description: descTrim || undefined,
-        file: image.draftFile ?? undefined
-      },
-      {
-        mode: mode === "edit" ? "edit" : "new",
-        project,
-        currentItemId: selectedItemId ?? undefined
-      },
+      { name: draftName, description: descTrim || undefined, file: image.draftFile ?? undefined},
+      { mode: mode === "edit" ? "edit" : "new", project, currentItemId: selectedItemId ?? undefined},
     );
 
     setFieldErrors(errors);
@@ -113,6 +110,7 @@ export function HistoryItemsPanel() {
     return ok;
   };
 
+  /* Alta de un nuevo objeto */
   const handleCreate = () => {
     if (!image.draftFile) {
       toast.error("Falta imagen", "Selecciona una imagen antes de guardar.");
@@ -123,14 +121,10 @@ export function HistoryItemsPanel() {
     const descTrim = draftDescription.trim();
     const description = descTrim || undefined;
 
-    const id = addItem({
-      name: nameTrim,
-      description,
-      file: image.draftFile,
-    });
+    const id = addItem({ name: nameTrim, description, file: image.draftFile });
 
     if (!id) {
-      toast.error("No se pudo crear", "Revisa si el nombre o el archivo ya están en uso.");
+      toast.error("Error inesperado", "No se pudo crear el objeto.");
       return;
     }
 
@@ -138,6 +132,7 @@ export function HistoryItemsPanel() {
     panel.reset();
   };
 
+  /* Actualización de un efecto existente */
   const handleUpdate = () => {
     if (!selectedItemId) return;
 
@@ -146,17 +141,14 @@ export function HistoryItemsPanel() {
     const description = descTrim || undefined;
     const replacingFile = !!image.draftFile;
 
-    updateItem(selectedItemId, {
-      name: nameTrim,
-      description,
-      file: image.draftFile ?? undefined,
-    });
+    updateItem(selectedItemId, { name: nameTrim, description, file: image.draftFile ?? undefined });
 
     toast.success(replacingFile ? "Item actualizado (imagen reemplazada)" : "Item actualizado", `“${nameTrim}”`);
 
     panel.reset();
   };
 
+  /* Punto único de guardado */
   const handleSave = () => {
     if (!project) return;
     if (!validateDraft()) return;
@@ -169,6 +161,7 @@ export function HistoryItemsPanel() {
     if (mode === "edit") handleUpdate();
   };
 
+  /* Solicita la eliminación del efecto seleccionado */
   const handleDeleteItem = () => {
     if (!selectedItemId) return;
     removeItem(selectedItemId);

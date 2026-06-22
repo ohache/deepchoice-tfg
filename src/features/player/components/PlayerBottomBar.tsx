@@ -1,23 +1,16 @@
 import type { CSSProperties } from "react";
 
-type AnchorRect = {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-};
+type AnchorRect = { x: number; y: number; w: number; h: number };
 
 type PlayerBottomBarProps = {
   open: boolean;
   anchorRect?: AnchorRect | null;
-  isFinal?: boolean;
   onToggle: () => void;
   onClose: () => void;
   onOpenInventory: () => void;
   onOpenMap: () => void;
   onOpenSettings?: () => void;
   onToggleFullscreen?: () => void;
-  onExit?: () => void;
 };
 
 type PlayerBottomBarButtonProps = {
@@ -48,48 +41,17 @@ function PlayerBottomBarButton({ label, title, iconSrc, onClick }: PlayerBottomB
   );
 }
 
-export function PlayerBottomBar({
-  open,
-  anchorRect,
-  isFinal = false,
-  onToggle,
-  onClose,
-  onOpenInventory,
-  onOpenMap,
-  onOpenSettings,
-  onToggleFullscreen,
-  onExit,
-}: PlayerBottomBarProps) {
+export function PlayerBottomBar({ open, anchorRect, onToggle, onClose, onOpenInventory, onOpenMap, onOpenSettings, onToggleFullscreen }: PlayerBottomBarProps) {
   const anchorStyle: CSSProperties = anchorRect
-    ? {
-        left: anchorRect.x,
-        width: anchorRect.w,
-        bottom: `calc(100% - ${anchorRect.y + anchorRect.h}px)`,
-      }
-    : {
-        left: "50%",
-        width: "min(100%, 48rem)",
-        bottom: 0,
-        transform: "translateX(-50%)",
-      };
+    ? { left: anchorRect.x, width: anchorRect.w, bottom: `calc(100% - ${anchorRect.y + anchorRect.h}px)` }
+    : { left: "50%", width: "min(100%, 48rem)", bottom: 0, transform: "translateX(-50%)" };
 
   return (
     <div
-      className={[
-        "absolute inset-0 z-30",
-        open ? "pointer-events-auto" : "pointer-events-none",
-      ].join(" ")}
-      onClick={() => {
-        if (open) onClose();
-      }}
+      className={`absolute inset-0 z-30 +  ${open ? "pointer-events-auto" : "pointer-events-none"}`}
+      onClick={() => { if (open) onClose() }}
       style={{ cursor: "auto" }}
     >
-      <style>{`
-        @keyframes bottomBarUp {
-          0% { opacity: 0; transform: translateY(32px); }
-          100% { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
 
       <div
         className="absolute flex flex-col items-center justify-end"
@@ -98,27 +60,6 @@ export function PlayerBottomBar({
           cursor: "auto",
         }}
       >
-        {isFinal ? (
-          <div className="pointer-events-auto mb-3 flex justify-center">
-            <div className="space-y-2 rounded-lg border border-slate-700 bg-slate-900/70 px-4 py-2 text-center backdrop-blur-sm">
-              <p className="text-sm text-emerald-300">Has llegado al final de esta aventura.</p>
-
-              {onExit ? (
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onExit();
-                  }}
-                  className="rounded-lg bg-slate-800 px-4 py-1.5 text-xs font-semibold hover:bg-slate-700"
-                  style={{ cursor: "pointer" }}
-                >
-                  Volver al inicio
-                </button>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
 
         {open ? (
           <div

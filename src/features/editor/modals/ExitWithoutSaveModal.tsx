@@ -13,7 +13,7 @@ export function ExitWithoutSaveModal({ open, onCancel, onExit, onExitAndDownload
         <div className="modal-overlay">
             <div className="modal-card text-center">
                 <p className="text-[15px] text-slate-100 mb-4">
-                   Va salir del editor. ¿Quiere exportar el proyecto antes?
+                   Va salir del editor. ¿Quiere realiza alguna acción antes?
                 </p>
 
                 <div className="mt-4 flex flex-col items-center gap-3">
@@ -25,6 +25,7 @@ export function ExitWithoutSaveModal({ open, onCancel, onExit, onExitAndDownload
                     >
                         Descargar el archivo JSON
                     </button>
+
                     <button
                         type="button"
                         onClick={onExitAndDownloadProject}
@@ -40,7 +41,8 @@ export function ExitWithoutSaveModal({ open, onCancel, onExit, onExitAndDownload
                     >
                         Continuar editando
                     </button>
-                                        <button
+                    
+                    <button
                         type="button"
                         onClick={onExit}
                         className="btn btn-danger-condition text-sm min-w-[200px]"

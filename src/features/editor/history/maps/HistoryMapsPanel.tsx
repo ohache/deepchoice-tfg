@@ -3,20 +3,13 @@ import type { WorldMap } from "@/domain/types";
 import { useEditorStore } from "@/store/editorStore";
 import { validateMapDraft } from "@/features/editor/history/maps/mapValidator";
 import { hasDuplicateFileByLinkedAssetId } from "@/validation/genericValidator";
-import type { MapFieldErrors } from "@/features/editor/history/maps/mapValidator";
+import { getDraftPanelTitle } from "@/features/editor/history/shared/genericHelpers";
+import { type AssetDraftFieldErrors } from "@/validation/validateAssetBackedDraft";
 import { useImageFileDraft } from "@/features/editor/history/shared/useImageFileDraft";
 import { useAssetDraftPanel } from "@/features/editor/history/shared/useAssetDraftPanel";
 import { HistoryMapRegionsPanel } from "@/features/editor/history/maps/HistoryMapRegionPanel";
 import { MapRegionCanvas } from "@/features/editor/history/maps/MapRegionCanvas";
 import { toast } from "@/shared/toast/toastStore";
-
-type MapVisualType = "singleImage" | "composed";
-
-function getModeTitle(mode: "none" | "new" | "edit") {
-  if (mode === "new") return "Nuevo mapa";
-  if (mode === "edit") return "Editar mapa";
-  return "Detalle de mapa";
-}
 
 export function HistoryMapsPanel() {
   const project = useEditorStore((s) => s.project);
@@ -31,8 +24,8 @@ export function HistoryMapsPanel() {
   const clearMapRegionEditor = useEditorStore((s) => s.clearMapRegionEditor);
 
   const [draftName, setDraftName] = useState("");
-  const [draftVisualType, setDraftVisualType] = useState<MapVisualType>("singleImage");
-  const [fieldErrors, setFieldErrors] = useState<Partial<MapFieldErrors>>({});
+  const [draftVisualType, setDraftVisualType] = useState<"singleImage" | "composed">("singleImage");
+  const [fieldErrors, setFieldErrors] = useState<AssetDraftFieldErrors>({});
   const [editMode, setEditMode] = useState<"map" | "region">("region");
   const [mapRegionPanelError, setMapRegionPanelError] = useState<string | null>(null);
 
@@ -68,6 +61,7 @@ export function HistoryMapsPanel() {
     },
   });
 
+  /* Limpieza al desmontar el panel: resetea editor de regiones y deselecciona mapa */
   useEffect(() => {
     return () => {
       clearMapRegionEditor();
@@ -75,19 +69,17 @@ export function HistoryMapsPanel() {
     };
   }, [clearMapRegionEditor, setSelectedMapId]);
 
-  useEffect(() => {
-    setEditMode("region");
-  }, [selectedMapId]);
+  /* Se fuerza al modo región cada vez que cambia el mapa seleccionado */
+  useEffect(() => setEditMode("region"), [selectedMapId]);
 
+  /* Carga en el formulario los datos del mapa seleccionado */
   const loadDraftFromSelectedMap = (map: WorldMap) => {
     setDraftName(map.name ?? "");
     setDraftVisualType(map.visual.type);
     setFieldErrors({});
     image.resetImageDraft();
 
-    const assetId = map.visual.type === "singleImage"
-      ? map.visual.imageAssetId
-      : map.visual.backgroundAssetId;
+    const assetId = map.visual.type === "singleImage" ? map.visual.imageAssetId : map.visual.backgroundAssetId;
 
     const assetPath = (project?.assets ?? []).find((asset) => asset.kind === "maps" && asset.id === assetId)?.file?.trim() ?? "";
 
@@ -95,6 +87,7 @@ export function HistoryMapsPanel() {
     image.loadPreviewFromExistingFile(assetFiles?.[assetId]);
   };
 
+  /* Reseta los campos del formulario */
   const resetDraftFields = () => {
     setDraftName("");
     setDraftVisualType("singleImage");
@@ -105,6 +98,7 @@ export function HistoryMapsPanel() {
     setEditMode("region");
   };
 
+  /* Comportamiento común de selección / edición / creación */
   const panel = useAssetDraftPanel<WorldMap>({
     hasProject: !!project,
     selectedId: selectedMapId,
@@ -120,24 +114,24 @@ export function HistoryMapsPanel() {
     onResetDraftFields: resetDraftFields,
   });
 
+  /* Estado visual actual del panel */
   const mode = panel.mode;
-  const rightTitle = mode === "edit" && editMode === "region"
-    ? "Editar regiones"
-    : getModeTitle(mode);
+  const rightTitle = mode === "edit" && editMode === "region" ? "Editar regiones" : getDraftPanelTitle(mode, {
+      detail: "Detalle de mapa",
+      create: "Nuevo mapa",
+      edit: "Editar mapa",
+    });
 
   const showMapConfig = mode === "new" || (mode === "edit" && editMode === "map");
   const showRegionEditor = mode === "edit" && !!selectedMap && editMode === "region";
 
+  /* Validación del formulario */
   const validateDraft = (): boolean => {
     if (!project) return false;
 
     const { ok, errors } = validateMapDraft(
       { name: draftName, file: image.draftFile ?? undefined },
-      {
-        mode: mode === "edit" ? "edit" : "new",
-        project,
-        currentMapId: selectedMapId ?? undefined
-      },
+      { mode: mode === "edit" ? "edit" : "new", project, currentMapId: selectedMapId ?? undefined },
     );
 
     setFieldErrors(errors);
@@ -147,6 +141,7 @@ export function HistoryMapsPanel() {
     return ok;
   };
 
+  /* Limpieza tras guardar o eliminar mapa */
   const cleanupAfterSaveOrDelete = () => {
     clearMapRegionEditor();
     setSelectedMapId(null);
@@ -154,6 +149,7 @@ export function HistoryMapsPanel() {
     panel.reset();
   };
 
+  /* Alta de un nuevo mapa */
   const handleCreate = () => {
     if (!image.draftFile) {
       toast.error("Falta imagen", "Selecciona una imagen antes de guardar.");
@@ -177,6 +173,7 @@ export function HistoryMapsPanel() {
     toast.success("Mapa creado", `“${nameTrim}”`);
   };
 
+  /* Actualización de un mapa existente */
   const handleUpdate = () => {
     if (!selectedMapId) return;
 
@@ -194,33 +191,31 @@ export function HistoryMapsPanel() {
     toast.success(replacingFile ? "Mapa actualizado (imagen reemplazada)" : "Mapa actualizado", `“${nameTrim}”`);
   };
 
+  /* Punto único de guardado */
   const handleSave = () => {
     if (!project) return;
     if (!validateDraft()) return;
 
-    if (mode === "new") {
-      handleCreate();
-      return;
-    }
-
-    if (mode === "edit") handleUpdate();
+    if (mode === "new") handleCreate();
+    else if (mode === "edit") handleUpdate();
   };
 
+  /* Solicita la eliminación del mapa seleccionado */
   const handleDeleteMap = () => {
     if (!selectedMapId) return;
     removeMap(selectedMapId);
   };
 
+  /* Cambia a modo edición de configuración del mapa */
   const handleEditMap = () => {
     clearMapRegionEditor();
     setEditMode("map");
   };
 
+  /* Cambia a modo editor de regiones */
   const handleEnterRegionMode = () => { setEditMode("region") };
 
   if (!project) return null;
-
-  const fileError = fieldErrors.file ?? image.fileError;
 
   return (
     <div className="max-w-[900px] mx-auto rounded-xl border-3 border-slate-700 bg-slate-900 p-4 space-y-3">
@@ -419,8 +414,6 @@ export function HistoryMapsPanel() {
                         className="hidden"
                         onChange={image.handleFileChange}
                       />
-
-                      {fileError && <p className="form-field-error mt-1">{fileError}</p>}
                     </div>
 
                     {!!image.previewUrl && (

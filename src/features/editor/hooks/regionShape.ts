@@ -2,10 +2,19 @@ import type { CSSProperties } from "react";
 import type { RegionShape } from "@/domain/types";
 import type { Rect } from "@/features/editor/hooks/useObjectContainRect";
 
+export const DEFAULT_MIN_RECT_01 = 0.02;
+
+type RectRegionShape = Extract<RegionShape, { type: "rect" }>;
+
+function isFiniteRect(shape: RectRegionShape): boolean {
+  return (Number.isFinite(shape.x) && Number.isFinite(shape.y) && Number.isFinite(shape.w) && Number.isFinite(shape.h));
+}
+
 /* Convierte una shape normalizada [0..1] en estilos CSS absolutos */
 export function rectStyleFromShape(shape: RegionShape | null | undefined, contentRectInContainer: Rect | null): CSSProperties | null {
   if (!contentRectInContainer) return null;
   if (!shape || shape.type !== "rect") return null;
+  if (!isFiniteRect(shape)) return null;
 
   const left = contentRectInContainer.x + shape.x * contentRectInContainer.w;
   const top = contentRectInContainer.y + shape.y * contentRectInContainer.h;
@@ -15,16 +24,15 @@ export function rectStyleFromShape(shape: RegionShape | null | undefined, conten
   return { left: `${left}px`, top: `${top}px`, width: `${width}px`, height: `${height}px` };
 }
 
-export function isValidRect01(shape: RegionShape | null | undefined, opts?: { min?: number }): shape is Extract<RegionShape, { type: "rect" }> {
+export function isValidRect01(shape: RegionShape | null | undefined, opts?: { min?: number }): shape is RectRegionShape {
   if (!shape || shape.type !== "rect") return false;
+  if (!isFiniteRect(shape)) return false;
 
   const { x, y, w, h } = shape;
+  const min = opts?.min ?? DEFAULT_MIN_RECT_01;
 
-  if (![x, y, w, h].every(Number.isFinite)) return false;
   if (x < 0 || y < 0 || w <= 0 || h <= 0) return false;
   if (x + w > 1 || y + h > 1) return false;
-
-  const min = opts?.min ?? 0.02;
   if (w < min || h < min) return false;
 
   return true;
@@ -33,6 +41,7 @@ export function isValidRect01(shape: RegionShape | null | undefined, opts?: { mi
 /* Comprueba intersección entre dos rectángulos normalizados */
 export function rect01Intersects(a: RegionShape, b: RegionShape): boolean {
   if (a.type !== "rect" || b.type !== "rect") return false;
+  if (!isFiniteRect(a) || !isFiniteRect(b)) return false;
 
   const ax2 = a.x + a.w;
   const ay2 = a.y + a.h;

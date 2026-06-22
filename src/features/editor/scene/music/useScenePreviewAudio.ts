@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ID, Project, ResolvedMusic } from "@/domain/types";
+import type { ID, Project, ResolvedMusic, WorldMap } from "@/domain/types";
 
 type UseScenePreviewAudioArgs = {
-  project: Project | null;
+  project?: Project | null;
+  resolvedMusic?: ResolvedMusic;
   nodeMusicTrackId?: ID;
   layerMusicTrackId?: ID;
   mapId?: ID;
@@ -11,25 +12,21 @@ type UseScenePreviewAudioArgs = {
 };
 
 type ResolveScenePreviewMusicArgs = {
-  project: Project | null;
+  maps?: WorldMap[];
   nodeMusicTrackId?: ID;
   layerMusicTrackId?: ID;
   mapId?: ID;
   regionId?: ID;
 };
 
-function resolveScenePreviewMusic({ project, nodeMusicTrackId, layerMusicTrackId, mapId, regionId }: ResolveScenePreviewMusicArgs): ResolvedMusic | undefined {
-  if (layerMusicTrackId) {
-    return { trackId: layerMusicTrackId, sourceType: "layer", sourceId: layerMusicTrackId };
-  }
+export function resolveScenePreviewMusic({ maps, nodeMusicTrackId, layerMusicTrackId, mapId, regionId }: ResolveScenePreviewMusicArgs): ResolvedMusic | undefined {
+  if (layerMusicTrackId) return { trackId: layerMusicTrackId, sourceType: "layer", sourceId: layerMusicTrackId };
 
-  if (nodeMusicTrackId) {
-    return { trackId: nodeMusicTrackId, sourceType: "scene", sourceId: nodeMusicTrackId };
-  }
+  if (nodeMusicTrackId)  return { trackId: nodeMusicTrackId, sourceType: "scene", sourceId: nodeMusicTrackId };
+  
+  if (!maps || !mapId || !regionId) return undefined;
 
-  if (!project || !mapId || !regionId) return undefined;
-
-  const map = (project.maps ?? []).find((entry) => entry.id === mapId) ?? null;
+  const map = maps.find((entry) => entry.id === mapId) ?? null;
   const region = map?.regions.find((entry) => entry.id === regionId) ?? null;
 
   if (!region?.musicTrackId) return undefined;
@@ -60,15 +57,15 @@ function loadAudioSource(audio: HTMLAudioElement, musicSrc: string) {
 }
 
 /* Hook encargado de preparar y controlar el audio de la preview de escena */
-export function useScenePreviewAudio({ project, nodeMusicTrackId, layerMusicTrackId, mapId, regionId, musicSrc }: UseScenePreviewAudioArgs) {
+export function useScenePreviewAudio({ project, resolvedMusic: resolvedMusicInput, nodeMusicTrackId, layerMusicTrackId, mapId, regionId, musicSrc }: UseScenePreviewAudioArgs) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
-    const [isPlaying, setIsPlaying] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
   const lastResolvedKeyRef = useRef<string | null>(null);
 
+  const maps = project?.maps;
 
-  const resolvedMusic = useMemo(() =>
-      resolveScenePreviewMusic({ project, nodeMusicTrackId, layerMusicTrackId, mapId, regionId }),
-    [project, nodeMusicTrackId, layerMusicTrackId, mapId, regionId],
+  const resolvedMusic = useMemo(() => resolvedMusicInput ?? resolveScenePreviewMusic({ maps, nodeMusicTrackId, layerMusicTrackId, mapId, regionId }),
+    [resolvedMusicInput, maps, nodeMusicTrackId, layerMusicTrackId, mapId, regionId]
   );
 
   const resolvedTrackId = resolvedMusic?.trackId ?? null;
@@ -102,16 +99,13 @@ export function useScenePreviewAudio({ project, nodeMusicTrackId, layerMusicTrac
     const audio = audioRef.current;
     if (!audio) return;
 
-    const handleEnded = () => setIsPlaying(false);
     const handlePause = () => setIsPlaying(false);
     const handlePlay = () => setIsPlaying(true);
 
-    audio.addEventListener("ended", handleEnded);
     audio.addEventListener("pause", handlePause);
     audio.addEventListener("play", handlePlay);
 
     return () => {
-      audio.removeEventListener("ended", handleEnded);
       audio.removeEventListener("pause", handlePause);
       audio.removeEventListener("play", handlePlay);
     };
@@ -142,6 +136,14 @@ export function useScenePreviewAudio({ project, nodeMusicTrackId, layerMusicTrac
     }
   }, [canPlay]);
 
+  const pause = useCallback(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    audio.pause();
+    setIsPlaying(false);
+  }, []);
+
   const stop = useCallback(() => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -153,12 +155,12 @@ export function useScenePreviewAudio({ project, nodeMusicTrackId, layerMusicTrac
 
   const toggle = useCallback(async () => {
     if (isPlaying) {
-      stop();
+      pause();
       return false;
     }
 
     return play();
-  }, [isPlaying, play, stop]);
+  }, [isPlaying, pause, play]);
 
-  return { audioRef, isPlaying, canPlay, toggle, stop, resolvedMusic, resolvedTrackId };
+  return { audioRef, isPlaying, canPlay, toggle, pause, stop, resolvedMusic, resolvedTrackId };
 }

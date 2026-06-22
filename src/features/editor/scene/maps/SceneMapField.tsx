@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from "react";
+import { useMemo, useCallback, useEffect, useState } from "react";
 import type { WorldMap, MapRegion, NodeMapLocation, ID } from "@/domain/types";
 import { useEditorStore } from "@/store/editorStore";
 import { ToggleFieldBlock } from "@/features/editor/scene/SceneFieldBlocks";
@@ -18,82 +18,72 @@ export function SceneMapField({ label = "Mapa", active, onToggle }: SceneMapFiel
 
   const maps = useMemo<WorldMap[]>(() => project?.maps ?? [], [project?.maps]);
 
-  const selectedMapId = nodeDraft?.mapLocation?.mapId ?? "";
+  const nodeId = nodeDraft?.id ?? null;
+  const storedMapId = nodeDraft?.mapLocation?.mapId ?? "";
   const selectedRegionId = nodeDraft?.mapLocation?.regionId ?? "";
   const isEntry = Boolean(nodeDraft?.mapLocation?.isEntry);
+
+  const [uiSelectedMapId, setUiSelectedMapId] = useState(storedMapId);
+
+  useEffect(() => {
+    if (storedMapId) setUiSelectedMapId(storedMapId);
+  }, [storedMapId]);
+
+  useEffect(() => setUiSelectedMapId(storedMapId), [nodeId]);
+
+  const selectedMapId = uiSelectedMapId;
 
   const selectedMap = useMemo(() => maps.find((map) => map.id === selectedMapId) ?? null, [maps, selectedMapId]);
 
   const regions = useMemo<MapRegion[]>(() => selectedMap?.regions ?? [], [selectedMap]);
 
-  // Opciones de UI para el selector de mapas.
-  const mapOptions = useMemo<Option<ID>[]>(() =>
-    maps.map((map) => ({ id: map.id, label: map.name?.trim() || map.id })), [maps]
-  );
-
-  // Opciones de UI para el selector de regiones.
-  const regionOptions = useMemo<Option<ID>[]>(() =>
-    regions.map((region) => ({ id: region.id, label: region.label?.trim() || "(Sin etiqueta)" })), [regions]
-  );
+  const mapOptions = useMemo<Option<ID>[]>(() => maps.map((map) => ({ id: map.id, label: map.name?.trim() || map.id })), [maps]);
+  const regionOptions = useMemo<Option<ID>[]>(() => regions.map((region) => ({ id: region.id, label: region.label?.trim() || "(Sin etiqueta)" })), [regions]);
 
   /* Cambia el mapa asociado a la escena */
-  const handleMapChange = useCallback(
-    (nextMapId: string) => {
-      if (!nextMapId) {
-        setNodeMapLocation(undefined);
-        return;
-      }
+  const handleMapChange = useCallback((nextMapId: string) => {
+    setUiSelectedMapId(nextMapId);
 
-      const map = maps.find((m) => m.id === nextMapId) ?? null;
-      const firstRegion = map?.regions?.[0] ?? null;
+    if (!nextMapId) {
+      setNodeMapLocation(undefined);
+      return;
+    }
 
-      if (!map || !firstRegion) {
-        setNodeMapLocation(undefined);
-        return;
-      }
+    const map = maps.find((m) => m.id === nextMapId) ?? null;
+    const firstRegion = map?.regions?.[0] ?? null;
 
-      const nextLoc: NodeMapLocation = {
-        mapId: map.id,
-        regionId: firstRegion.id,
-        isEntry: false,
-      };
+    if (!map || !firstRegion) {
+      setNodeMapLocation(undefined);
+      return;
+    }
 
-      setNodeMapLocation(nextLoc);
-    }, [maps, setNodeMapLocation]
-  );
+    const nextLoc: NodeMapLocation = { mapId: map.id, regionId: firstRegion.id, isEntry: false };
+
+    setNodeMapLocation(nextLoc);
+  }, [maps, setNodeMapLocation]);
 
   /* Cambia la región dentro del mapa actualmente seleccionado */
-  const handleRegionChange = useCallback(
-    (nextRegionId: string) => {
-      if (!selectedMapId || !nextRegionId) {
-        setNodeMapLocation(undefined);
-        return;
-      }
+  const handleRegionChange = useCallback((nextRegionId: string) => {
+    const regionExists = regions.some((region) => region.id === nextRegionId);
 
-      const nextLoc: NodeMapLocation = {
-        mapId: selectedMapId,
-        regionId: nextRegionId,
-        isEntry: false,
-      };
+    if (!selectedMapId || !nextRegionId || !regionExists) {
+      setNodeMapLocation(undefined);
+      return;
+    }
 
-      setNodeMapLocation(nextLoc);
-    }, [selectedMapId, setNodeMapLocation]
-  );
+    const nextLoc: NodeMapLocation = { mapId: selectedMapId, regionId: nextRegionId, isEntry: selectedRegionId === nextRegionId ? isEntry : false };
+
+    setNodeMapLocation(nextLoc);
+  }, [selectedMapId, setNodeMapLocation, isEntry, regions, setNodeMapLocation]);
 
   /* Marca o desmarca la escena como entrada de la región actual */
-  const handleEntryChange = useCallback(
-    (checked: boolean) => {
-      if (!selectedMapId || !selectedRegionId) return;
+  const handleEntryChange = useCallback((checked: boolean) => {
+    if (!selectedMapId || !selectedRegionId) return;
 
-      const nextLoc: NodeMapLocation = {
-        mapId: selectedMapId,
-        regionId: selectedRegionId,
-        isEntry: checked,
-      };
+    const nextLoc: NodeMapLocation = { mapId: selectedMapId, regionId: selectedRegionId, isEntry: checked };
 
-      setNodeMapLocation(nextLoc);
-    }, [selectedMapId, selectedRegionId, setNodeMapLocation]
-  );
+    setNodeMapLocation(nextLoc);
+  }, [selectedMapId, selectedRegionId, setNodeMapLocation]);
 
   return (
     <ToggleFieldBlock label={label} active={active} onToggle={onToggle}>

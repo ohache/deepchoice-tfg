@@ -1,9 +1,9 @@
 import type { AssetKind } from "@/domain/types";
 
-export const ASSET_PREFIX = "assets";
+const ASSET_PREFIX = "assets";
 
 /* Prefijos de las rutas */
-export const ASSET_DIR = {
+const ASSET_DIR = {
   backgrounds: `${ASSET_PREFIX}/backgrounds`,
   players: `${ASSET_PREFIX}/players`,
   npcs: `${ASSET_PREFIX}/npcs`,
@@ -14,23 +14,22 @@ export const ASSET_DIR = {
 } as const satisfies Record<AssetKind, string>;
 
 /* Normaliza un nombre de archivo para que no pueda inyectar rutas */
-export function safeFileName(originalFileName: string): string {
-  const raw = String(originalFileName ?? "").trim();
+function sanitizeFileName(fileName: string): string {
+  const raw = fileName.trim();
   
   if (!raw) return "asset";
 
-  const normalized = raw.replace(/\\/g, "/");
-  const base = normalized.split("/").pop() ?? "";
+  const baseName = raw.replace(/\\/g, "/").split("/").pop() ?? "";
 
-  if (base === "." || base === "..") return "asset";
+  if (baseName === "." || baseName === "..") return "asset";
 
-  const clean = base.replace(/\0/g, "").replace(/[<>:"|?*]/g, "").trim();
+  const sanitized  = baseName.replace(/\0/g, "").replace(/[<>:"|?*]/g, "").trim();
 
-  return clean || "asset";
+  return sanitized || "asset";
 }
 
 /* Builder principal por kind */
 export function buildAssetPath(kind: AssetKind, fileName: string): string {
-  const safeName = safeFileName(fileName);
-  return `${ASSET_DIR[kind].replace(/\/+$/, "")}/${safeName.replace(/^\/+/, "")}`;
+  const safeName = sanitizeFileName(fileName);
+  return `${ASSET_DIR[kind]}/${safeName}`;
 }

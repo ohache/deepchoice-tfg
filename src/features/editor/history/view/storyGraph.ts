@@ -1,33 +1,23 @@
-import type { Project, Node, ID, NodeLayout } from "@/domain/types";
+import type { Project, Node, ID, NodeLayout, InteractionRules, DialogueNode } from "@/domain/types";
+import type { Effect } from "@/domain/effects";
 import { diagnoseProject } from "@/features/editor/delete/projectDiagnostics";
 import { GRID_TILE_SIZE, HISTORY_VIEW_COLUMNS, NODE_SLOT_OFFSET, type SceneEdgeVM, type SceneNodeVM, type StoryGraphVM, type DirectedEdge } from "@/features/editor/history/view/historyViewTypes";
 
 function clampToMinSlot(pos: NodeLayout): NodeLayout {
-  return {
-    x: Math.max(NODE_SLOT_OFFSET, pos.x),
-    y: Math.max(NODE_SLOT_OFFSET, pos.y),
-  };
+  return { x: Math.max(NODE_SLOT_OFFSET, pos.x), y: Math.max(NODE_SLOT_OFFSET, pos.y) };
 }
 
 function tileOriginFromLayout(pos: NodeLayout): NodeLayout {
-  return {
-    x: Math.floor((pos.x - NODE_SLOT_OFFSET) / GRID_TILE_SIZE) * GRID_TILE_SIZE,
-    y: Math.floor((pos.y - NODE_SLOT_OFFSET) / GRID_TILE_SIZE) * GRID_TILE_SIZE,
-  };
+  return { x: Math.floor((pos.x - NODE_SLOT_OFFSET) / GRID_TILE_SIZE) * GRID_TILE_SIZE, y: Math.floor((pos.y - NODE_SLOT_OFFSET) / GRID_TILE_SIZE) * GRID_TILE_SIZE };
 }
 
 function snapLayoutToSlot(pos: NodeLayout): NodeLayout {
   const tile = tileOriginFromLayout(pos);
-  return clampToMinSlot({
-    x: tile.x + NODE_SLOT_OFFSET,
-    y: tile.y + NODE_SLOT_OFFSET,
-  });
+  return clampToMinSlot({ x: tile.x + NODE_SLOT_OFFSET, y: tile.y + NODE_SLOT_OFFSET });
 }
 
 function normalizeLayout(layout: NodeLayout): NodeLayout {
-  const isAligned =
-    (layout.x - NODE_SLOT_OFFSET) % GRID_TILE_SIZE === 0 &&
-    (layout.y - NODE_SLOT_OFFSET) % GRID_TILE_SIZE === 0;
+  const isAligned = (layout.x - NODE_SLOT_OFFSET) % GRID_TILE_SIZE === 0 && (layout.y - NODE_SLOT_OFFSET) % GRID_TILE_SIZE === 0;
 
   return isAligned ? clampToMinSlot(layout) : snapLayoutToSlot(layout);
 }
@@ -44,10 +34,7 @@ function buildDefaultNodePos(index: number, baseOffsetX: number): NodeLayout {
   const col = index % HISTORY_VIEW_COLUMNS;
   const row = Math.floor(index / HISTORY_VIEW_COLUMNS);
 
-  return {
-    x: baseOffsetX + NODE_SLOT_OFFSET + col * GRID_TILE_SIZE,
-    y: NODE_SLOT_OFFSET + row * GRID_TILE_SIZE,
-  };
+  return { x: baseOffsetX + NODE_SLOT_OFFSET + col * GRID_TILE_SIZE, y: NODE_SLOT_OFFSET + row * GRID_TILE_SIZE };
 }
 
 function makeDirectedEdgeId(from: ID, to: ID) {
@@ -56,6 +43,28 @@ function makeDirectedEdgeId(from: ID, to: ID) {
 
 function makeUndirectedPairKey(a: ID, b: ID) {
   return [a, b].sort().join("<->");
+}
+
+function collectGoToTargetsFromEffects(effects: Effect[] | undefined, addTarget: (targetNodeId: ID) => void): void {
+  for (const effect of effects ?? []) {
+    if (effect.type === "goToNode") addTarget(effect.targetNodeId);
+  }
+}
+
+function collectGoToTargetsFromRules(rules: InteractionRules | undefined, addTarget: (targetNodeId: ID) => void): void {
+  const ruleLists = [rules?.onClick, rules?.onUseItem] as const;
+
+  for (const list of ruleLists) {
+    for (const rule of list ?? []) collectGoToTargetsFromEffects(rule.effects, addTarget);
+  }
+}
+
+function collectGoToTargetsFromDialogueNodes(nodes: DialogueNode[] | undefined, addTarget: (targetNodeId: ID) => void): void {
+  for (const dialogueNode of nodes ?? []) {
+    if (dialogueNode.type !== "line") continue;
+
+    collectGoToTargetsFromEffects(dialogueNode.effects, addTarget);
+  }
 }
 
 function collectGoToTargetsFromNode(node: Node): ID[] {
@@ -67,18 +76,14 @@ function collectGoToTargetsFromNode(node: Node): ID[] {
   };
 
   for (const layer of node.layers ?? []) {
-    for (const hotspot of layer.hotspots ?? []) {
-      const ruleLists = [hotspot.rules?.onClick, hotspot.rules?.onUseItem] as const;
+    for (const hotspot of layer.hotspots ?? []) collectGoToTargetsFromRules(hotspot.rules, addTarget);
 
-      for (const rules of ruleLists) {
-        for (const rule of rules ?? []) {
-          for (const effect of rule.effects ?? []) {
-            if (effect.type === "goToNode") addTarget(effect.targetNodeId);
-          }
-        }
-      }
-    }
+    for (const placedItem of layer.placedItems ?? []) collectGoToTargetsFromRules(placedItem.rules, addTarget);
+
+    for (const placedNpc of layer.placedNpcs ?? []) collectGoToTargetsFromRules(placedNpc.rules, addTarget);
   }
+
+  for (const dialogue of node.dialogues ?? []) collectGoToTargetsFromDialogueNodes(dialogue.nodes, addTarget);
 
   return Array.from(targets);
 }

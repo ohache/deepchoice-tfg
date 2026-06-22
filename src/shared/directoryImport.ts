@@ -1,5 +1,6 @@
 import type { ID, Project } from "@/domain/types";
 
+/* Type guard para comprobar si un File viene de un input con webkitdirectory */
 function hasWebkitRelativePath(file: File): file is File & { webkitRelativePath: string } {
   const maybe = file as File & { webkitRelativePath?: unknown };
   return typeof maybe.webkitRelativePath === "string";
@@ -19,25 +20,31 @@ export function normalizeAssetPath(rawPath: string): string {
 
 const cleanSlashes = (raw: string) => String(raw ?? "").replace(/\\/g, "/").trim();
 
-const ensureAssetsPrefix = (p: string) => {
-  const x = cleanSlashes(p).replace(/^\.\/+/, "").replace(/^\/+/, "");
-  if (!x) return "";
-  return /^assets\//i.test(x) ? x : `assets/${x}`;
-};
+function ensureAssetsPrefix(path: string): string {
+    const normalizedPath = cleanSlashes(path).replace(/^\.\/+/, "").replace(/^\/+/, "");
 
-function normalizePickedFilePath(raw: string): string {
-  const p = cleanSlashes(raw);
-  if (!p) return "";
-  const parts = p.split("/").filter(Boolean);
-  const withoutRoot = parts.length > 1 ? parts.slice(1).join("/") : parts.join("/");
-  return ensureAssetsPrefix(withoutRoot);
+  if (!normalizedPath) return "";
+
+  return /^assets\//i.test(normalizedPath) ? normalizedPath : `assets/${normalizedPath}`;
+}
+
+function normalizeImportedFilePath(rawPath: string): string {
+  const normalizedPath = cleanSlashes(rawPath);
+
+  if (!normalizedPath) return "";
+
+  const pathSegments = normalizedPath.split("/").filter(Boolean);
+
+  const pathWithoutRootFolder =  pathSegments.length > 1 ? pathSegments.slice(1).join("/") : pathSegments.join("/");
+
+  return ensureAssetsPrefix(pathWithoutRootFolder);
 }
 
 function buildPickedFilesByPath(files: File[]): Record<string, File> {
   const map: Record<string, File> = {};
   for (const file of files) {
     const pickedPath = getPickedRelativePath(file);
-    const normalizedPath = normalizePickedFilePath(pickedPath);
+    const normalizedPath = normalizeImportedFilePath(pickedPath);
 
     if (!normalizedPath) continue;
     if (normalizedPath.toLowerCase().endsWith(".json")) continue;
@@ -47,7 +54,8 @@ function buildPickedFilesByPath(files: File[]): Record<string, File> {
   return map;
 }
 
-export function resolveDirectoryImport(project: Project, files: File[]) {
+/* Relaciona los assets declarados en el proyecto con los archivos reales seleccionados por el usuario al importar una carpeta */
+export function resolveDirectoryImport(project: Project, files: File[]) : { normalizedAssets: Project["assets"]; assetFilesById: Record<ID, File> } {
   const pickedFilesByPath = buildPickedFilesByPath(files);
 
   const normalizedAssets: Project["assets"] = [];

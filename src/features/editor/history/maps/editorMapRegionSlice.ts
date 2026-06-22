@@ -1,14 +1,12 @@
 import type { AssetDef, ID, MapRegion, Project, RegionShape } from "@/domain/types";
 import type { DeleteTarget } from "@/features/editor/delete/deleteTypes";
-import type { MapRegionDraft, MapRegionEditorState } from "@/features/editor/history/maps/mapEditorTypes";
+import type { MapRegionDraft, MapRegionEditorState } from "@/features/editor/history/maps/mapRegionEditorTypes";
 import { validateMapRegion } from "@/features/editor/history/maps/mapRegionValidator";
-import { removeAssetFile, upsertAsset, upsertAssetFile } from "@/features/editor/core/editorGenericSlice";
-import { buildAssetPath } from "@/store/assets/assetPath";
-import { generateId } from "@/utils/id";
+import { removeAsset, removeAssetFile, upsertAsset, upsertAssetFile } from "@/features/editor/core/editorDataUtils";
 import { findEntityById, replaceById } from "@/features/editor/history/shared/assetBackedEntityHelpers";
 import { initialMapRegionEditorState } from "@/features/editor/history/shared/genericHelpers";
-import { applyDeleteWithCleanup } from "@/features/editor/delete/deleteReferenceCleaner";
-import type { DeleteApplyFn } from "@/features/editor/delete/editorDeleteSlice";
+import { buildAssetPath } from "@/store/assets/assetPath";
+import { generateId } from "@/utils/id";
 
 /* Mínimo contrato del store que necesita este slice */
 type EditorStoreLike = {
@@ -16,10 +14,7 @@ type EditorStoreLike = {
   selectedMapId: ID | null;
   mapRegionEditor: MapRegionEditorState;
   assetFiles: Record<ID, File>;
-  requestDelete: (input: {
-    target: DeleteTarget;
-    apply: DeleteApplyFn;
-  }) => void;
+  requestDelete: (target: DeleteTarget) => void;
 };
 
 export interface EditorMapRegionsSlice {
@@ -28,20 +23,18 @@ export interface EditorMapRegionsSlice {
   clearMapRegionEditor: () => void;
   setMapRegionSelection: (input: { regionId: ID | null }) => void;
 
-  addMapRegionImageAsset: (input: { file: File }) => ID | null;
-  startPlacingMapRegion: (input?: { imageAssetId?: ID }) => void;
+  startPlacingMapRegion: (input?: { imageFile?: File | null }) => void;
   editMapRegion: (regionId: ID) => void;
   cancelMapRegionDraft: () => void;
 
   setMapRegionDraftLabel: (label: string) => void;
   setMapRegionDraftVisible: (visible: boolean) => void;
-  setMapRegionDraftImageAssetId: (imageAssetId?: ID) => void;
+  setMapRegionDraftImageFile: (imageFile?: File | null) => void;
   setMapRegionDraftMusicTrackId: (musicTrackId?: ID) => void;
   setMapRegionDraftSubMapId: (subMapId?: ID) => void;
 
   setMapRegionDraftShape: (shape: RegionShape | null) => void;
   clearMapRegionDraftShape: () => void;
-  updateDrawingMapRegion: (pt: { x: number; y: number }) => void;
   finishDrawingMapRegion: () => void;
   startRedrawMapRegionShape: () => void;
 
@@ -50,41 +43,46 @@ export interface EditorMapRegionsSlice {
   removeMapRegion: (regionId: ID) => void;
 }
 
-const applyMapRegionDeleteTarget = (
-  target: DeleteTarget,
-): DeleteApplyFn => (state) => {
-  if (!state.project) return state;
-
-  const prevProject = state.project;
-  const nextProject = applyDeleteWithCleanup(prevProject, target);
-
-  let nextAssetFiles = state.assetFiles;
-  let nextMapRegionEditor = state.mapRegionEditor;
-
-  if (target.kind === "mapRegion") {
-    const map = prevProject.maps.find((entry) => entry.id === target.mapId);
-    const region = map?.regions.find((entry) => entry.id === target.regionId);
-
-    if (region?.imageAssetId) {
-      nextAssetFiles = removeAssetFile(nextAssetFiles, region.imageAssetId).assetFiles;
-    }
-
-    const shouldResetEditor =
-      state.mapRegionEditor.selection.regionId === target.regionId ||
-      state.mapRegionEditor.draft?.id === target.regionId;
-
-    if (shouldResetEditor) {
-      nextMapRegionEditor = initialMapRegionEditorState;
-    }
-  }
+function mapRegionDraftToRegion(draft: MapRegionDraft, imageAssetId = draft.imageAssetId): MapRegion | null {
+  if (!draft.shape) return null;
 
   return {
-    ...state,
-    project: nextProject,
-    assetFiles: nextAssetFiles,
-    mapRegionEditor: nextMapRegionEditor,
+    id: draft.id,
+    label: draft.label.trim(),
+    shape: draft.shape,
+    visible: draft.visible,
+    ...(imageAssetId ? { imageAssetId } : null),
+    ...(draft.musicTrackId ? { musicTrackId: draft.musicTrackId } : null),
+    ...(draft.subMapId ? { subMapId: draft.subMapId } : null),
+    sceneIds: [...draft.sceneIds],
+    ...(draft.entrySceneId ? { entrySceneId: draft.entrySceneId } : null),
   };
-};
+}
+
+function mapRegionToDraft(region: MapRegion): MapRegionDraft {
+  return {
+    id: region.id,
+    label: region.label,
+    shape: region.shape,
+    visible: region.visible,
+    ...(region.imageAssetId ? { imageAssetId: region.imageAssetId } : null),
+    ...(region.musicTrackId ? { musicTrackId: region.musicTrackId } : null),
+    ...(region.subMapId ? { subMapId: region.subMapId } : null),
+    sceneIds: [...region.sceneIds],
+    entrySceneId: region.entrySceneId,
+  };
+}
+
+function createMapRegionImageAsset(file: File): { assetId: ID; asset: AssetDef } {
+  const assetId = generateId.map();
+
+  return { assetId, asset: { id: assetId, kind: "maps", name: file.name?.trim() || "Region image", file: buildAssetPath("maps", file.name) } };
+}
+
+function getMapRegionErrorMessage(errors: ReturnType<typeof validateMapRegion>["errors"]): string {
+  return (errors.label ?? errors.shape ?? errors.visible ?? errors.imageAssetId ?? errors.sceneIds ??
+    errors.entrySceneId ?? errors.musicTrackId ?? errors.subMapId ?? errors.id ?? "La región de mapa no es válida.");
+}
 
 export function createEditorMapRegionsSlice(set: (partial: | Partial<EditorStoreLike> | ((state: EditorStoreLike) => Partial<EditorStoreLike> | EditorStoreLike)) => void,
   get: () => EditorStoreLike): EditorMapRegionsSlice {
@@ -104,44 +102,9 @@ export function createEditorMapRegionsSlice(set: (partial: | Partial<EditorStore
         ...state,
         mapRegionEditor: {
           ...state.mapRegionEditor,
-          selection: {
-            regionId: input.regionId,
-          },
+          selectedRegionId: input.regionId,
         },
       })),
-
-    /* Añade un asset de imagen para usarlo en una región compuesta */
-    addMapRegionImageAsset: (input) => {
-      const state = get();
-      const project = state.project;
-      const file = input?.file;
-
-      if (!project) return null;
-      if (!(file instanceof File)) return null;
-
-      const assetId = generateId.map();
-
-      const asset: AssetDef = {
-        id: assetId,
-        kind: "maps",
-        name: file.name?.trim() || "Region image",
-        file: buildAssetPath("maps", file.name),
-      };
-
-      const nextAssets = upsertAsset(project.assets, asset).assets;
-      const nextAssetFiles = upsertAssetFile(state.assetFiles, assetId, file).assetFiles;
-
-      set({
-        ...state,
-        project: {
-          ...project,
-          assets: nextAssets,
-        },
-        assetFiles: nextAssetFiles,
-      });
-
-      return assetId;
-    },
 
     /* Empieza el flujo de creación de una nueva región */
     startPlacingMapRegion: (input) =>
@@ -149,6 +112,7 @@ export function createEditorMapRegionsSlice(set: (partial: | Partial<EditorStore
         if (!state.project || !state.selectedMapId) return state;
 
         const selectedMap = findEntityById(state.project.maps, state.selectedMapId);
+
         if (!selectedMap) return state;
 
         const draft: MapRegionDraft = {
@@ -156,7 +120,7 @@ export function createEditorMapRegionsSlice(set: (partial: | Partial<EditorStore
           label: "",
           shape: null,
           visible: true,
-          imageAssetId: input?.imageAssetId,
+          imageFile: input?.imageFile ?? null,
           musicTrackId: undefined,
           subMapId: undefined,
           sceneIds: [],
@@ -166,9 +130,9 @@ export function createEditorMapRegionsSlice(set: (partial: | Partial<EditorStore
         return {
           ...state,
           mapRegionEditor: {
-            context: { mapId: state.selectedMapId },
+            mapId: state.selectedMapId,
             mode: { type: "drawing" },
-            selection: { regionId: draft.id },
+            selectedRegionId: draft.id,
             draft,
             drawing: null,
           },
@@ -181,28 +145,20 @@ export function createEditorMapRegionsSlice(set: (partial: | Partial<EditorStore
         if (!state.project || !state.selectedMapId) return state;
 
         const selectedMap = findEntityById(state.project.maps, state.selectedMapId);
+
         if (!selectedMap) return state;
 
         const region = selectedMap.regions.find((currentRegion) => currentRegion.id === regionId);
+
         if (!region) return state;
 
         return {
           ...state,
           mapRegionEditor: {
-            context: { mapId: state.selectedMapId },
+            mapId: state.selectedMapId,
             mode: { type: "editing", regionId },
-            selection: { regionId },
-            draft: {
-              id: region.id,
-              label: region.label,
-              shape: region.shape,
-              visible: region.visible,
-              ...(region.imageAssetId ? { imageAssetId: region.imageAssetId } : null),
-              ...(region.musicTrackId ? { musicTrackId: region.musicTrackId } : null),
-              ...(region.subMapId ? { subMapId: region.subMapId } : null),
-              sceneIds: [...region.sceneIds],
-              entrySceneId: region.entrySceneId,
-            },
+            selectedRegionId: regionId,
+            draft: mapRegionToDraft(region),
             drawing: null,
           },
         };
@@ -215,6 +171,7 @@ export function createEditorMapRegionsSlice(set: (partial: | Partial<EditorStore
         mapRegionEditor: initialMapRegionEditorState,
       })),
 
+    /* Actualiza la etiqueta del borrador de región del mapa */
     setMapRegionDraftLabel: (label) =>
       set((state) => {
         if (!state.mapRegionEditor.draft) return state;
@@ -231,6 +188,7 @@ export function createEditorMapRegionsSlice(set: (partial: | Partial<EditorStore
         };
       }),
 
+    /* Actualiza la visibilidad del borrador de región del mapa */
     setMapRegionDraftVisible: (visible) =>
       set((state) => {
         if (!state.mapRegionEditor.draft) return state;
@@ -247,7 +205,8 @@ export function createEditorMapRegionsSlice(set: (partial: | Partial<EditorStore
         };
       }),
 
-    setMapRegionDraftImageAssetId: (imageAssetId) =>
+    /* Asigna o elimina la imagen temporal seleccionada para la región */
+    setMapRegionDraftImageFile: (imageFile) =>
       set((state) => {
         if (!state.mapRegionEditor.draft) return state;
 
@@ -257,12 +216,13 @@ export function createEditorMapRegionsSlice(set: (partial: | Partial<EditorStore
             ...state.mapRegionEditor,
             draft: {
               ...state.mapRegionEditor.draft,
-              imageAssetId: imageAssetId || undefined,
+              imageFile,
             },
           },
         };
       }),
 
+    /* Asigna o elimina la pista de música asociada a la región del mapa en edición */
     setMapRegionDraftMusicTrackId: (musicTrackId) =>
       set((state) => {
         if (!state.mapRegionEditor.draft) return state;
@@ -279,6 +239,7 @@ export function createEditorMapRegionsSlice(set: (partial: | Partial<EditorStore
         };
       }),
 
+    /* Asigna o elimina el submapa asociado a la región del mapa en edición */
     setMapRegionDraftSubMapId: (subMapId) =>
       set((state) => {
         if (!state.mapRegionEditor.draft) return state;
@@ -295,6 +256,7 @@ export function createEditorMapRegionsSlice(set: (partial: | Partial<EditorStore
         };
       }),
 
+    /* Actualiza la forma del borrador de región del mapa */
     setMapRegionDraftShape: (shape) =>
       set((state) => {
         if (!state.mapRegionEditor.draft) return state;
@@ -311,6 +273,7 @@ export function createEditorMapRegionsSlice(set: (partial: | Partial<EditorStore
         };
       }),
 
+    /* Limpia la forma (shape) del borrador de región del mapa */
     clearMapRegionDraftShape: () =>
       set((state) => {
         if (!state.mapRegionEditor.draft) return state;
@@ -322,34 +285,6 @@ export function createEditorMapRegionsSlice(set: (partial: | Partial<EditorStore
             draft: {
               ...state.mapRegionEditor.draft,
               shape: null,
-            },
-          },
-        };
-      }),
-
-    /* Mientras se dibuja, actualiza drawing y shape del draft */
-    updateDrawingMapRegion: (pt) =>
-      set((state) => {
-        const editor = state.mapRegionEditor;
-        if (editor.mode.type !== "drawing" || !editor.draft) return state;
-
-        const nextDrawing = editor.drawing
-          ? { ...editor.drawing, currentX: pt.x, currentY: pt.y }
-          : { startX: pt.x, startY: pt.y, currentX: pt.x, currentY: pt.y };
-
-        const x = Math.min(nextDrawing.startX, nextDrawing.currentX);
-        const y = Math.min(nextDrawing.startY, nextDrawing.currentY);
-        const w = Math.abs(nextDrawing.currentX - nextDrawing.startX);
-        const h = Math.abs(nextDrawing.currentY - nextDrawing.startY);
-
-        return {
-          ...state,
-          mapRegionEditor: {
-            ...editor,
-            drawing: nextDrawing,
-            draft: {
-              ...editor.draft,
-              shape: { type: "rect", x, y, w, h },
             },
           },
         };
@@ -384,7 +319,7 @@ export function createEditorMapRegionsSlice(set: (partial: | Partial<EditorStore
             mode: { type: "drawing" },
             drawing: null,
             draft: { ...editor.draft, shape: null },
-            selection: { regionId: editor.draft.id },
+            selectedRegionId: editor.draft.id,
           },
         };
       }),
@@ -398,99 +333,87 @@ export function createEditorMapRegionsSlice(set: (partial: | Partial<EditorStore
 
       if (!state.project || !state.selectedMapId) return { ok: false, error: "No hay un mapa seleccionado." };
 
-      const selectedMap = findEntityById(state.project.maps, state.selectedMapId);
-      if (!selectedMap) return { ok: false, error: "No hay un mapa seleccionado." };
+      const candidate = mapRegionDraftToRegion(draft);
 
-      if (!draft.shape) return { ok: false, error: "Debes dibujar un área válida antes de guardar la región." };
+      if (!candidate) return { ok: false, error: "Debes dibujar un área válida antes de guardar la región." };
 
-      const labelKey = draft.label.trim().toLowerCase();
-      const isUnique = !labelKey || !selectedMap.regions.some((region) => {
-        if (region.id === draft.id) return false;
-        return region.label.trim().toLowerCase() === labelKey;
-      });
+      const result = validateMapRegion(candidate, { project: state.project, mapId: state.selectedMapId });
 
-      if (!isUnique) return { ok: false, error: "Ya existe otra región con esa etiqueta dentro de este mapa." };
-
-      const candidate: MapRegion = {
-        id: draft.id,
-        label: draft.label.trim(),
-        shape: draft.shape,
-        visible: draft.visible,
-        ...(draft.imageAssetId ? { imageAssetId: draft.imageAssetId } : null),
-        ...(draft.musicTrackId ? { musicTrackId: draft.musicTrackId } : null),
-        ...(draft.subMapId ? { subMapId: draft.subMapId } : null),
-        sceneIds: [...draft.sceneIds],
-        ...(draft.entrySceneId ? { entrySceneId: draft.entrySceneId } : null),
-      };
-
-      const result = validateMapRegion(candidate, {
-        project: state.project,
-        mapId: state.selectedMapId,
-      });
-
-      if (!result.ok) {
-        const msg =
-          result.errors.label ??
-          result.errors.shape ??
-          result.errors.visible ??
-          result.errors.imageAssetId ??
-          result.errors.sceneIds ??
-          result.errors.entrySceneId ??
-          result.errors.musicTrackId ??
-          result.errors.subMapId ??
-          result.errors.id ??
-          "La región de mapa no es válida.";
-
-        return { ok: false, error: msg };
-      }
+      if (!result.ok) return { ok: false, error: getMapRegionErrorMessage(result.errors) };
 
       return { ok: true };
     },
 
     /* Guarda el borrador validado en el mapa seleccionado */
+    /* Guarda el borrador validado en el mapa seleccionado */
     saveMapRegionDraft: () => {
       const state = get();
+
       if (!state.project || !state.selectedMapId) return null;
 
       const selectedMap = findEntityById(state.project.maps, state.selectedMapId);
       const draft = state.mapRegionEditor.draft;
+
       if (!selectedMap || !draft) return null;
 
-      const labelKey = draft.label.trim().toLowerCase();
-      const isUnique = !labelKey || !selectedMap.regions.some((region) => {
-        if (region.id === draft.id) return false;
-        return region.label.trim().toLowerCase() === labelKey;
-      });
+      let nextProject = state.project;
+      let nextAssetFiles = state.assetFiles;
+      let nextImageAssetId = draft.imageAssetId;
 
-      if (!isUnique) return null;
-      if (!draft.shape) return null;
+      const previousRegion = selectedMap.regions.find((region) => region.id === draft.id);
 
-      const candidate: MapRegion = {
-        id: draft.id,
-        label: draft.label.trim(),
-        shape: draft.shape,
-        visible: draft.visible,
-        ...(draft.imageAssetId ? { imageAssetId: draft.imageAssetId } : null),
-        ...(draft.musicTrackId ? { musicTrackId: draft.musicTrackId } : null),
-        ...(draft.subMapId ? { subMapId: draft.subMapId } : null),
-        sceneIds: [...draft.sceneIds],
-        ...(draft.entrySceneId ? { entrySceneId: draft.entrySceneId } : null),
-      };
+      if (draft.imageFile instanceof File) {
+        const { assetId, asset } = createMapRegionImageAsset(draft.imageFile);
+
+        nextImageAssetId = assetId;
+
+        nextProject = {
+          ...nextProject,
+          assets: upsertAsset(nextProject.assets, asset).assets,
+        };
+
+        nextAssetFiles = upsertAssetFile(nextAssetFiles, assetId, draft.imageFile).assetFiles;
+
+        if (
+          previousRegion?.imageAssetId &&
+          previousRegion.imageAssetId !== assetId
+        ) {
+          nextProject = {
+            ...nextProject,
+            assets: removeAsset(nextProject.assets, {
+              id: previousRegion.imageAssetId,
+              kind: "maps",
+            }).assets,
+          };
+
+          nextAssetFiles = removeAssetFile(
+            nextAssetFiles,
+            previousRegion.imageAssetId,
+          ).assetFiles;
+        }
+      }
+
+      const candidate = mapRegionDraftToRegion(draft, nextImageAssetId);
+      if (!candidate) return null;
 
       const validation = validateMapRegion(candidate, {
-        project: state.project,
+        project: nextProject,
         mapId: state.selectedMapId,
       });
+
       if (!validation.ok) return null;
 
-      const alreadyExists = selectedMap.regions.some((region) => region.id === candidate.id);
+      const alreadyExists = selectedMap.regions.some(
+        (region) => region.id === candidate.id,
+      );
 
-      const nextMap = alreadyExists ? {
-        ...selectedMap,
-        regions: selectedMap.regions.map((region) =>
-          region.id === candidate.id ? candidate : region,
-        )
-      }
+      const nextMap = alreadyExists
+        ? {
+          ...selectedMap,
+          regions: selectedMap.regions.map((region) =>
+            region.id === candidate.id ? candidate : region,
+          ),
+        }
         : {
           ...selectedMap,
           regions: [...selectedMap.regions, candidate],
@@ -503,23 +426,19 @@ export function createEditorMapRegionsSlice(set: (partial: | Partial<EditorStore
           ...currentState,
           project: {
             ...currentState.project,
-            maps: replaceById(currentState.project.maps, state.selectedMapId!, nextMap),
+            assets: nextProject.assets,
+            maps: replaceById(
+              currentState.project.maps,
+              state.selectedMapId!,
+              nextMap,
+            ),
           },
+          assetFiles: nextAssetFiles,
           mapRegionEditor: {
-            context: { mapId: state.selectedMapId! },
+            mapId: state.selectedMapId!,
             mode: { type: "editing", regionId: candidate.id },
-            selection: { regionId: candidate.id },
-            draft: {
-              id: candidate.id,
-              label: candidate.label,
-              shape: candidate.shape,
-              visible: candidate.visible,
-              ...(candidate.imageAssetId ? { imageAssetId: candidate.imageAssetId } : null),
-              ...(candidate.musicTrackId ? { musicTrackId: candidate.musicTrackId } : null),
-              ...(candidate.subMapId ? { subMapId: candidate.subMapId } : null),
-              sceneIds: [...candidate.sceneIds],
-              entrySceneId: candidate.entrySceneId,
-            },
+            selectedRegionId: candidate.id,
+            draft: mapRegionToDraft(candidate),
             drawing: null,
           },
         };
@@ -537,12 +456,10 @@ export function createEditorMapRegionsSlice(set: (partial: | Partial<EditorStore
       if (!selectedMap) return;
 
       const exists = selectedMap.regions.some((region) => region.id === regionId);
+
       if (!exists) return;
 
-      requestDelete({
-        target: { kind: "mapRegion", mapId: selectedMapId, regionId },
-        apply: applyMapRegionDeleteTarget({ kind: "mapRegion", mapId: selectedMapId, regionId }),
-      });
+      requestDelete({ kind: "mapRegion", mapId: selectedMapId, regionId });
     },
   };
 }

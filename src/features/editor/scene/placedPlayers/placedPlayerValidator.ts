@@ -3,7 +3,7 @@ import { createEntityValidators, createFieldErrors } from "@/features/editor/sce
 
 const placedPlayerErrorKeys = ["playerId", "initialImageId", "shape", "initialState"] as const;
 
-export type PlacedPlayerFieldErrors = Record<typeof placedPlayerErrorKeys[number], string | undefined>;
+export type PlacedPlayerFieldErrors = Record<(typeof placedPlayerErrorKeys)[number], string | undefined>;
 
 function createPlacedPlayerFieldErrors(): PlacedPlayerFieldErrors {
   return createFieldErrors(placedPlayerErrorKeys);
@@ -12,4 +12,3 @@ function createPlacedPlayerFieldErrors(): PlacedPlayerFieldErrors {
 const validators = createEntityValidators(PlacedPlayerSchema, PlacedPlayerDraftSchema, createPlacedPlayerFieldErrors);
 
 export const validatePlacedPlayer = validators.validate;
-export const validatePlacedPlayerDraft = validators.validateDraft;

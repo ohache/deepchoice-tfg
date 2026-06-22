@@ -1,17 +1,5 @@
-import type { PlacedPlayer, PlacedPlayerState, RegionShape } from "@/domain/types";
-
-type RectPx = { left: number; top: number; width: number; height: number };
-
-function rectPx(shape: RegionShape, content: { w: number; h: number }): RectPx | null {
-  if (shape.type !== "rect") return null;
-
-  return {
-    left: shape.x * content.w,
-    top: shape.y * content.h,
-    width: shape.w * content.w,
-    height: shape.h * content.h,
-  };
-}
+import type { PlacedPlayer, PlacedPlayerState } from "@/domain/types";
+import { rectPx } from "@/features/player/components/interactive/interactiveLayerShared";
 
 export function PlacedPlayerLayer(props: { contentSize: { w: number; h: number };
   placedPlayers: Array<{ placedPlayer: PlacedPlayer; runtime?: PlacedPlayerState; imageSrc?: string }> }) {

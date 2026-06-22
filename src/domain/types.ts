@@ -33,15 +33,7 @@ export type RegionShape = {
   h: number;
 };
 
-/* Instancia de un item en inventario */
-export interface InventoryItemInstance {
-  itemInstanceId: ID;
-  itemId: ID;
-  label: string;
-  rules?: InteractionRules;
-}
-
-/* Variables (dominio) */
+/* Variables */
 export type VarType = "number" | "boolean";
 
 export interface VarDefBase {
@@ -64,14 +56,14 @@ export interface VarDefBoolean extends VarDefBase {
 
 export type VarDef = VarDefNumber | VarDefBoolean;
 
-/* ENTIDADES (catálogo global) */
+/* Entidades globales */
 export interface EntityBase {
   id: ID;
   name: string;
   description?: string;
 }
 
-/* Items */
+/* Objetos */
 export interface ItemDef extends EntityBase { }
 
 /* Players */
@@ -84,13 +76,13 @@ export interface PlayerDef extends EntityBase {
   images: PlayerImage[];
   defaultImageId?: ID;
   vars?: VarDef[];
-  initialInventory?: InventoryItemInstance[];
+  initialInventory?: ItemInstance[];
 }
 
 /* PNJs */
 export interface NpcDef extends EntityBase {
   vars?: VarDef[];
-  initialInventory?: InventoryItemInstance[];
+  initialInventory?: ItemInstance[];
 }
 
 /* Audio (catálogo global) */
@@ -113,17 +105,17 @@ type ResolvedMusicBase = {
 export type ResolvedMusic =
   | (ResolvedMusicBase & { sourceType: "layer" })
   | (ResolvedMusicBase & { sourceType: "scene" })
-  | (ResolvedMusicBase & { sourceType: "region" })
+  | (ResolvedMusicBase & { sourceType: "region" });
 
-/* INTERACCIONES */
-export type RulePhraseSpeaker =
+/* Interacciones */
+export type Speaker =
   | { kind: "narrator" }
   | { kind: "player"; playerId: ID }
   | { kind: "npc"; npcId: ID };
 
 export type RulePhrase = {
   text: string;
-  speaker?: RulePhraseSpeaker;
+  speaker?: Speaker;
 };
 
 export type BaseInteractionRule = {
@@ -154,13 +146,6 @@ export interface PlaceableState {
 /* Player (solo necesita visible) */
 export type PlacedPlayerState = Pick<PlaceableState, "visible">;
 
-/* Items (multi-instancia) */
-export interface PlacedEntityBase<S = PlaceableState> {
-  id: ID;
-  shape: RegionShape;
-  initialState: S;
-}
-
 /* Player/Npc (singleton) */
 export interface PlacedSingletonBase<S = PlaceableState> {
   shape: RegionShape;
@@ -177,20 +162,27 @@ export interface Hotspot {
   rules: InteractionRules;
 }
 
-/* Item colocado */
-export interface PlacedItem extends PlacedEntityBase<PlaceableState> {
-  itemId: ID;
-  label: string;
-  rules: InteractionRules;
+/* Objeto instanciado */
+export interface ItemPlacement {
+  shape: RegionShape;
+  initialState: PlaceableState;
 }
 
-/* NPC colocado */
+export interface ItemInstance {
+  itemInstanceId: ID;
+  itemId: ID;
+  label: string;
+  rules?: InteractionRules;
+  placement?: ItemPlacement;
+}
+
+/* NPC instanciado */
 export interface PlacedNpc extends PlacedSingletonBase<PlaceableState> {
   npcId: ID;
   rules: InteractionRules;
 }
 
-/* Player colocado */
+/* Player instanciado */
 export interface PlacedPlayer extends PlacedSingletonBase<PlacedPlayerState> {
   playerId: ID;
   initialImageId: ID;
@@ -210,24 +202,13 @@ export type ConditionalTextEntry = {
 export type ConditionalText = ConditionalTextEntry[];
 
 /* Diálogos */
-export interface Dialogue {
-  id: ID;
-  playerId: ID;
-  npcId: ID;
-  title?: string;
-  description?: string;
-  when?: Condition;
-  rootId: ID;
-  nodes: DialogueNode[];
-}
+export type DialogueSpeaker = "player" | "npc";
 
 export interface DialogueRootNode {
   id: ID;
   type: "root";
   childrenIds: ID[];
 }
-
-export type DialogueSpeaker = "player" | "npc";
 
 export interface DialogueLineNode {
   id: ID;
@@ -240,6 +221,17 @@ export interface DialogueLineNode {
 }
 
 export type DialogueNode = DialogueRootNode | DialogueLineNode;
+
+export interface Dialogue {
+  id: ID;
+  playerId: ID;
+  npcId: ID;
+  title: string;
+  description?: string;
+  when?: Condition;
+  rootId: ID;
+  nodes: DialogueNode[];
+}
 
 /* Mapas */
 export interface MapSingleImageVisualSource {
@@ -280,15 +272,10 @@ export interface NodeMapLocation {
 }
 
 /* Efecto EndGame */
-export type EndGameSpeaker =
-  | { kind: "narrator" }
-  | { kind: "player"; playerId: ID }
-  | { kind: "npc"; npcId: ID };
-
 export type EndGameLine = {
   id: ID;
   text: string;
-  speaker?: EndGameSpeaker;
+  speaker?: Speaker;
 };
 
 export type EndGameContent = {
@@ -298,7 +285,7 @@ export type EndGameContent = {
   musicTrackId?: ID;
 };
 
-/* Capa visual de escena: imagen + textos asociados */
+/* Capa visual de escena */
 export type SceneImageLayer = {
   id: ID;
   assetId: ID;
@@ -307,7 +294,7 @@ export type SceneImageLayer = {
   dock: TextDock;
   text: ConditionalText;
   hotspots?: Hotspot[];
-  placedItems?: PlacedItem[];
+  placedItems?: ItemInstance[];
   placedNpcs?: PlacedNpc[];
   placedPlayers?: PlacedPlayer[];
   musicTrackId?: ID;

@@ -17,9 +17,9 @@ export function StartConflictModal({ open, currentStartTitle, editingTitle, onCo
         </h2>
 
         <p className="text-[13px] text-slate-200 mb-4 text-center">
-          La escena de inicio es <strong className="font-bold">{currentStartTitle}</strong>.  
+          La escena de inicio actual es <strong className="font-bold text-[14px]">{currentStartTitle}</strong>.  
           <br />
-          ¿Quieres que <strong className="font-bold">{editingTitle}</strong> pase a ser la inicial?
+          ¿Quieres que <strong className="font-bold text-[14px]">{editingTitle}</strong> pase a ser la inicial?
         </p>
 
         <div className="flex justify-between gap-3 mt-4">

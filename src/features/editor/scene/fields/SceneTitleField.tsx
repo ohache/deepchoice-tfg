@@ -30,7 +30,8 @@ export function SceneTitleField({ label = "Título", value, active, onToggle, in
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           maxLength={120}
-          className="text-center w-full rounded-md bg-slate-900/30 border-2 border-slate-700 px-2 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-transparent focus:ring-2 focus:ring-fuchsia-600"
+          className="text-center w-full rounded-md bg-slate-900/30 border-2 border-slate-700 px-2 py-1.5 text-xs text-slate-100 focus:outline-none
+            focus:border-transparent focus:ring-2 focus:ring-fuchsia-600"
           placeholder="Ej: Entrada al bosque"
         />
       </div>

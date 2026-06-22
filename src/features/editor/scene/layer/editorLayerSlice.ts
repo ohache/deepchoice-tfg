@@ -9,13 +9,14 @@ import {
   initialHotspotEditorState, initialPlacedItemEditorState, initialPlacedNpcEditorState,
   initialPlacedPlayerEditorState
 } from "@/features/editor/scene/interactiveComponents/interactiveEditorHelpers";
-import { removeAsset, removeAssetFile, safeTrim } from "@/features/editor/core/editorGenericSlice";
-import { createNodeLayer, patchNodeLayer, reorderNodeLayersList, sameLayer } from "@/features/editor/scene/node/editorNodeHelpersSlice";
+import { removeAsset, removeAssetFile, safeTrim } from "@/features/editor/core/editorDataUtils";
 import type { LayerToggleFieldId } from "@/features/editor/scene/SceneCommon";
 import { buildAssetPath } from "@/store/assets/assetPath";
-import type { DeleteApplyFn } from "@/features/editor/delete/editorDeleteSlice";
 import type { DeleteTarget } from "@/features/editor/delete/deleteTypes";
-import { applyDeleteWithCleanup } from "../../delete/deleteReferenceCleaner";
+import type { NodeFieldErrors } from "@/features/editor/scene/node/nodeValidator";
+import { sameLayer, createNodeLayer, patchNodeLayer, reorderNodeLayersList, sameEntry, getFirstTextEntryIdFromLayers, findLayerById, getFirstTextEntryIdFromLayer, getActiveLayer } from "@/features/editor/scene/layer/layerHelpers";
+
+export type InteractionKind = "hotspot" | "placedItem" | "placedNpc" | "placedPlayer";
 
 type EditorStoreLike = {
   project: Project | null;
@@ -32,75 +33,110 @@ type EditorStoreLike = {
   placedItemEditor: PlacedItemEditorState;
   placedNpcEditor: PlacedNpcEditorState;
   placedPlayerEditor: PlacedPlayerEditorState;
-  selectedInteractionKind: "hotspot" | "placedItem" | "placedNpc" | "placedPlayer" | null;
+  selectedInteractionKind: InteractionKind | null;
   selectedInteractionId: ID | null;
   clearInteractionSelection: () => void;
-  nodeIssues?: { path: string; message: string }[];
-  pendingInteractiveOpen: { kind: "hotspot" | "placedItem" | "placedNpc" | "placedPlayer"; id: ID } | null;
-  removeNodeLayer: (layerId: ID, options?: { withConfirmation?: boolean }) => void;
-  requestDelete: (input: {
-    target: DeleteTarget;
-    apply: DeleteApplyFn;
-  }) => void;
+  nodeErrors: NodeFieldErrors;
+  pendingInteractiveOpen: { kind: InteractionKind; id: ID } | null;
+  requestDelete: (target: DeleteTarget) => void;
 };
 
-type LayerEditSession =
-  | { mode: "idle" }
-  | { mode: "editing"; layerId: ID; isNew: boolean; snapshot: SceneImageLayer };
+type LayerEditSession = { mode: "idle" } | { mode: "editing"; layerId: ID; isNew: boolean; snapshot: SceneImageLayer };
 
 export interface EditorLayerSlice {
   activeLayerId: ID | null;
+  activeLayerField: LayerToggleFieldId | null;
   activeTextEntryId: ID | null;
   layerEditSession: LayerEditSession;
-
   setLayerAssetId: (assetId: ID) => void;
   setActiveLayerId: (layerId: ID | null) => void;
-  getActiveLayer: () => SceneImageLayer | null;
-  patchActiveLayer: (patcher: (layer: SceneImageLayer) => SceneImageLayer) => void;
   setActiveTextEntryId: (entryId: ID | null) => void;
-
-  activeLayerField: LayerToggleFieldId | null;
   setActiveLayerField: (field: LayerToggleFieldId | null) => void;
-
   setLayerEditSession: (session: LayerEditSession) => void;
   clearLayerEditSession: () => void;
-
   setLayerLabel: (label: string) => void;
-  setLayerWhen: (when: Condition | null | undefined) => void;
   setLayerDock: (dock: TextDock) => void;
-
   addNodeLayer: (args?: { id?: ID; label?: string; assetId?: ID; when?: Condition; dock?: SceneImageLayer["dock"] }) => ID | null;
   updateNodeLayer: (layerId: ID, patch: Partial<SceneImageLayer>) => void;
   removeNodeLayer: (layerId: ID, options?: { withConfirmation?: boolean }) => void;
   reorderNodeLayers: (fromIndex: number, toIndex: number) => void;
-
   upsertBackgroundAsset: (assetId: ID, file: File) => void;
   removeBackgroundAsset: (assetId: ID) => void;
-
   addLayerTextEntry: (args?: { id?: ID; label?: string; when?: Condition; content?: string }) => ID | null;
   updateLayerTextEntry: (entryId: ID, patch: Partial<ConditionalTextEntry>) => void;
   removeLayerTextEntry: (entryId: ID) => void;
   reorderLayerTextEntries: (fromIndex: number, toIndex: number) => void;
-
   setLayerMusicTrackId: (musicTrackId: ID | null | undefined) => void;
-
-  pendingInteractiveOpen: { kind: "hotspot" | "placedItem" | "placedNpc" | "placedPlayer"; id: ID } | null;
-  setPendingInteractiveOpen: (value: { kind: "hotspot" | "placedItem" | "placedNpc" | "placedPlayer"; id: ID } | null) => void;
+  pendingInteractiveOpen: { kind: InteractionKind; id: ID } | null;
+  setPendingInteractiveOpen: (value: { kind: InteractionKind; id: ID } | null) => void;
   clearPendingInteractiveOpen: () => void;
 }
 
-function sameEntry(a: ConditionalTextEntry, b: ConditionalTextEntry): boolean {
-  if (a === b) return true;
-  return a.id === b.id && a.label === b.label && a.when === b.when && a.content === b.content;
+function resetLayerContextPatch(layerId: ID | null, nextActiveTextEntryId: ID | null): Partial<EditorStoreLike> {
+  return {
+    activeLayerId: layerId,
+    activeTextEntryId: nextActiveTextEntryId,
+    activeLayerField: null,
+    layerEditSession: { mode: "idle" },
+
+    hotspotEditor: initialHotspotEditorState,
+    placedItemEditor: initialPlacedItemEditorState,
+    placedNpcEditor: initialPlacedNpcEditorState,
+    placedPlayerEditor: initialPlacedPlayerEditorState,
+
+    selectedInteractionKind: null,
+    selectedInteractionId: null,
+    pendingInteractiveOpen: null,
+  };
 }
 
-function readActiveLayer(state: EditorStoreLike): SceneImageLayer | null {
-  if (!state.nodeDraft || !state.activeLayerId) return null;
-  return state.nodeDraft.layers?.find((layer) => layer.id === state.activeLayerId) ?? null;
+function buildLayerRemovalUiPatch(state: EditorStoreLike, layerId: ID, nextLayers: SceneImageLayer[]): Partial<EditorStoreLike> {
+  const removedActiveLayer = state.activeLayerId === layerId;
+
+  const removedHotspotLayer = state.hotspotEditor.context?.layerId === layerId;
+  const removedPlacedItemLayer = state.placedItemEditor.context?.layerId === layerId;
+  const removedPlacedNpcLayer = state.placedNpcEditor.context?.layerId === layerId;
+  const removedPlacedPlayerLayer = state.placedPlayerEditor.context?.layerId === layerId;
+
+  const removedLayerEditSession = state.layerEditSession.mode === "editing" && state.layerEditSession.layerId === layerId;
+
+  const shouldResetHotspotEditor = removedActiveLayer || removedHotspotLayer;
+  const shouldResetPlacedItemEditor = removedActiveLayer || removedPlacedItemLayer;
+  const shouldResetPlacedNpcEditor = removedActiveLayer || removedPlacedNpcLayer;
+  const shouldResetPlacedPlayerEditor = removedActiveLayer || removedPlacedPlayerLayer;
+
+  const shouldClearSelection = shouldResetHotspotEditor || shouldResetPlacedItemEditor || shouldResetPlacedNpcEditor || shouldResetPlacedPlayerEditor;
+
+  return {
+    nodeErrors: {},
+
+    activeLayerId: removedActiveLayer ? nextLayers[0]?.id ?? null : state.activeLayerId,
+
+    activeTextEntryId: removedActiveLayer ? getFirstTextEntryIdFromLayers(nextLayers) : state.activeTextEntryId,
+
+    activeLayerField: removedActiveLayer ? null : state.activeLayerField,
+
+    layerEditSession: removedLayerEditSession ? { mode: "idle" } : state.layerEditSession,
+
+    hotspotEditor: shouldResetHotspotEditor ? initialHotspotEditorState : state.hotspotEditor,
+
+    placedItemEditor: shouldResetPlacedItemEditor ? initialPlacedItemEditorState : state.placedItemEditor,
+
+    placedNpcEditor: shouldResetPlacedNpcEditor ? initialPlacedNpcEditorState : state.placedNpcEditor,
+
+    placedPlayerEditor: shouldResetPlacedPlayerEditor ? initialPlacedPlayerEditorState : state.placedPlayerEditor,
+
+    selectedInteractionKind: shouldClearSelection ? null : state.selectedInteractionKind,
+
+    selectedInteractionId: shouldClearSelection ? null : state.selectedInteractionId,
+
+    pendingInteractiveOpen: shouldClearSelection ? null : state.pendingInteractiveOpen,
+  };
 }
 
 export function createEditorLayerSlice(set: (partial: | Partial<EditorStoreLike> | ((state: EditorStoreLike) => Partial<EditorStoreLike> | EditorStoreLike)) => void,
   get: () => EditorStoreLike): EditorLayerSlice {
+
   function withActiveLayer(updater: (layer: SceneImageLayer) => SceneImageLayer) {
     set((state) => {
       if (!state.nodeDraft || !state.activeLayerId) return state;
@@ -131,6 +167,8 @@ export function createEditorLayerSlice(set: (partial: | Partial<EditorStoreLike>
 
     layerEditSession: { mode: "idle" },
 
+    activeLayerField: null,
+
     setLayerAssetId: (assetId: ID) => {
       const next = safeTrim(String(assetId ?? ""));
       if (!next) return;
@@ -142,73 +180,29 @@ export function createEditorLayerSlice(set: (partial: | Partial<EditorStoreLike>
       set((state) => {
         if (state.activeLayerId === layerId) return state;
 
-        const shouldResetHotspotEditor = state.hotspotEditor.mode.type !== "idle" || Boolean(state.hotspotEditor.draft);
+        const nextActiveLayer = findLayerById(state.nodeDraft, layerId);
+        const nextActiveTextEntryId = getFirstTextEntryIdFromLayer(nextActiveLayer);
 
-        const shouldResetPlacedItemEditor = state.placedItemEditor.mode.type !== "idle" || Boolean(state.placedItemEditor.draft);
-
-        const shouldResetPlacedNpcEditor = state.placedNpcEditor.mode.type !== "idle" || Boolean(state.placedNpcEditor.draft);
-
-        const shouldResetPlacedPlayerEditor = state.placedPlayerEditor.mode.type !== "idle" || Boolean(state.placedPlayerEditor.draft);
-
-        const nextActiveLayer = layerId && state.nodeDraft ? (state.nodeDraft.layers ?? []).find((layer) => layer.id === layerId) ?? null : null;
-
-        const nextActiveTextEntryId = nextActiveLayer?.text?.[0]?.id ?? null;
-
-        const next: Partial<EditorStoreLike> & {
-          activeLayerId: ID | null;
-          activeTextEntryId?: ID | null;
-          activeLayerField?: null;
-          layerEditSession?: LayerEditSession;
-          hotspotEditor?: typeof initialHotspotEditorState;
-          placedItemEditor?: typeof initialPlacedItemEditorState;
-          placedNpcEditor?: typeof initialPlacedNpcEditorState;
-          placedPlayerEditor?: typeof initialPlacedPlayerEditorState;
-          selectedInteractionKind?: null;
-          selectedInteractionId?: null;
-          pendingInteractiveOpen?: null;
-        } = {
-          activeLayerId: layerId,
-          activeTextEntryId: nextActiveTextEntryId,
-          activeLayerField: null,
-          layerEditSession: { mode: "idle" },
-          pendingInteractiveOpen: null,
+        return {
+          ...state,
+          ...resetLayerContextPatch(layerId, nextActiveTextEntryId),
         };
-
-        if (shouldResetHotspotEditor) next.hotspotEditor = initialHotspotEditorState;
-        if (shouldResetPlacedItemEditor) next.placedItemEditor = initialPlacedItemEditorState;
-        if (shouldResetPlacedNpcEditor) next.placedNpcEditor = initialPlacedNpcEditorState;
-        if (shouldResetPlacedPlayerEditor) next.placedPlayerEditor = initialPlacedPlayerEditorState;
-
-        if (state.selectedInteractionKind || state.selectedInteractionId) {
-          next.selectedInteractionKind = null;
-          next.selectedInteractionId = null;
-        }
-
-        return next;
       }),
-
-    getActiveLayer: () => readActiveLayer(get()),
-
-    patchActiveLayer: (patcher) => { withActiveLayer((layer) => patcher(layer)) },
 
     setActiveTextEntryId: (entryId) =>
       set((state) => {
         if (state.activeTextEntryId === entryId) return state;
 
-        const activeLayer = readActiveLayer(state);
+        const activeLayer = getActiveLayer(state.nodeDraft, state.activeLayerId);
         if (!activeLayer) return state;
 
-        if (entryId != null && !(activeLayer.text ?? []).some((entry) => entry.id === entryId)) {
-          return state;
-        }
+        if (entryId != null && !(activeLayer.text ?? []).some((entry) => entry.id === entryId)) return state;
 
         return {
           ...state,
           activeTextEntryId: entryId,
         };
       }),
-
-    activeLayerField: null,
 
     setActiveLayerField: (field) =>
       set((state) => {
@@ -250,12 +244,9 @@ export function createEditorLayerSlice(set: (partial: | Partial<EditorStoreLike>
       withActiveLayer((layer) => layer.label === next ? layer : { ...layer, label: next });
     },
 
-    setLayerWhen: (when) => {
-      const next = when ?? undefined;
-      withActiveLayer((layer) => layer.when === next ? layer : { ...layer, when: next });
+    setLayerDock: (dock) => {
+      withActiveLayer((layer) => layer.dock === dock ? layer : { ...layer, dock })
     },
-
-    setLayerDock: (dock) => { withActiveLayer((layer) => layer.dock === dock ? layer : { ...layer, dock }) },
 
     addNodeLayer: (args) => {
       const state = get();
@@ -268,7 +259,7 @@ export function createEditorLayerSlice(set: (partial: | Partial<EditorStoreLike>
       const layers0 = draft.layers ?? [];
 
       if (layers0.some((layer) => safeTrim(String(layer.assetId ?? "")) === assetId)) {
-        set({ nodeIssues: [{ path: "layers", message: "Esa imagen ya está usada en esta escena." }] });
+        set({ nodeErrors: { layers: "Esa imagen ya está usada en esta escena." } });
         return null;
       }
 
@@ -279,8 +270,8 @@ export function createEditorLayerSlice(set: (partial: | Partial<EditorStoreLike>
       set({
         nodeDraft: { ...draft, layers: nextLayers },
         activeLayerId: layers0.length === 0 ? layer.id : state.activeLayerId,
-        activeTextEntryId: layers0.length === 0 ? (layer.text?.[0]?.id ?? null) : state.activeTextEntryId,
-        nodeIssues: [],
+        activeTextEntryId: layers0.length === 0 ? getFirstTextEntryIdFromLayers(nextLayers) : state.activeTextEntryId,
+        nodeErrors: {},
       });
 
       return layer.id;
@@ -305,134 +296,41 @@ export function createEditorLayerSlice(set: (partial: | Partial<EditorStoreLike>
         return {
           ...state,
           nodeDraft: { ...state.nodeDraft, layers: layers1 },
-          nodeIssues: [],
+          nodeErrors: {},
         };
       }),
 
     removeNodeLayer: (layerId, options) => {
-  const withConfirmation = options?.withConfirmation ?? false;
+      const withConfirmation = options?.withConfirmation ?? false;
 
-  if (withConfirmation) {
-  const nodeId = get().nodeDraft?.id;
-  const project = get().project;
+      if (withConfirmation) {
+        const state = get();
+        const nodeId = state.nodeDraft?.id;
 
-  if (!nodeId || !project) return;
+        if (!nodeId || !state.project) return;
 
-  get().requestDelete({
-    target: { kind: "layer", nodeId, layerId },
-    apply: (state) => {
-      if (!state.project || !state.nodeDraft) return state;
+        state.requestDelete({ kind: "layer", nodeId, layerId });
+        return;
+      }
 
-      const nextProject = applyDeleteWithCleanup(state.project, {
-        kind: "layer",
-        nodeId,
-        layerId,
+      set((state) => {
+        if (!state.nodeDraft) return state;
+
+        const layers0 = state.nodeDraft.layers ?? [];
+        const nextLayers = layers0.filter((layer) => layer.id !== layerId);
+
+        if (nextLayers.length === layers0.length) return state;
+
+        return {
+          ...state,
+          nodeDraft: {
+            ...state.nodeDraft,
+            layers: nextLayers,
+          },
+          ...buildLayerRemovalUiPatch(state, layerId, nextLayers),
+        };
       });
-
-      const nextNodeDraft =
-        state.nodeDraft.id === nodeId
-          ? nextProject.nodes.find((node) => node.id === nodeId) ?? state.nodeDraft
-          : state.nodeDraft;
-
-      const nextLayers = nextNodeDraft.layers ?? [];
-      const removedActiveLayer = state.activeLayerId === layerId;
-
-      return {
-        ...state,
-        project: nextProject,
-        nodeDraft: nextNodeDraft,
-        nodeIssues: [],
-        activeLayerId: removedActiveLayer ? nextLayers[0]?.id ?? null : state.activeLayerId,
-        activeTextEntryId: removedActiveLayer ? nextLayers[0]?.text?.[0]?.id ?? null : state.activeTextEntryId,
-        activeLayerField: removedActiveLayer ? null : state.activeLayerField,
-        layerEditSession: { mode: "idle" },
-        hotspotEditor: initialHotspotEditorState,
-        placedItemEditor: initialPlacedItemEditorState,
-        placedNpcEditor: initialPlacedNpcEditorState,
-        placedPlayerEditor: initialPlacedPlayerEditorState,
-        selectedInteractionKind: null,
-        selectedInteractionId: null,
-        pendingInteractiveOpen: null,
-      };
     },
-  });
-
-  return;
-}
-
-  set((state) => {
-    if (!state.nodeDraft) return state;
-
-    const layers0 = state.nodeDraft.layers ?? [];
-    const nextLayers = layers0.filter((layer) => layer.id !== layerId);
-
-    if (nextLayers.length === layers0.length) return state;
-
-    const removedActiveLayer = state.activeLayerId === layerId;
-
-    const removedHotspotLayer = state.hotspotEditor.context?.layerId === layerId;
-    const removedPlacedItemLayer = state.placedItemEditor.context?.layerId === layerId;
-    const removedPlacedNpcLayer = state.placedNpcEditor.context?.layerId === layerId;
-    const removedPlacedPlayerLayer = state.placedPlayerEditor.context?.layerId === layerId;
-
-    const removedLayerEditSession =
-      state.layerEditSession.mode === "editing" &&
-      state.layerEditSession.layerId === layerId;
-
-    const shouldResetHotspotEditor = removedActiveLayer || removedHotspotLayer;
-    const shouldResetPlacedItemEditor = removedActiveLayer || removedPlacedItemLayer;
-    const shouldResetPlacedNpcEditor = removedActiveLayer || removedPlacedNpcLayer;
-    const shouldResetPlacedPlayerEditor = removedActiveLayer || removedPlacedPlayerLayer;
-
-    const shouldClearSelection =
-      shouldResetHotspotEditor ||
-      shouldResetPlacedItemEditor ||
-      shouldResetPlacedNpcEditor ||
-      shouldResetPlacedPlayerEditor;
-
-    return {
-      ...state,
-      nodeDraft: {
-        ...state.nodeDraft,
-        layers: nextLayers,
-      },
-      nodeIssues: [],
-      activeLayerId: removedActiveLayer
-        ? nextLayers[0]?.id ?? null
-        : state.activeLayerId,
-      activeTextEntryId: removedActiveLayer
-        ? nextLayers[0]?.text?.[0]?.id ?? null
-        : state.activeTextEntryId,
-      activeLayerField: removedActiveLayer
-        ? null
-        : state.activeLayerField,
-      layerEditSession: removedLayerEditSession
-        ? { mode: "idle" }
-        : state.layerEditSession,
-      hotspotEditor: shouldResetHotspotEditor
-        ? initialHotspotEditorState
-        : state.hotspotEditor,
-      placedItemEditor: shouldResetPlacedItemEditor
-        ? initialPlacedItemEditorState
-        : state.placedItemEditor,
-      placedNpcEditor: shouldResetPlacedNpcEditor
-        ? initialPlacedNpcEditorState
-        : state.placedNpcEditor,
-      placedPlayerEditor: shouldResetPlacedPlayerEditor
-        ? initialPlacedPlayerEditorState
-        : state.placedPlayerEditor,
-      selectedInteractionKind: shouldClearSelection
-        ? null
-        : state.selectedInteractionKind,
-      selectedInteractionId: shouldClearSelection
-        ? null
-        : state.selectedInteractionId,
-      pendingInteractiveOpen: shouldClearSelection
-        ? null
-        : state.pendingInteractiveOpen,
-    };
-  });
-},
 
     reorderNodeLayers: (fromIndex, toIndex) =>
       set((state) => {
@@ -445,7 +343,7 @@ export function createEditorLayerSlice(set: (partial: | Partial<EditorStoreLike>
         return {
           ...state,
           nodeDraft: { ...state.nodeDraft, layers: nextLayers },
-          nodeIssues: [],
+          nodeErrors: {},
         };
       }),
 
@@ -460,12 +358,7 @@ export function createEditorLayerSlice(set: (partial: | Partial<EditorStoreLike>
       const relativePath = buildAssetPath("backgrounds", file.name);
       const existing = project.assets.find((asset) => asset.kind === "backgrounds" && asset.id === assetId);
 
-      const nextAsset: AssetDef = {
-        id: assetId,
-        kind: "backgrounds",
-        name: existing && existing.name.trim() !== "" ? existing.name : file.name || "Background",
-        file: relativePath,
-      };
+      const nextAsset: AssetDef = { id: assetId, kind: "backgrounds", name: existing && existing.name.trim() !== "" ? existing.name : file.name || "Background", file: relativePath };
 
       const nextAssets = existing
         ? project.assets.map((asset) => asset.kind === "backgrounds" && asset.id === assetId ? nextAsset : asset)
@@ -494,20 +387,17 @@ export function createEditorLayerSlice(set: (partial: | Partial<EditorStoreLike>
 
     addLayerTextEntry: (args) => {
       const state = get();
-      const layer = readActiveLayer(state);
+      const layer = getActiveLayer(state.nodeDraft, state.activeLayerId);
       if (!layer) return null;
 
-      const id = args?.id ?? generateId.variant();
+      const id = args?.id ?? generateId.text();
       const label = safeTrim(args?.label ?? "") || "Texto";
       const when = args?.when;
       const content = args?.content ?? "";
 
       const entry: ConditionalTextEntry = { id, label, when: when ?? undefined, content };
 
-      withActiveLayer((currentLayer) => ({
-        ...currentLayer,
-        text: [...(currentLayer.text ?? []), entry],
-      }));
+      withActiveLayer((currentLayer) => ({ ...currentLayer, text: [...(currentLayer.text ?? []), entry] }));
 
       set({ activeTextEntryId: id });
 
@@ -534,7 +424,7 @@ export function createEditorLayerSlice(set: (partial: | Partial<EditorStoreLike>
 
     removeLayerTextEntry: (entryId) => {
       const state = get();
-      const activeLayer = readActiveLayer(state);
+      const activeLayer = getActiveLayer(state.nodeDraft, state.activeLayerId);
       if (!activeLayer) return;
 
       const text0 = activeLayer.text ?? [];
@@ -553,9 +443,7 @@ export function createEditorLayerSlice(set: (partial: | Partial<EditorStoreLike>
       withActiveLayer((layer) => {
         const text0 = layer.text ?? [];
 
-        if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= text0.length || toIndex >= text0.length) {
-          return layer;
-        }
+        if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= text0.length || toIndex >= text0.length) return layer;
 
         const next = text0.slice();
         const [moved] = next.splice(fromIndex, 1);

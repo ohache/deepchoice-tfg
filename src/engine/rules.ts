@@ -1,4 +1,4 @@
-import type { ClickRule, ID, InteractionRules, RulePhrase, UseItemRule } from "@/domain/types";
+import type { ID, ClickRule, InteractionRules, RulePhrase, UseItemRule } from "@/domain/types";
 import { evaluateCondition } from "@/engine/conditions/evaluateConditions";
 import type { GameState } from "@/engine/state/runtimeState";
 

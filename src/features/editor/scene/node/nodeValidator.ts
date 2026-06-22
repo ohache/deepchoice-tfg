@@ -1,8 +1,9 @@
-import type { ZodError } from "zod";
-import type { Node } from "@/domain/types";
-import { nodeDraftSchema, nodeSchema } from "@/features/editor/scene/node/nodeSchemas";
-import { issuesToFieldErrors } from "@/shared/zodIssues";
-import { conditionSchema, effectSchema, interactionRulesSchema } from "@/validation/rulesSchemas";
+import type { z, ZodError } from "zod";
+import { issuesToAllowedFieldErrors } from "@/shared/zodIssues";
+import { NodeDraftSchema } from "@/features/editor/scene/node/nodeSchemas";
+import type { ID, NodeMapLocation, Project } from "@/domain/types";
+
+type NodeDraftOutput = z.output<typeof NodeDraftSchema>;
 
 export type NodeFieldErrors = {
   title?: string;
@@ -15,122 +16,77 @@ export type NodeFieldErrors = {
   meta?: string;
 };
 
-type NodeLikeForBusinessRules = Pick<Node, "layers" | "dialogues">;
-
 type ValidateNodeDraftOptions = {
-  projectNodes?: Array<{ id: string; title: string }>;
-  currentNodeId?: string | null;
+  project?: Project | null;
+  projectNodes?: Array<{ id: ID; title: string }>;
+  currentNodeId?: ID | null;
 };
 
-const layerBaseRequired = "La escena necesita una capa base (sin condición).";
-const duplicateLayerIdError = "No puede haber dos capas con el mismo id.";
-const duplicateLayerAssetError = "No puede haber dos capas con la misma imagen.";
-const duplicateDialogueIdError = "No puede haber dos diálogos con el mismo id.";
-const duplicateDialoguePairError = "No puede haber dos diálogos para la misma pareja player-npc.";
+const NODE_ERROR_FIELDS = ["title", "layers", "dialogues", "musicTrackId", "mapLocation", "isStart", "isFinal", "meta"] as const satisfies readonly (keyof NodeFieldErrors)[];
 
-function createNodeFieldErrors(): NodeFieldErrors {
-  return {
-    title: undefined,
-    layers: undefined,
-    dialogues: undefined,
-    musicTrackId: undefined,
-    mapLocation: undefined,
-    isStart: undefined,
-    isFinal: undefined,
-    meta: undefined,
-  };
-}
-
-/* Reglas de negocio adicionales que no encajan bien en zod */
-function applyBusinessRules(nodeLike: NodeLikeForBusinessRules, errors: NodeFieldErrors): void {
-  const layers = nodeLike.layers;
-
-  const hasBase = layers.some((layer) => layer.when == null);
-  if (!hasBase) errors.layers ??= layerBaseRequired;
-
-  const seenLayerIds = new Set<string>();
-  for (const layer of layers) {
-    if (seenLayerIds.has(layer.id)) {
-      errors.layers ??= duplicateLayerIdError;
-      break;
-    }
-    seenLayerIds.add(layer.id);
-  }
-
-  const seenLayerAssetIds = new Set<string>();
-  for (const layer of layers) {
-    if (seenLayerAssetIds.has(layer.assetId)) {
-      errors.layers ??= duplicateLayerAssetError;
-      break;
-    }
-    seenLayerAssetIds.add(layer.assetId);
-  }
-
-  const dialogues = nodeLike.dialogues ?? [];
-
-  const seenDialogueIds = new Set<string>();
-  for (const dialogue of dialogues) {
-    if (seenDialogueIds.has(dialogue.id)) {
-      errors.dialogues ??= duplicateDialogueIdError;
-      break;
-    }
-    seenDialogueIds.add(dialogue.id);
-  }
-
-  const seenPairs = new Set<string>();
-  for (const dialogue of dialogues) {
-    const pairKey = `${dialogue.playerId}__${dialogue.npcId}`;
-    if (seenPairs.has(pairKey)) {
-      errors.dialogues ??= duplicateDialoguePairError;
-      break;
-    }
-    seenPairs.add(pairKey);
-  }
-}
-
-function normalizeTitle(value: string | null | undefined): string {
+function normalizeNodeTitle(value?: string | null): string {
   return (value ?? "").trim().toLowerCase();
 }
 
-function applyDuplicateTitleRule(input: { title?: string | null }, errors: NodeFieldErrors, opts?: ValidateNodeDraftOptions): void {
-  const title = normalizeTitle(input.title);
-  if (!title) return;
-
-  const nodes = opts?.projectNodes ?? [];
-  const currentNodeId = opts?.currentNodeId ?? null;
-
-  const duplicated = nodes.some((node) => {
-    if (currentNodeId && node.id === currentNodeId) return false;
-    return normalizeTitle(node.title) === title;
-  });
-
-  if (duplicated) errors.title ??= "Ya existe una escena con ese título.";
+function hasNodeFieldErrors(errors: NodeFieldErrors): boolean {
+  return Object.values(errors).some(Boolean);
 }
 
-export function validateNode(input: Node): { ok: boolean; errors: NodeFieldErrors; zodError?: ZodError } {
-  const result = nodeSchema.safeParse(input);
-  const zodError = result.success ? undefined : result.error;
+/* Comprueba que la localización de mapa exista realmente en el proyecto */
+function isValidNodeMapLocation(project: Project | null | undefined, loc?: NodeMapLocation): boolean {
+  if (!loc) return true;
+  if (!project) return false;
 
-  const errors = issuesToFieldErrors(zodError, createNodeFieldErrors());
+  const map = (project.maps ?? []).find((entry) => entry.id === loc.mapId);
+  if (!map) return false;
 
-  if (result.success) applyBusinessRules(input, errors);
-
-  return { ok: Object.values(errors).every((value) => value == null), errors, zodError };
+  return (map.regions ?? []).some((region) => region.id === loc.regionId);
 }
 
-export function validateNodeDraft(input: Node, opts?: ValidateNodeDraftOptions): { ok: boolean; errors: NodeFieldErrors; zodError?: ZodError } {
-  const result = nodeDraftSchema.safeParse(input);
-  const zodError = result.success ? undefined : result.error;
+function getProjectNodes(opts?: ValidateNodeDraftOptions): Array<{ id: ID; title: string }> {
+  if (opts?.projectNodes) return opts.projectNodes;
+  return opts?.project?.nodes ?? [];
+}
 
-  const errors = issuesToFieldErrors(zodError, createNodeFieldErrors());
+/* Reglas propias de la escena como contenedor */
+function validateNodeBusinessRules(input: NodeDraftOutput, opts?: ValidateNodeDraftOptions): NodeFieldErrors {
+  const errors: NodeFieldErrors = {};
 
-  if (result.success) {
-    applyBusinessRules(input, errors);
-    applyDuplicateTitleRule(input, errors, opts);
+  const title = normalizeNodeTitle(input.title);
+
+  if (title) {
+    const duplicatedTitle = getProjectNodes(opts).some((node) => {
+      if (opts?.currentNodeId && node.id === opts.currentNodeId) return false;
+      return normalizeNodeTitle(node.title) === title;
+    });
+
+    if (duplicatedTitle) errors.title = "Ya existe una escena con ese título.";
   }
 
-  return { ok: Object.values(errors).every((value) => value == null), errors, zodError };
+  if (Boolean(input.isStart) && Boolean(input.isFinal)) errors.isFinal = "Una escena no puede ser inicial y final a la vez.";
+
+  if (!isValidNodeMapLocation(opts?.project, input.mapLocation)) errors.mapLocation = "La localización del mapa no es válida.";
+
+  const layers = input.layers ?? [];
+
+  if (layers.length > 0) {
+    const hasBaseLayer = layers.some((layer) => layer.when == null);
+
+    if (!hasBaseLayer) errors.layers = "La escena necesita una capa base (sin condición).";
+  }
+
+  return errors;
 }
 
-/* Helpers opcionales para validar inputs parciales del editor sin crear validators “formales” separados */
-export const RulesSchemas = { conditionSchema, effectSchema, interactionRulesSchema };
+export function validateNodeDraft(input: unknown, opts?: ValidateNodeDraftOptions): { ok: boolean; errors: NodeFieldErrors; zodError?: ZodError } {
+  const result = NodeDraftSchema.safeParse(input);
+  const zodError = result.success ? undefined : result.error;
+
+  const zodErrors = issuesToAllowedFieldErrors<NodeFieldErrors>(zodError, NODE_ERROR_FIELDS);
+
+  const businessErrors = result.success ? validateNodeBusinessRules(result.data, opts) : {};
+
+  const errors: NodeFieldErrors = { ...zodErrors, ...businessErrors };
+
+  return { ok: !hasNodeFieldErrors(errors), errors, zodError };
+}

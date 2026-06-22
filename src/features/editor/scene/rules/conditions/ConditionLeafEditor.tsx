@@ -1,9 +1,7 @@
 import React, { useMemo } from "react";
 import type { ID } from "@/domain/types";
-import {
-  type EnabledLeafCondition, type EnabledLeafType, type LeafCtx, type LeafVarKind, applyLeafPatch, getLeafOptions, getLeafUi, getVarOpOptions,
-  type LeafFieldSpec, getAvailableLeafTypesForFamily, leafFamily,
-} from "@/features/editor/scene/rules/conditions/conditionLeafRegistry";
+import { type EnabledLeafCondition, type EnabledLeafType, type LeafCtx, type LeafVarKind, applyLeafPatch, getLeafOptions, getLeafUi, getVarOpOptions,
+  type LeafFieldSpec, getAvailableLeafTypesForFamily, leafFamily } from "@/features/editor/scene/rules/conditions/conditionLeafRegistry";
 import { Select, type Option } from "@/components/Select";
 
 const booleanOptions: Option<"true" | "false">[] = [
@@ -22,15 +20,7 @@ function Field({ label, children, className }: { label: string; children: React.
 }
 
 /* Input numérico reutilizable */
-function NumberInput({
-  value,
-  onChange,
-  disabled,
-}: {
-  value: number | "";
-  onChange: (value: number | "") => void;
-  disabled?: boolean;
-}) {
+function NumberInput({ value, onChange, disabled }: { value: number | ""; onChange: (value: number | "") => void; disabled?: boolean }) {
   return (
     <input
       type="text"
@@ -46,9 +36,7 @@ function NumberInput({
 
         const next = Number(raw);
 
-        if (Number.isFinite(next)) {
-          onChange(next);
-        }
+        if (Number.isFinite(next)) onChange(next);
       }}
       disabled={disabled}
       className="input-conditions disabled:opacity-50"
@@ -124,7 +112,7 @@ function hasSelectedPrimaryEntity(cond: EnabledLeafCondition): boolean {
 
     case "placedItemVisible":
     case "placedItemReachable":
-      return Boolean(cond.placedItemId);
+      return Boolean(cond.itemInstanceId);
 
     case "hotspotVisible":
     case "hotspotReachable":
@@ -142,6 +130,9 @@ function hasSelectedPrimaryEntity(cond: EnabledLeafCondition): boolean {
     case "playerVar":
       return Boolean(cond.playerId);
 
+    case "musicPlaying":
+      return Boolean(cond.trackId);
+
     default:
       return false;
   }
@@ -153,19 +144,16 @@ function isProgressCondition(cond: EnabledLeafCondition): boolean {
 
 /* Construye un pequeño índice local por key para evitar varios find repetidos */
 function buildFieldMap(fields: LeafFieldSpec[]): Partial<Record<string, LeafFieldSpec>> {
-  return fields.reduce<Partial<Record<string, LeafFieldSpec>>>((acc, field) => {
-    acc[field.key] = field;
-    return acc;
-  }, {});
+  return fields.reduce<Partial<Record<string, LeafFieldSpec>>>((acc, field) => { acc[field.key] = field; return acc }, {});
 }
 
-export function ConditionLeafEditor({ ctx, cond, familyTypeOptions = [], selectedFamily, onChangeType, onChange }: Props) {
+export function ConditionLeafEditor({ ctx, cond, familyTypeOptions = [], onChangeType, onChange }: Props) {
   if (!cond) {
-    const isProgressFamily = selectedFamily === "progress";
+    const shouldShowTypeSelector = familyTypeOptions.length > 1;
 
     return (
       <div className="space-y-3">
-        {isProgressFamily && familyTypeOptions.length > 0 ? (
+        {shouldShowTypeSelector  ? (
           <div className="grid grid-cols-1 gap-2">
             <Field label="Opción">
               <Select<EnabledLeafType>
@@ -216,7 +204,7 @@ export function ConditionLeafEditor({ ctx, cond, familyTypeOptions = [], selecte
     if (!field) return null;
     if (field.visibleWhen && !field.visibleWhen(ctx, cond)) return null;
 
-    const disabled = field.disabledWhen ? field.disabledWhen(cond) : false;
+    const disabled = field.disabledWhen ? field.disabledWhen(cond, ctx) : false;
     const value = getFieldValue(cond, String(field.path));
     const options = getLeafOptions(ctx, cond, field);
 
@@ -226,9 +214,7 @@ export function ConditionLeafEditor({ ctx, cond, familyTypeOptions = [], selecte
           <Field key={field.key} label={field.label} className={field.className}>
             <Select<ID>
               value={(value as ID) ?? ""}
-              onChange={(nextValue) => {
-                patch({ [String(field.path)]: nextValue } as Partial<EnabledLeafCondition>);
-              }}
+              onChange={(nextValue) => { patch({ [String(field.path)]: nextValue } as Partial<EnabledLeafCondition>) }}
               options={options as Option<ID>[]}
               disabled={disabled}
               placeholder="Selecciona…"
@@ -244,17 +230,6 @@ export function ConditionLeafEditor({ ctx, cond, familyTypeOptions = [], selecte
           <Field key={field.key} label={field.label} className={field.className}>
             <BoolSelect
               value={Boolean(value)}
-              disabled={disabled}
-              onChange={(nextValue) => patch({ [String(field.path)]: nextValue } as Partial<EnabledLeafCondition>)}
-            />
-          </Field>
-        );
-
-      case "number":
-        return (
-          <Field key={field.key} label={field.label} className={field.className}>
-            <NumberInput
-              value={typeof value === "number" ? value : ""}
               disabled={disabled}
               onChange={(nextValue) => patch({ [String(field.path)]: nextValue } as Partial<EnabledLeafCondition>)}
             />
@@ -338,11 +313,7 @@ export function ConditionLeafEditor({ ctx, cond, familyTypeOptions = [], selecte
         {optionField ? <div className="grid grid-cols-1 gap-2">{optionField}</div> : null}
 
         <div
-          className={
-            hasSeveralMaps
-              ? "grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_140px] gap-2"
-              : "grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_140px] gap-2"
-          }
+          className={hasSeveralMaps ? "grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_140px] gap-2" : "grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_140px] gap-2"}
         >
           {hasSeveralMaps ? renderField(fieldMap.mapId) : null}
           {renderField(fieldMap.regionId)}
@@ -353,8 +324,7 @@ export function ConditionLeafEditor({ ctx, cond, familyTypeOptions = [], selecte
   }
 
   if (isVarCondition(cond)) {
-    const ownerField =
-      fieldMap.playerId ?? fieldMap.npcId ?? fieldMap.hotspotId ?? null;
+    const ownerField = fieldMap.playerId ?? fieldMap.npcId ?? fieldMap.hotspotId ?? null;
 
     return (
       <div className="space-y-3">
@@ -390,12 +360,10 @@ export function ConditionLeafEditor({ ctx, cond, familyTypeOptions = [], selecte
   if (cond.type === "npcHasItem") {
     return (
       <div className="space-y-3">
-        {/* NPC arriba */}
         <div className="grid grid-cols-1 gap-2">
           {renderField(fieldMap.npcId)}
         </div>
 
-        {/* Línea compacta */}
         <div className="grid grid-cols-1 md:grid-cols-[180px_minmax(0,1fr)_140px] gap-2">
           {optionField}
           {renderField(fieldMap.itemInstanceId)}
@@ -439,28 +407,39 @@ export function ConditionLeafEditor({ ctx, cond, familyTypeOptions = [], selecte
     );
   }
 
-  if (cond.type === "placedPlayerImage") {
-    return (
-      <div className="space-y-3">
-        <div className="grid grid-cols-1 gap-2">
-          {renderField(fieldMap.playerId)}
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-[110px_minmax(0,1fr)] gap-2">
-          {optionField}
-          {renderField(fieldMap.imageId)}
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-[minmax(0,2fr)_minmax(0,2fr)_90px] gap-2">
-          {renderField(fieldMap.nodeId)}
-          {renderField(fieldMap.layerId)}
-          {renderField(fieldMap.value)}
-        </div>
+if (cond.type === "placedPlayerImage") {
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-1 gap-2">
+        {renderField(fieldMap.playerId)}
       </div>
-    );
-  }
 
-  const entityField = fieldMap.placedItemId ?? fieldMap.hotspotId ?? fieldMap.npcId ?? fieldMap.playerId ?? null;
+      <div className="grid grid-cols-1 md:grid-cols-[120px_minmax(0,2fr)_minmax(0,2fr)] gap-2">
+        {optionField}
+        {renderField(fieldMap.nodeId)}
+        {renderField(fieldMap.layerId)}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_120px] gap-2">
+        {renderField(fieldMap.imageId)}
+        {renderField(fieldMap.value)}
+      </div>
+    </div>
+  );
+}
+
+if (cond.type === "musicPlaying") {
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_140px] gap-2">
+        {renderField(fieldMap.trackId)}
+        {renderField(fieldMap.value)}
+      </div>
+    </div>
+  );
+}
+
+  const entityField = fieldMap.itemInstanceId ?? fieldMap.hotspotId ?? fieldMap.npcId ?? fieldMap.playerId ?? null;
 
   return (
     <div className="space-y-3">

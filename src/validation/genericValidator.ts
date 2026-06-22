@@ -6,10 +6,8 @@ function normalizeName(s: string): string {
 }
 
 /* Devuelve un "basename" comparable, a partir de AssetDef.file */
-export function getAssetFileBasename(asset: AssetDef): string {
-  const raw = asset.file ?? "";
-  const parts = raw.split(/[/\\]/);
-  return (parts[parts.length - 1] ?? raw).trim();
+function getAssetFileBasename(asset: AssetDef): string {
+  return asset.file.split(/[/\\]/).pop()?.trim() ?? "";
 }
 
 /* Comprueba si un nombre ya existe en una lista */

@@ -1,18 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Hotspot, ID, NpcDef, PlacedItem, PlacedNpc, PlacedPlayer, SceneImageLayer } from "@/domain/types";
+import type { Hotspot, ID, NpcDef, ItemInstance, PlacedNpc, PlacedPlayer, SceneImageLayer } from "@/domain/types";
 import type { Condition } from "@/domain/conditions";
 import type { Effect } from "@/domain/effects";
-import type { EffectOwner } from "@/features/editor/scene/rules/effects/effectFactory";
+import type { EffectOwner } from "@/features/editor/scene/rules/effects/effectShared";
 import { useEditorStore } from "@/store/editorStore";
-import { ToggleFieldBlock } from "@/features/editor/scene/SceneFieldBlocks";
-import { InteractiveListPanel, type InteractiveListEntry } from "@/features/editor/scene/interactiveComponents/InteractiveListPanel";
 import { PlacedNpcEditorPanel } from "@/features/editor/scene/placedNpcs/PlacedNpcEditorPanel";
+import { InteractiveListPanel, type InteractiveListEntry } from "@/features/editor/scene/interactiveComponents/InteractiveListPanel";
 import { useEntityRulesEditor } from "@/features/editor/scene/rules/entityRulesEditor";
 import { useEntityCollisionGuard } from "@/features/editor/scene/useEntityCollisionGuard";
-import { buildClickableRegions, useActiveSceneLayer } from "@/features/editor/scene/interactiveComponents/fieldHelpers";
-import { ConfirmDangerModal } from "@/features/editor/modals/ConfirmDangerModal";
+import { DEFAULT_MIN_RECT_01 } from "@/features/editor/hooks/regionShape";
+import { buildClickableRegions, buildProjectWithNodeDraft, useActiveSceneLayer } from "@/features/editor/scene/interactiveComponents/interactiveFieldHelpers";
+import { buildGameItemOptions } from "@/features/editor/scene/interactiveComponents/gameItemOptions";
+import { ToggleFieldBlock } from "@/features/editor/scene/SceneFieldBlocks";
 import { toast } from "@/shared/toast/toastStore";
-import { buildGameItemOptions } from "../interactiveComponents/gameItemOptions";
 
 type PlacedNpcEditorError =
   | { kind: "panel"; message: string }
@@ -26,23 +26,7 @@ type ScenePlacedNpcFieldProps = {
   layerId: ID;
 };
 
-function buildProjectWithNodeDraft(project: NonNullable<ReturnType<typeof useEditorStore.getState>["project"]> | null,
-  nodeDraft: NonNullable<ReturnType<typeof useEditorStore.getState>["nodeDraft"]> | null,
-) {
-  if (!project) return null;
-  if (!nodeDraft) return project;
-
-  const exists = project.nodes.some((node) => node.id === nodeDraft.id);
-
-  return {
-    ...project,
-    nodes: exists
-      ? project.nodes.map((node) => (node.id === nodeDraft.id ? nodeDraft : node))
-      : [...project.nodes, nodeDraft],
-  };
-}
-
-export function ScenePlacedNpcField({ label = "NPCs", active, onToggle, layerId }: ScenePlacedNpcFieldProps) {
+export function ScenePlacedNpcField({ label = "PNJs", active, onToggle, layerId }: ScenePlacedNpcFieldProps) {
   const project = useEditorStore((state) => state.project ?? null);
   const nodeDraft = useEditorStore((state) => state.nodeDraft);
 
@@ -51,8 +35,8 @@ export function ScenePlacedNpcField({ label = "NPCs", active, onToggle, layerId 
 
   const placedNpcEditor = useEditorStore((state) => state.placedNpcEditor);
 
-  const startRedrawPlacedNpcShape = useEditorStore((state) => state.startRedrawPlacedNpcShape);
   const startPlacingPlacedNpc = useEditorStore((state) => state.startPlacingPlacedNpc);
+  const startRedrawPlacedNpcShape = useEditorStore((state) => state.startRedrawPlacedNpcShape);
   const editPlacedNpc = useEditorStore((state) => state.editPlacedNpc);
   const cancelPlacedNpcDraft = useEditorStore((state) => state.cancelPlacedNpcDraft);
 
@@ -63,7 +47,6 @@ export function ScenePlacedNpcField({ label = "NPCs", active, onToggle, layerId 
   const commitPlacedNpcDraft = useEditorStore((state) => state.commitPlacedNpcDraft);
 
   const removePlacedNpc = useEditorStore((state) => state.removePlacedNpc);
-  const setActivePlacedNpcs = useEditorStore((state) => state.setActivePlacedNpcs);
 
   const selectedInteractionKind = useEditorStore((state) => state.selectedInteractionKind);
   const selectedInteractionId = useEditorStore((state) => state.selectedInteractionId);
@@ -71,10 +54,12 @@ export function ScenePlacedNpcField({ label = "NPCs", active, onToggle, layerId 
   const setSelectedInteractionId = useEditorStore((state) => state.setSelectedInteractionId);
   const clearInteractionSelection = useEditorStore((state) => state.clearInteractionSelection);
 
-  const projectNpcs = useMemo<NpcDef[]>(() => project?.npcs ?? [], [project?.npcs]);
-
-  const [selectedCatalogNpcId, setSelectedCatalogNpcId] = useState<string>("");
+  const [selectedCatalogNpcId, setSelectedCatalogNpcId] = useState<ID | "">("");
   const [isCreatingPlacedNpc, setIsCreatingPlacedNpc] = useState(false);
+  const [editorError, setEditorError] = useState<PlacedNpcEditorError>(null);
+
+  /* ---------------------------- Datos del proyecto --------------------------- */
+  const projectNpcs = useMemo<NpcDef[]>(() => project?.npcs ?? [], [project?.npcs]);
 
   useEffect(() => {
     if (!projectNpcs.length) {
@@ -88,6 +73,7 @@ export function ScenePlacedNpcField({ label = "NPCs", active, onToggle, layerId 
     if (!exists) setSelectedCatalogNpcId("");
   }, [projectNpcs, selectedCatalogNpcId]);
 
+  /* ------------------------------- Capa activa ------------------------------- */
   const layers = useMemo<SceneImageLayer[]>(() => nodeDraft?.layers ?? [], [nodeDraft?.layers]);
 
   const { layer } = useActiveSceneLayer({ active, layerId, activeLayerId, setActiveLayerId, layers });
@@ -96,48 +82,57 @@ export function ScenePlacedNpcField({ label = "NPCs", active, onToggle, layerId 
 
   const liveProject = useMemo(() => buildProjectWithNodeDraft(project, nodeDraft), [project, nodeDraft]);
 
+  /* ---------------------------- Entidades de la capa --------------------------- */
   const hotspots = useMemo<Hotspot[]>(() => layer?.hotspots ?? [], [layer?.hotspots]);
-  const placedItems = useMemo<PlacedItem[]>(() => layer?.placedItems ?? [], [layer?.placedItems]);
+
+  const placedItems = useMemo<ItemInstance[]>(() => layer?.placedItems ?? [], [layer?.placedItems]);
+
   const placedNpcs = useMemo<PlacedNpc[]>(() => layer?.placedNpcs ?? [], [layer?.placedNpcs]);
+
   const placedPlayers = useMemo<PlacedPlayer[]>(() => layer?.placedPlayers ?? [], [layer?.placedPlayers]);
 
-  const selectedId = selectedInteractionKind === "placedNpc" ? selectedInteractionId : null;
-
+  /* ------------------------------ Estado del draft ---------------------------- */
   const draft = placedNpcEditor.draft;
   const isDrawing = placedNpcEditor.mode.type === "drawing";
   const isDraftActive = placedNpcEditor.mode.type !== "idle";
 
-  const collisionResetKey = `${layerId}:${draft?.npcId ?? "none"}:${placedNpcEditor.mode.type}`;
-
-  const useItemSourceOptions = useMemo(
-    () => buildGameItemOptions(liveProject),
-    [liveProject],
-  );
-
-  const owner = useMemo<EffectOwner | null>(() => {
-    if (!draft || !draft.shape) return null;
-
-    return {
-      kind: "placedNpc",
-      layerId,
-      npcId: draft.npcId,
-      npc: { npcId: draft.npcId, shape: draft.shape, initialState: draft.initialState, rules: draft.rules },
-    };
-  }, [draft, layerId]);
+  /* ------------------------------- Derivados UI ------------------------------- */
+  const selectedId = selectedInteractionKind === "placedNpc" ? selectedInteractionId : null;
 
   const isExistingPlacedNpc = useMemo(() => {
     if (!draft?.npcId) return false;
     return placedNpcs.some((placedNpc) => placedNpc.npcId === draft.npcId);
   }, [draft?.npcId, placedNpcs]);
 
+  const placedNpcListEntries = useMemo<InteractiveListEntry[]>(() => placedNpcs.map((placedNpc) => {
+        const npcDef = projectNpcs.find((def) => def.id === placedNpc.npcId) ?? null;
+
+        return { id: placedNpc.npcId, label: npcDef?.name?.trim() || placedNpc.npcId };
+      }), [placedNpcs, projectNpcs],
+  );
+
+  /* --------------------------- Reglas / owner / items ------------------------- */
+  const useItemSourceOptions = useMemo(() => buildGameItemOptions(liveProject), [liveProject]);
+
+  const owner = useMemo<EffectOwner | null>(() => {
+    if (!draft || !draft.shape) return null;
+
+    return { kind: "placedNpc", layerId, npcId: draft.npcId,
+      npc: { npcId: draft.npcId, shape: draft.shape, initialState: draft.initialState, rules: draft.rules },
+    };
+  }, [draft, layerId]);
+
+
+  const { activeChannel, setActiveChannel, clickRules, useItemRulesForSelected, ruleModalOpen, currentRuleValue, openAddClickRule, openEditClickRule,
+    openAddUseItemRule, openEditUseItemRule, removeClickRule, removeUseItemRule, closeRuleModal, saveRule } = useEntityRulesEditor({
+    rules: draft?.rules, onChangeRules: setPlacedNpcDraftRules });
+
+  /* -------------------------------- Colisiones -------------------------------- */
+  const collisionResetKey = `${layerId}:${draft?.npcId ?? "none"}`;
+
   const clickableRegions = useMemo(() =>
-    buildClickableRegions({
-      project: liveProject,
-      hotspots,
-      placedItems,
-      placedNpcs,
-      placedPlayers,
-    }), [liveProject, hotspots, placedItems, placedNpcs, placedPlayers],
+      buildClickableRegions({ project: liveProject, hotspots, placedItems, placedNpcs, placedPlayers }),
+    [liveProject, hotspots, placedItems, placedNpcs, placedPlayers],
   );
 
   const { hasShape, hasCollisions, collisionSummary, collisionLock, resetCollisionGuard } = useEntityCollisionGuard({
@@ -146,18 +141,15 @@ export function ScenePlacedNpcField({ label = "NPCs", active, onToggle, layerId 
     ignore: draft?.npcId ? { kind: "npc", id: draft.npcId } : undefined,
     enabled: true,
     isDrawing,
-    minRect: 0.02,
+    minRect: DEFAULT_MIN_RECT_01,
     resetKey: collisionResetKey,
     onRejectShape: () => {
       setPlacedNpcDraftShape(null);
       startRedrawPlacedNpcShape();
     },
-    onCollision: (summary) => { setEditorError({ kind: "panel", message: `Colisión con: ${summary}. Dibuja otra región o pulsa “Cancelar”.` }) },
   });
 
-  const [confirmNukeOpen, setConfirmNukeOpen] = useState(false);
-  const [editorError, setEditorError] = useState<PlacedNpcEditorError>(null);
-
+  /* ----------------------------- Valores del panel ---------------------------- */
   const initialVisible = draft?.initialState.visible ?? true;
   const initialReachable = draft?.initialState.reachable ?? true;
   const initialNotReachableText = draft?.initialState.notReachableText ?? "";
@@ -166,35 +158,25 @@ export function ScenePlacedNpcField({ label = "NPCs", active, onToggle, layerId 
   const disableReachable = disableAllEditorFields || !initialVisible;
   const disableNotReachableText = disableAllEditorFields || !initialVisible || initialReachable;
 
-  const hasAnyRules = Boolean((draft?.rules?.onClick?.length ?? 0) > 0) || Boolean((draft?.rules?.onUseItem?.length ?? 0) > 0);
-
   const notReachableInputRef = useRef<HTMLInputElement | null>(null);
 
-  const { activeChannel, setActiveChannel, clickRules, useItemRulesForSelected, ruleModalOpen, currentRuleValue, openAddClickRule, openEditClickRule,
-    openAddUseItemRule, openEditUseItemRule, removeClickRule, removeUseItemRule, closeRuleModal, saveRule } = useEntityRulesEditor({
-      rules: draft?.rules,
-      onChangeRules: setPlacedNpcDraftRules,
-    });
+  const panelError = editorError?.kind === "panel" ? editorError.message : null;
+  const showRulesRequiredError = editorError?.kind === "rules";
 
-  const placedNpcListEntries = useMemo<InteractiveListEntry[]>(() =>
-    placedNpcs.map((placedNpc) => {
-      const npcDef = projectNpcs.find((def) => def.id === placedNpc.npcId) ?? null;
-      return { id: placedNpc.npcId, label: npcDef?.name?.trim() || placedNpc.npcId };
-    }), [placedNpcs, projectNpcs],
-  );
-
-  const beginPlacedNpcPlacement = (npcId: string) => {
+  /* -------------------------------- Handlers -------------------------------- */
+  const beginPlacedNpcPlacement = (npcId: ID | "") => {
     if (!npcId) {
-      toast.warning("Selecciona un NPC", "Debes seleccionar un NPC del catálogo.");
+      toast.warning("Selecciona un PNJ", "Debes seleccionar un PNJ del catálogo.");
       return;
     }
 
     setEditorError(null);
     resetCollisionGuard();
     clearInteractionSelection();
+
     startPlacingPlacedNpc({ npcId });
 
-    toast.info("Dibuja una región", "Arrastra sobre la imagen de la derecha para definir el NPC.");
+    toast.info("Dibuja una región", "Arrastra sobre la imagen de la derecha para definir el PNJ.");
   };
 
   const handleStartAddingPlacedNpc = () => {
@@ -205,7 +187,7 @@ export function ScenePlacedNpcField({ label = "NPCs", active, onToggle, layerId 
     setIsCreatingPlacedNpc(true);
   };
 
-  const handleSelectedCatalogNpcIdChange = (npcId: string) => {
+  const handleSelectedCatalogNpcIdChange = (npcId: ID | "") => {
     setSelectedCatalogNpcId(npcId);
 
     if (!npcId) return;
@@ -220,19 +202,15 @@ export function ScenePlacedNpcField({ label = "NPCs", active, onToggle, layerId 
 
     setEditorError(null);
 
-    if (!hasAnyRules) {
-      setEditorError({ kind: "rules" });
-      return;
-    }
-
     if (hasCollisions) {
       setEditorError({ kind: "panel", message: `Colisión con: ${collisionSummary}. Ajusta la región para que no se solape.` });
       return;
     }
 
     const result = commitPlacedNpcDraft();
+
     if (!result.ok) {
-      toast.error("No se ha podido guardar", result.error ?? "Revisa el NPC.");
+      toast.error("No se ha podido guardar", result.error ?? "Revisa el PNJ.");
       return;
     }
 
@@ -245,43 +223,25 @@ export function ScenePlacedNpcField({ label = "NPCs", active, onToggle, layerId 
     setIsCreatingPlacedNpc(false);
     setSelectedCatalogNpcId("");
 
-    toast.success("NPC guardado", "El NPC ya forma parte de la escena.");
+    toast.success("PNJ guardado", "El PNJ ya forma parte de la escena.");
   };
 
   const handleDelete = (npcId: ID) => {
     removePlacedNpc(npcId, { withConfirmation: true });
 
-    const isSelectedPlacedNpc =
-      selectedInteractionKind === "placedNpc" && selectedInteractionId === npcId;
+    const isSelectedPlacedNpc = selectedInteractionKind === "placedNpc" && selectedInteractionId === npcId;
 
     if (isSelectedPlacedNpc) clearInteractionSelection();
 
     const isEditingThisDraft = draft?.npcId === npcId;
+
     if (isEditingThisDraft) {
-      resetCollisionGuard();
-      cancelPlacedNpcDraft();
-    }
-  };
-
-  const handleAskNukeAll = () => {
-    if (!placedNpcs.length) return;
-    setConfirmNukeOpen(true);
-  };
-
-  const handleConfirmNukeAll = () => {
-    setConfirmNukeOpen(false);
-    setActivePlacedNpcs([]);
-    clearInteractionSelection();
-
-    if (draft) {
       resetCollisionGuard();
       cancelPlacedNpcDraft();
     }
 
     setIsCreatingPlacedNpc(false);
     setSelectedCatalogNpcId("");
-
-    toast.success("NPCs borrados", "Se han eliminado todos los NPCs de esta capa.");
   };
 
   const handleEditPlacedNpc = (npcId: ID) => {
@@ -295,6 +255,7 @@ export function ScenePlacedNpcField({ label = "NPCs", active, onToggle, layerId 
 
   const handleDeleteDraft = () => {
     if (!draft) return;
+
     handleDelete(draft.npcId);
     setIsCreatingPlacedNpc(false);
     setSelectedCatalogNpcId("");
@@ -307,14 +268,16 @@ export function ScenePlacedNpcField({ label = "NPCs", active, onToggle, layerId 
     clearInteractionSelection();
     setIsCreatingPlacedNpc(false);
     setSelectedCatalogNpcId("");
-    toast.info("Cancelado", "Has salido del editor de NPC.");
+
+    toast.info("Cancelado", "Has salido del editor de PNJ.");
   };
 
   const handleStartRedrawShape = () => {
     setEditorError(null);
     resetCollisionGuard();
     startRedrawPlacedNpcShape();
-    toast.info("Redibuja la región", "Arrastra sobre la imagen para actualizar el área del NPC.");
+
+    toast.info("Redibuja la región", "Arrastra sobre la imagen para actualizar el área del PNJ.");
   };
 
   const handleVisibleChange = (checked: boolean) => {
@@ -327,12 +290,13 @@ export function ScenePlacedNpcField({ label = "NPCs", active, onToggle, layerId 
   };
 
   const handleReachableChange = (checked: boolean) => {
-    if (checked) setPlacedNpcDraftInitialState({ reachable: true, notReachableText: "" });
-    else setPlacedNpcDraftInitialState({ reachable: false });
-  };
+    if (checked) {
+      setPlacedNpcDraftInitialState({ reachable: true, notReachableText: "" });
+      return;
+    }
 
-  const panelError = editorError?.kind === "panel" ? editorError.message : null;
-  const showRulesRequiredError = editorError?.kind === "rules";
+    setPlacedNpcDraftInitialState({ reachable: false });
+  };
 
   if (!layer) {
     return (
@@ -345,32 +309,20 @@ export function ScenePlacedNpcField({ label = "NPCs", active, onToggle, layerId 
   }
 
   return (
-    <>
-      <ConfirmDangerModal
-        open={confirmNukeOpen}
-        title="Borrar todos los NPCs"
-        description="Esta acción no se puede deshacer. ¿Quieres eliminar todos los NPCs de esta capa?"
-        confirmText="Sí, borrar todos"
-        cancelText="Cancelar"
-        onConfirm={handleConfirmNukeAll}
-        onCancel={() => setConfirmNukeOpen(false)}
-      />
-
       <ToggleFieldBlock label={label} active={active} onToggle={onToggle}>
         <div className="space-y-3">
           {!isDraftActive && !isCreatingPlacedNpc ? (
             <InteractiveListPanel
               items={placedNpcListEntries}
               selectedId={selectedId}
-              itemTitle="Editar NPC"
+              itemTitle="Editar PNJ"
               editTitle="Editar"
-              editAriaLabel="Editar NPC"
-              deleteAriaLabel="Eliminar NPC"
-              createLabel="+ Añadir NPC"
+              editAriaLabel="Editar PNJ"
+              deleteAriaLabel="Eliminar PNJ"
+              createLabel="+ Añadir PNJ"
               onCreate={handleStartAddingPlacedNpc}
               onEdit={handleEditPlacedNpc}
               onDelete={handleDelete}
-              onDeleteAll={handleAskNukeAll}
             />
           ) : (
             <PlacedNpcEditorPanel
@@ -429,6 +381,5 @@ export function ScenePlacedNpcField({ label = "NPCs", active, onToggle, layerId 
           )}
         </div>
       </ToggleFieldBlock>
-    </>
   );
 }

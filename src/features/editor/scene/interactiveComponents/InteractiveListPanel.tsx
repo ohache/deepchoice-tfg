@@ -18,7 +18,6 @@ type InteractiveListPanelProps = {
   onCreate?: () => void;
   onEdit: (id: ID) => void;
   onDelete: (id: ID) => void;
-  onDeleteAll: () => void;
 };
 
 function getDisplayLabel(label: string): string {
@@ -34,10 +33,10 @@ function getItemClassName(selected: boolean): string {
 }
 
 function handleItemKeyDown(event: KeyboardEvent<HTMLDivElement>, onEdit: () => void) {
-  if (event.key === "Enter" || event.key === " ") {
+  if (event.key !== "Enter" && event.key !== " ") return
+
     event.preventDefault();
     onEdit();
-  }
 }
 
 type InteractiveListItemProps = {
@@ -63,6 +62,7 @@ function InteractiveListItem({ item, selected, itemTitle, editTitle, editAriaLab
       onKeyDown={(event) => handleItemKeyDown(event, () => onEdit(item.id))}
       className={getItemClassName(selected)}
       title={itemTitle}
+      aria-label={`${itemTitle}: ${label || "sin label"}`}
     >
       <div className="flex items-center justify-between">
         <div className="min-w-0">
@@ -105,7 +105,7 @@ function InteractiveListItem({ item, selected, itemTitle, editTitle, editAriaLab
 
 /* Panel genérico para listar elementos interactivos editables */
 export function InteractiveListPanel({ items, selectedId, editTitle, editAriaLabel, deleteAriaLabel, itemTitle,
-  createLabel, onCreate, onEdit, onDelete, onDeleteAll }: InteractiveListPanelProps) {
+  createLabel, onCreate, onEdit, onDelete }: InteractiveListPanelProps) {
   const hasItems = items.length > 0;
   const showCreateButton = Boolean(onCreate && createLabel);
 
@@ -139,24 +139,11 @@ export function InteractiveListPanel({ items, selectedId, editTitle, editAriaLab
               editAriaLabel={editAriaLabel}
               deleteAriaLabel={deleteAriaLabel}
               onEdit={onEdit}
-            onDelete={onDelete}
+              onDelete={onDelete}
           />
         ))}
       </div>
     ) : null}
-
-      {hasItems ? (
-        <div className="flex justify-end pt-1">
-          <button
-            type="button"
-            className="btn border-2 border-rose-700/60 bg-rose-950/30 text-xs text-white hover:bg-rose-950"
-            onClick={onDeleteAll}
-            title="Borrar todos"
-          >
-            Borrar todos
-          </button>
-        </div>
-      ) : null}
     </div>
   );
 }

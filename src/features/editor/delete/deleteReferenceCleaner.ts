@@ -1,41 +1,20 @@
-import type { ID, PlacedPlayer, PlayerDef, Project } from "@/domain/types";
+import type { ID, InteractionRules, PlacedPlayer, PlayerDef, Project, RulePhrase } from "@/domain/types";
 import type { Effect } from "@/domain/effects";
 import {
-  effectReferencesDialogue,
-  effectReferencesHotspot,
-  effectReferencesHotspotVar,
-  effectReferencesMapRegion,
-  effectReferencesMusicTrack,
-  effectReferencesNode,
-  effectReferencesNpc,
-  effectReferencesNpcVar,
-  effectReferencesPlacedItem,
-  effectReferencesPlayer,
-  effectReferencesPlayerVar,
-  effectReferencesSfx,
+  effectReferencesDialogue, effectReferencesHotspot, effectReferencesHotspotVar, effectReferencesMapRegion,
+  effectReferencesNode, effectReferencesNpc, effectReferencesNpcVar, effectReferencesItemInstance, effectReferencesPlayer,
+  effectReferencesPlayerVar, effectReferencesSfx
 } from "@/domain/effectRefs";
 import {
-  collectDialogueIds,
-  effectIsStartDialogueForAnyOf,
-  removeConditionsInProject,
-  removeDialogues,
-  removeEffectsInProject,
-  removePlacedItems,
-  removePlacedNpcs,
-  removePlacedPlayers,
-} from "@/features/editor/core/editorProjectWalkers";
+  collectDialogueIds, effectIsStartDialogueForAnyOf, removeConditionsInProject, removeDialogues, removeEffectsInProject,
+  removeEmptyInteractionRulesInProject, removeOnUseItemRulesForInstances, removePlacedItems, removePlacedNpcs, removePlacedPlayers,
+  removeRulePhrasesInProject
+} from "@/features/editor/delete/editorProjectWalkers";
 import { removeById, replaceById } from "@/features/editor/history/shared/assetBackedEntityHelpers";
 import { ensureDefaultImageId } from "@/features/editor/history/shared/genericHelpers";
-import { removeAsset } from "@/features/editor/core/editorGenericSlice";
+import { removeAsset } from "@/features/editor/core/editorDataUtils";
 import type { DeleteTarget } from "./deleteTypes";
-import {
-  rebuildMapsFromNodes,
-  reconcileRegionEntryAfterNodeMapRemoval,
-} from "@/features/editor/scene/node/editorNodeHelpersSlice";
-
-function effectReferencesItemInstance(effect: Effect, itemInstanceId: ID): boolean {
-  return effectReferencesPlacedItem(effect, itemInstanceId);
-}
+import { rebuildMapsFromNodes, reconcileRegionEntryAfterNodeMapRemoval } from "@/features/editor/scene/node/NodeHelpers";
 
 function removeAssetsByIds(project: Project, assetIds: Set<ID>): Project {
   if (assetIds.size === 0) return project;
@@ -87,35 +66,197 @@ function removeNowUnusedAssets(project: Project, candidateIds: Iterable<ID>): Pr
   return removeAssetsByIds(project, unused);
 }
 
-function removePlayerImageRefs(project: Project, input: { playerId: ID; imageId: ID; nextPlayer: PlayerDef }): Project {
-  const { playerId, imageId, nextPlayer } = input;
+function clearMusicFromEndGameEffect(effect: Effect, trackId: ID): { effect: Effect; touched: boolean } {
+  if (effect.type !== "endGame") return { effect, touched: false };
+  if (effect.ending?.musicTrackId !== trackId) return { effect, touched: false };
 
-  let nextProject = {
-    ...project,
-    nodes: project.nodes.map((node) => ({
-      ...node,
-      layers: node.layers.map((layer) => {
-        const placedPlayers = layer.placedPlayers ?? [];
-        if (placedPlayers.length === 0) return layer;
+  return {
+    effect: {
+      ...effect,
+      ending: {
+        ...effect.ending,
+        musicTrackId: undefined,
+      },
+    },
+    touched: true,
+  };
+}
 
-        let touched = false;
+function clearMusicFromEffects(
+  effects: Effect[] | undefined,
+  trackId: ID,
+): { effects: Effect[] | undefined; touched: boolean } {
+  if (!effects || effects.length === 0) return { effects, touched: false };
 
-        const nextPlacedPlayers = placedPlayers.map((placedPlayer) => {
-          if (placedPlayer.playerId !== playerId) return placedPlayer;
-          if (placedPlayer.initialImageId !== imageId) return placedPlayer;
+  let touched = false;
 
-          touched = true;
+  const nextEffects = effects.map((effect) => {
+    const result = clearMusicFromEndGameEffect(effect, trackId);
+    if (result.touched) touched = true;
+    return result.effect;
+  });
 
-          return {
-            ...placedPlayer,
-            initialImageId: nextPlayer.defaultImageId,
-          } as PlacedPlayer;
+  return touched
+    ? { effects: nextEffects, touched: true }
+    : { effects, touched: false };
+}
+
+function clearMusicFromInteractionRules(
+  rules: InteractionRules | undefined,
+  trackId: ID,
+): { rules: InteractionRules | undefined; touched: boolean } {
+  if (!rules) return { rules, touched: false };
+
+  let touched = false;
+
+  const mapRuleList = <T extends { effects: Effect[] }>(list: T[] | undefined): T[] | undefined => {
+    if (!list || list.length === 0) return list;
+
+    let touchedList = false;
+
+    const nextList = list.map((rule) => {
+      const result = clearMusicFromEffects(rule.effects, trackId);
+      if (!result.touched) return rule;
+
+      touchedList = true;
+      return { ...rule, effects: result.effects ?? rule.effects };
+    });
+
+    if (touchedList) touched = true;
+    return touchedList ? nextList : list;
+  };
+
+  const nextOnClick = mapRuleList(rules.onClick);
+  const nextOnUseItem = mapRuleList(rules.onUseItem);
+
+  if (!touched) return { rules, touched: false };
+
+  return {
+    rules: {
+      ...rules,
+      onClick: nextOnClick,
+      onUseItem: nextOnUseItem,
+    },
+    touched: true,
+  };
+}
+
+function clearMusicFromEndGameEffectsInProject(project: Project, trackId: ID): Project {
+  let touchedNodes = false;
+
+  const nextNodes = project.nodes.map((node) => {
+    let touchedNode = false;
+
+    const nextLayers = node.layers.map((layer) => {
+      let touchedLayer = false;
+
+      const mapRuleContainers = <T extends { rules?: InteractionRules }>(
+        list: T[] | undefined,
+      ): { list: T[] | undefined; touched: boolean } => {
+        if (!list || list.length === 0) return { list, touched: false };
+
+        let touchedList = false;
+
+        const nextList = list.map((entry) => {
+          const result = clearMusicFromInteractionRules(entry.rules, trackId);
+          if (!result.touched) return entry;
+
+          touchedList = true;
+          return { ...entry, rules: result.rules ?? entry.rules } as T;
         });
 
-        return touched ? { ...layer, placedPlayers: nextPlacedPlayers } : layer;
-      }),
-    })),
-  };
+        return touchedList
+          ? { list: nextList, touched: true }
+          : { list, touched: false };
+      };
+
+      const hotspotResult = mapRuleContainers(layer.hotspots);
+      const placedItemResult = mapRuleContainers(layer.placedItems);
+      const placedNpcResult = mapRuleContainers(layer.placedNpcs);
+
+      if (hotspotResult.touched || placedItemResult.touched || placedNpcResult.touched) {
+        touchedLayer = true;
+      }
+
+      if (!touchedLayer) return layer;
+
+      touchedNode = true;
+
+      return {
+        ...layer,
+        hotspots: hotspotResult.touched ? hotspotResult.list : layer.hotspots,
+        placedItems: placedItemResult.touched ? placedItemResult.list : layer.placedItems,
+        placedNpcs: placedNpcResult.touched ? placedNpcResult.list : layer.placedNpcs,
+      };
+    });
+
+    const nextDialogues = (node.dialogues ?? []).map((dialogue) => {
+      let touchedDialogue = false;
+
+      const nextDialogueNodes = dialogue.nodes.map((dialogueNode) => {
+        if (dialogueNode.type !== "line") return dialogueNode;
+
+        const result = clearMusicFromEffects(dialogueNode.effects, trackId);
+        if (!result.touched) return dialogueNode;
+
+        touchedDialogue = true;
+        return { ...dialogueNode, effects: result.effects };
+      });
+
+      if (!touchedDialogue) return dialogue;
+
+      touchedNode = true;
+      return { ...dialogue, nodes: nextDialogueNodes };
+    });
+
+    if (!touchedNode) return node;
+
+    touchedNodes = true;
+
+    return {
+      ...node,
+      layers: nextLayers,
+      dialogues: nextDialogues,
+    };
+  });
+
+  return touchedNodes ? { ...project, nodes: nextNodes } : project;
+}
+
+function removePlayerImageRefs(project: Project, input: { playerId: ID; imageId: ID; nextPlayer: PlayerDef }): Project {
+  const { playerId, imageId, nextPlayer } = input;
+  const replacementImageId = nextPlayer.defaultImageId;
+
+  let nextProject: Project = project;
+
+  if (replacementImageId) {
+    nextProject = {
+      ...nextProject,
+      nodes: nextProject.nodes.map((node) => ({
+        ...node,
+        layers: node.layers.map((layer) => {
+          const placedPlayers = layer.placedPlayers ?? [];
+          if (placedPlayers.length === 0) return layer;
+
+          let touched = false;
+
+          const nextPlacedPlayers = placedPlayers.map((placedPlayer) => {
+            if (placedPlayer.playerId !== playerId) return placedPlayer;
+            if (placedPlayer.initialImageId !== imageId) return placedPlayer;
+
+            touched = true;
+
+            return {
+              ...placedPlayer,
+              initialImageId: replacementImageId,
+            } as PlacedPlayer;
+          });
+
+          return touched ? { ...layer, placedPlayers: nextPlacedPlayers } : layer;
+        }),
+      })),
+    };
+  }
 
   nextProject = removeConditionsInProject(
     nextProject,
@@ -142,11 +283,20 @@ function cleanPlayer(project: Project, playerId: ID): Project {
 
   const dialogueIds = collectDialogueIds(project, (dialogue) => dialogue.playerId === playerId);
 
+  const removedItemInstanceIds = new Set<ID>(
+    (player.initialInventory ?? []).map((item) => item.itemInstanceId),
+  );
+
   let nextProject = project;
 
   nextProject = removeEffectsInProject(
     nextProject,
-    (effect) => effectReferencesPlayer(effect, playerId) || effectIsStartDialogueForAnyOf(effect, dialogueIds),
+    (effect) =>
+      effectReferencesPlayer(effect, playerId) ||
+      effectIsStartDialogueForAnyOf(effect, dialogueIds) ||
+      [...removedItemInstanceIds].some((itemInstanceId) =>
+        effectReferencesItemInstance(effect, itemInstanceId),
+      ),
   );
 
   nextProject = removeConditionsInProject(
@@ -155,8 +305,24 @@ function cleanPlayer(project: Project, playerId: ID): Project {
       (condition.type === "playerVar" && condition.playerId === playerId) ||
       (condition.type === "hasItem" && condition.playerId === playerId) ||
       (condition.type === "placedPlayerVisible" && condition.playerId === playerId) ||
-      (condition.type === "placedPlayerImage" && condition.playerId === playerId),
+      (condition.type === "placedPlayerImage" && condition.playerId === playerId) ||
+      (
+        (
+          condition.type === "hasItem" ||
+          condition.type === "npcHasItem"
+        ) &&
+        removedItemInstanceIds.has(condition.itemInstanceId)
+      ),
   );
+
+  nextProject = removeOnUseItemRulesForInstances(nextProject, removedItemInstanceIds);
+
+  nextProject = removeRulePhrasesInProject(
+    nextProject,
+    (phrase) => phrase.speaker?.kind === "player" && phrase.speaker.playerId === playerId,
+  );
+
+  nextProject = removeEmptyInteractionRulesInProject(nextProject);
 
   nextProject = removePlacedPlayers(nextProject, (placedPlayer) => placedPlayer.playerId === playerId);
   nextProject = removeDialogues(nextProject, (dialogue) => dialogue.playerId === playerId);
@@ -225,6 +391,8 @@ function cleanPlayerVar(project: Project, input: { playerId: ID; varId: ID }): P
     (effect) => effectReferencesPlayerVar(effect, input),
   );
 
+  nextProject = removeEmptyInteractionRulesInProject(nextProject);
+
   return nextProject;
 }
 
@@ -254,17 +422,36 @@ function cleanPlayerInventoryItem(project: Project, input: { playerId: ID; itemI
     (effect) => effectReferencesItemInstance(effect, input.itemInstanceId),
   );
 
+  nextProject = removeOnUseItemRulesForInstances(
+    nextProject,
+    new Set<ID>([input.itemInstanceId]),
+  );
+
+  nextProject = removeEmptyInteractionRulesInProject(nextProject);
+
   return nextProject;
 }
 
 function cleanNpc(project: Project, npcId: ID): Project {
+  const npc = project.npcs.find((entry) => entry.id === npcId);
+  if (!npc) return project;
+
   const dialogueIds = collectDialogueIds(project, (dialogue) => dialogue.npcId === npcId);
+
+  const removedItemInstanceIds = new Set<ID>(
+    (npc.initialInventory ?? []).map((item) => item.itemInstanceId),
+  );
 
   let nextProject = project;
 
   nextProject = removeEffectsInProject(
     nextProject,
-    (effect) => effectReferencesNpc(effect, npcId) || effectIsStartDialogueForAnyOf(effect, dialogueIds),
+    (effect) =>
+      effectReferencesNpc(effect, npcId) ||
+      effectIsStartDialogueForAnyOf(effect, dialogueIds) ||
+      [...removedItemInstanceIds].some((itemInstanceId) =>
+        effectReferencesItemInstance(effect, itemInstanceId),
+      ),
   );
 
   nextProject = removeConditionsInProject(
@@ -273,8 +460,24 @@ function cleanNpc(project: Project, npcId: ID): Project {
       (condition.type === "npcVar" && condition.npcId === npcId) ||
       (condition.type === "npcHasItem" && condition.npcId === npcId) ||
       (condition.type === "placedNpcVisible" && condition.npcId === npcId) ||
-      (condition.type === "placedNpcReachable" && condition.npcId === npcId),
+      (condition.type === "placedNpcReachable" && condition.npcId === npcId) ||
+      (
+        (
+          condition.type === "hasItem" ||
+          condition.type === "npcHasItem"
+        ) &&
+        removedItemInstanceIds.has(condition.itemInstanceId)
+      ),
   );
+
+  nextProject = removeOnUseItemRulesForInstances(nextProject, removedItemInstanceIds);
+
+  nextProject = removeRulePhrasesInProject(
+    nextProject,
+    (phrase) => phrase.speaker?.kind === "npc" && phrase.speaker.npcId === npcId,
+  );
+
+  nextProject = removeEmptyInteractionRulesInProject(nextProject);
 
   nextProject = removePlacedNpcs(nextProject, (placedNpc) => placedNpc.npcId === npcId);
   nextProject = removeDialogues(nextProject, (dialogue) => dialogue.npcId === npcId);
@@ -311,6 +514,8 @@ function cleanNpcVar(project: Project, input: { npcId: ID; varId: ID }): Project
     (effect) => effectReferencesNpcVar(effect, input),
   );
 
+  nextProject = removeEmptyInteractionRulesInProject(nextProject);
+
   return nextProject;
 }
 
@@ -340,6 +545,13 @@ function cleanNpcInventoryItem(project: Project, input: { npcId: ID; itemInstanc
     (effect) => effectReferencesItemInstance(effect, input.itemInstanceId),
   );
 
+  nextProject = removeOnUseItemRulesForInstances(
+    nextProject,
+    new Set<ID>([input.itemInstanceId]),
+  );
+
+  nextProject = removeEmptyInteractionRulesInProject(nextProject);
+
   return nextProject;
 }
 
@@ -356,18 +568,18 @@ function cleanItem(project: Project, itemId: ID): Project {
       .map((item) => item.itemInstanceId),
   );
 
-  const placedItemIds = project.nodes.flatMap((node) =>
+  const sceneItemInstanceIds = project.nodes.flatMap((node) =>
     node.layers.flatMap((layer) =>
       (layer.placedItems ?? [])
-        .filter((placedItem) => placedItem.itemId === itemId)
-        .map((placedItem) => placedItem.id),
+        .filter((itemInstance) => itemInstance.itemId === itemId)
+        .map((itemInstance) => itemInstance.itemInstanceId),
     ),
   );
 
-  const removedInstanceIds = new Set<ID>([
+  const removedItemInstanceIds = new Set<ID>([
     ...playerItemInstanceIds,
     ...npcItemInstanceIds,
-    ...placedItemIds,
+    ...sceneItemInstanceIds,
   ]);
 
   let nextProject: Project = {
@@ -375,11 +587,11 @@ function cleanItem(project: Project, itemId: ID): Project {
     items: removeById(project.items, itemId),
     players: project.players.map((player) => ({
       ...player,
-      initialInventory: (player.initialInventory ?? []).filter((item) => item.itemId !== itemId),
+      initialInventory: (player.initialInventory ?? []).filter((itemInstance) => itemInstance.itemId !== itemId),
     })),
     npcs: project.npcs.map((npc) => ({
       ...npc,
-      initialInventory: (npc.initialInventory ?? []).filter((item) => item.itemId !== itemId),
+      initialInventory: (npc.initialInventory ?? []).filter((itemInstance) => itemInstance.itemId !== itemId),
     })),
     assets: removeAsset(project.assets, { id: itemId, kind: "items" }).assets,
   };
@@ -389,10 +601,10 @@ function cleanItem(project: Project, itemId: ID): Project {
   nextProject = removeConditionsInProject(
     nextProject,
     (condition) =>
-      (condition.type === "hasItem" && removedInstanceIds.has(condition.itemInstanceId)) ||
-      (condition.type === "npcHasItem" && removedInstanceIds.has(condition.itemInstanceId)) ||
-      (condition.type === "placedItemVisible" && removedInstanceIds.has(condition.placedItemId)) ||
-      (condition.type === "placedItemReachable" && removedInstanceIds.has(condition.placedItemId)),
+      (condition.type === "hasItem" && removedItemInstanceIds.has(condition.itemInstanceId)) ||
+      (condition.type === "npcHasItem" && removedItemInstanceIds.has(condition.itemInstanceId)) ||
+      (condition.type === "placedItemVisible" && removedItemInstanceIds.has(condition.itemInstanceId)) ||
+      (condition.type === "placedItemReachable" && removedItemInstanceIds.has(condition.itemInstanceId)),
   );
 
   nextProject = removeEffectsInProject(nextProject, (effect) => {
@@ -403,12 +615,15 @@ function cleanItem(project: Project, itemId: ID): Project {
       return true;
     }
 
-    for (const itemInstanceId of removedInstanceIds) {
+    for (const itemInstanceId of removedItemInstanceIds) {
       if (effectReferencesItemInstance(effect, itemInstanceId)) return true;
     }
 
     return false;
   });
+
+  nextProject = removeOnUseItemRulesForInstances(nextProject, removedItemInstanceIds);
+  nextProject = removeEmptyInteractionRulesInProject(nextProject);
 
   return nextProject;
 }
@@ -418,6 +633,7 @@ function cleanMusic(project: Project, trackId: ID): Project {
     ...project,
     musicTracks: removeById(project.musicTracks, trackId),
     assets: removeAsset(project.assets, { id: trackId, kind: "music" }).assets,
+
     nodes: project.nodes.map((node) => ({
       ...node,
       musicTrackId: node.musicTrackId === trackId ? undefined : node.musicTrackId,
@@ -426,6 +642,7 @@ function cleanMusic(project: Project, trackId: ID): Project {
         musicTrackId: layer.musicTrackId === trackId ? undefined : layer.musicTrackId,
       })),
     })),
+
     maps: project.maps.map((map) => ({
       ...map,
       regions: map.regions.map((region) => ({
@@ -435,10 +652,19 @@ function cleanMusic(project: Project, trackId: ID): Project {
     })),
   };
 
+  nextProject = removeConditionsInProject(
+    nextProject,
+    (condition) => condition.type === "musicPlaying" && condition.trackId === trackId,
+  );
+
   nextProject = removeEffectsInProject(
     nextProject,
-    (effect) => effectReferencesMusicTrack(effect, trackId),
+    (effect) =>
+      (effect.type === "playMusic" || effect.type === "stopMusic") &&
+      effect.trackId === trackId,
   );
+
+  nextProject = clearMusicFromEndGameEffectsInProject(nextProject, trackId);
 
   return nextProject;
 }
@@ -492,7 +718,7 @@ function cleanMap(project: Project, mapId: ID): Project {
     (effect) => effect.type === "setMapRegionAvailable" && effect.mapId === mapId,
   );
 
-  return removeAssetsByIds(nextProject, assetIdsToRemove);
+  return removeNowUnusedAssets(nextProject, assetIdsToRemove);
 }
 
 function cleanMapRegion(project: Project, input: { mapId: ID; regionId: ID }): Project {
@@ -532,7 +758,37 @@ function cleanMapRegion(project: Project, input: { mapId: ID; regionId: ID }): P
     (effect) => effectReferencesMapRegion(effect, input),
   );
 
-  return removeAssetsByIds(nextProject, assetIdsToRemove);
+  return removeNowUnusedAssets(nextProject, assetIdsToRemove);
+}
+
+function collectNodeInternalDeleteRefs(node: Project["nodes"][number]): {
+  hotspotIds: Set<ID>;
+  itemInstanceIds: Set<ID>;
+  dialogueIds: Set<ID>;
+} {
+  const hotspotIds = new Set<ID>();
+  const itemInstanceIds = new Set<ID>();
+  const dialogueIds = new Set<ID>();
+
+  for (const layer of node.layers ?? []) {
+    for (const hotspot of layer.hotspots ?? []) {
+      hotspotIds.add(hotspot.id);
+    }
+
+    for (const placedItem of layer.placedItems ?? []) {
+      itemInstanceIds.add(placedItem.itemInstanceId);
+    }
+  }
+
+  for (const dialogue of node.dialogues ?? []) {
+    dialogueIds.add(dialogue.id);
+  }
+
+  return {
+    hotspotIds,
+    itemInstanceIds,
+    dialogueIds,
+  };
 }
 
 function cleanNode(project: Project, nodeId: ID): Project {
@@ -540,9 +796,17 @@ function cleanNode(project: Project, nodeId: ID): Project {
   if (!node) return project;
 
   const deletedWasStart = Boolean(node.isStart);
+  const removedLoc = node.mapLocation;
+
   const layerAssetIds = new Set<ID>(
     node.layers.map((layer) => layer.assetId).filter(Boolean),
   );
+
+  const {
+    hotspotIds: removedHotspotIds,
+    itemInstanceIds: removedItemInstanceIds,
+    dialogueIds: removedDialogueIds,
+  } = collectNodeInternalDeleteRefs(node);
 
   let nextNodes = removeById(project.nodes, nodeId);
 
@@ -556,28 +820,55 @@ function cleanNode(project: Project, nodeId: ID): Project {
     );
   }
 
+  nextNodes = reconcileRegionEntryAfterNodeMapRemoval(nextNodes, removedLoc);
+
   let nextProject: Project = {
     ...project,
     nodes: nextNodes,
-    maps: project.maps.map((map) => ({
-      ...map,
-      regions: map.regions.map((region) => ({
-        ...region,
-        entrySceneId: region.entrySceneId === nodeId ? undefined : region.entrySceneId,
-        sceneIds: region.sceneIds.filter((sceneId) => sceneId !== nodeId),
-      })),
-    })),
+    maps: rebuildMapsFromNodes(project.maps ?? [], nextNodes),
   };
 
-  nextProject = removeConditionsInProject(
+  nextProject = removeConditionsInProject(nextProject, (condition) => {
+    if ("nodeId" in condition && condition.nodeId === nodeId) return true;
+
+    if (
+      "hotspotId" in condition &&
+      removedHotspotIds.has(condition.hotspotId)
+    ) {
+      return true;
+    }
+
+    if (
+      "itemInstanceId" in condition &&
+      removedItemInstanceIds.has(condition.itemInstanceId)
+    ) {
+      return true;
+    }
+
+    return false;
+  });
+
+  nextProject = removeEffectsInProject(nextProject, (effect) => {
+    if (effectReferencesNode(effect, nodeId)) return true;
+    if (effectIsStartDialogueForAnyOf(effect, removedDialogueIds)) return true;
+
+    for (const hotspotId of removedHotspotIds) {
+      if (effectReferencesHotspot(effect, hotspotId)) return true;
+    }
+
+    for (const itemInstanceId of removedItemInstanceIds) {
+      if (effectReferencesItemInstance(effect, itemInstanceId)) return true;
+    }
+
+    return false;
+  });
+
+  nextProject = removeOnUseItemRulesForInstances(
     nextProject,
-    (condition) => condition.type === "nodeVisited" && condition.nodeId === nodeId,
+    removedItemInstanceIds,
   );
 
-  nextProject = removeEffectsInProject(
-    nextProject,
-    (effect) => effectReferencesNode(effect, nodeId),
-  );
+  nextProject = removeEmptyInteractionRulesInProject(nextProject);
 
   return removeNowUnusedAssets(nextProject, layerAssetIds);
 }
@@ -614,8 +905,13 @@ function cleanLayer(project: Project, input: { nodeId: ID; layerId: ID }): Proje
   const assetIdsToCheck = new Set<ID>();
   if (layer.assetId) assetIdsToCheck.add(layer.assetId);
 
-  const removedHotspotIds = new Set<ID>((layer.hotspots ?? []).map((hotspot) => hotspot.id));
-  const removedPlacedItemIds = new Set<ID>((layer.placedItems ?? []).map((item) => item.id));
+  const removedHotspotIds = new Set<ID>(
+    (layer.hotspots ?? []).map((hotspot) => hotspot.id),
+  );
+
+  const removedItemInstanceIds = new Set<ID>(
+    (layer.placedItems ?? []).map((itemInstance) => itemInstance.itemInstanceId),
+  );
 
   let nextProject: Project = {
     ...project,
@@ -624,48 +920,33 @@ function cleanLayer(project: Project, input: { nodeId: ID; layerId: ID }): Proje
 
       return {
         ...currentNode,
-        layers: currentNode.layers.filter((currentLayer) => currentLayer.id !== input.layerId),
+        layers: currentNode.layers.filter(
+          (currentLayer) => currentLayer.id !== input.layerId,
+        ),
       };
     }),
   };
 
   nextProject = removeConditionsInProject(nextProject, (condition) => {
     if (
-      (condition.type === "hotspotVar" ||
-        condition.type === "hotspotVisible" ||
-        condition.type === "hotspotReachable") &&
+      "nodeId" in condition &&
+      "layerId" in condition &&
+      condition.nodeId === input.nodeId &&
+      condition.layerId === input.layerId
+    ) {
+      return true;
+    }
+
+    if (
+      "hotspotId" in condition &&
       removedHotspotIds.has(condition.hotspotId)
     ) {
       return true;
     }
 
     if (
-      (condition.type === "placedItemVisible" ||
-        condition.type === "placedItemReachable" ||
-        condition.type === "hasItem" ||
-        condition.type === "npcHasItem") &&
-      (
-        ("placedItemId" in condition && removedPlacedItemIds.has(condition.placedItemId)) ||
-        ("itemInstanceId" in condition && removedPlacedItemIds.has(condition.itemInstanceId))
-      )
-    ) {
-      return true;
-    }
-
-    if (
-      (condition.type === "placedNpcVisible" ||
-        condition.type === "placedNpcReachable") &&
-      condition.nodeId === input.nodeId &&
-      condition.layerId === input.layerId
-    ) {
-      return true;
-    }
-
-    if (
-      (condition.type === "placedPlayerVisible" ||
-        condition.type === "placedPlayerImage") &&
-      condition.nodeId === input.nodeId &&
-      condition.layerId === input.layerId
+      "itemInstanceId" in condition &&
+      removedItemInstanceIds.has(condition.itemInstanceId)
     ) {
       return true;
     }
@@ -674,22 +955,32 @@ function cleanLayer(project: Project, input: { nodeId: ID; layerId: ID }): Proje
   });
 
   nextProject = removeEffectsInProject(nextProject, (effect) => {
-    if ("nodeId" in effect && effect.nodeId === input.nodeId) {
-      if ("layerId" in effect && effect.layerId === input.layerId) {
-        return true;
-      }
+    if (
+      "nodeId" in effect &&
+      "layerId" in effect &&
+      effect.nodeId === input.nodeId &&
+      effect.layerId === input.layerId
+    ) {
+      return true;
     }
 
     for (const hotspotId of removedHotspotIds) {
       if (effectReferencesHotspot(effect, hotspotId)) return true;
     }
 
-    for (const placedItemId of removedPlacedItemIds) {
-      if (effectReferencesPlacedItem(effect, placedItemId)) return true;
+    for (const itemInstanceId of removedItemInstanceIds) {
+      if (effectReferencesItemInstance(effect, itemInstanceId)) return true;
     }
 
     return false;
   });
+
+  nextProject = removeOnUseItemRulesForInstances(
+    nextProject,
+    removedItemInstanceIds,
+  );
+
+  nextProject = removeEmptyInteractionRulesInProject(nextProject);
 
   return removeNowUnusedAssets(nextProject, assetIdsToCheck);
 }
@@ -707,7 +998,9 @@ function cleanHotspot(project: Project, input: { nodeId: ID; layerId: ID; hotspo
 
           return {
             ...layer,
-            hotspots: (layer.hotspots ?? []).filter((hotspot) => hotspot.id !== input.hotspotId),
+            hotspots: (layer.hotspots ?? []).filter(
+              (hotspot) => hotspot.id !== input.hotspotId,
+            ),
           };
         }),
       };
@@ -726,6 +1019,8 @@ function cleanHotspot(project: Project, input: { nodeId: ID; layerId: ID; hotspo
     nextProject,
     (effect) => effectReferencesHotspot(effect, input.hotspotId),
   );
+
+  nextProject = removeEmptyInteractionRulesInProject(nextProject);
 
   return nextProject;
 }
@@ -770,20 +1065,22 @@ function cleanHotspotVar(project: Project, input: { nodeId: ID; layerId: ID; hot
     (effect) => effectReferencesHotspotVar(effect, input),
   );
 
+  nextProject = removeEmptyInteractionRulesInProject(nextProject);
+
   return nextProject;
 }
 
 function cleanPlacedItem(project: Project, input: { nodeId: ID; layerId: ID; placedItemId: ID }): Project {
   let nextProject = removePlacedItems(
     project,
-    (placedItem) => placedItem.id === input.placedItemId,
+    (placedItem) => placedItem.itemInstanceId === input.placedItemId,
   );
 
   nextProject = removeConditionsInProject(
     nextProject,
     (condition) =>
-      (condition.type === "placedItemVisible" && condition.placedItemId === input.placedItemId) ||
-      (condition.type === "placedItemReachable" && condition.placedItemId === input.placedItemId) ||
+      (condition.type === "placedItemVisible" && condition.itemInstanceId === input.placedItemId) ||
+      (condition.type === "placedItemReachable" && condition.itemInstanceId === input.placedItemId) ||
       (condition.type === "hasItem" && condition.itemInstanceId === input.placedItemId) ||
       (condition.type === "npcHasItem" && condition.itemInstanceId === input.placedItemId),
   );
@@ -793,91 +1090,491 @@ function cleanPlacedItem(project: Project, input: { nodeId: ID; layerId: ID; pla
     (effect) => effectReferencesItemInstance(effect, input.placedItemId),
   );
 
-  nextProject = {
-    ...nextProject,
-    nodes: nextProject.nodes.map((node) => ({
-      ...node,
-      layers: node.layers.map((layer) => ({
-        ...layer,
+  nextProject = removeOnUseItemRulesForInstances(
+    nextProject,
+    new Set<ID>([input.placedItemId]),
+  );
 
-        hotspots: (layer.hotspots ?? []).map((hotspot) => ({
-          ...hotspot,
-          rules: {
-            ...hotspot.rules,
-            onUseItem: (hotspot.rules?.onUseItem ?? []).filter(
-              (rule) => rule.itemInstanceId !== input.placedItemId,
-            ),
-          },
-        })),
-
-        placedItems: (layer.placedItems ?? []).map((placedItem) => ({
-          ...placedItem,
-          rules: {
-            ...placedItem.rules,
-            onUseItem: (placedItem.rules?.onUseItem ?? []).filter(
-              (rule) => rule.itemInstanceId !== input.placedItemId,
-            ),
-          },
-        })),
-
-        placedNpcs: (layer.placedNpcs ?? []).map((placedNpc) => ({
-          ...placedNpc,
-          rules: {
-            ...placedNpc.rules,
-            onUseItem: (placedNpc.rules?.onUseItem ?? []).filter(
-              (rule) => rule.itemInstanceId !== input.placedItemId,
-            ),
-          },
-        })),
-      })),
-    })),
-  };
+  nextProject = removeEmptyInteractionRulesInProject(nextProject);
 
   return nextProject;
 }
 
 function cleanPlacedNpc(project: Project, input: { nodeId: ID; layerId: ID; npcId: ID }): Project {
-  let nextProject = removePlacedNpcs(
-    project,
-    (placedNpc) => placedNpc.npcId === input.npcId,
+  const node = project.nodes.find((entry) => entry.id === input.nodeId);
+  const layer = node?.layers.find((entry) => entry.id === input.layerId);
+
+  const placedNpcExists = Boolean(
+    layer?.placedNpcs?.some((placedNpc) => placedNpc.npcId === input.npcId),
   );
+
+  if (!node || !layer || !placedNpcExists) return project;
+
+  let nextProject: Project = {
+    ...project,
+    nodes: project.nodes.map((currentNode) => {
+      if (currentNode.id !== input.nodeId) return currentNode;
+
+      return {
+        ...currentNode,
+        layers: currentNode.layers.map((currentLayer) => {
+          if (currentLayer.id !== input.layerId) return currentLayer;
+
+          return {
+            ...currentLayer,
+            placedNpcs: (currentLayer.placedNpcs ?? []).filter(
+              (placedNpc) => placedNpc.npcId !== input.npcId,
+            ),
+          };
+        }),
+      };
+    }),
+  };
+
+  const nextNode = nextProject.nodes.find((entry) => entry.id === input.nodeId);
+
+  const npcStillPlacedInNode = Boolean(
+    nextNode?.layers.some((currentLayer) =>
+      (currentLayer.placedNpcs ?? []).some(
+        (placedNpc) => placedNpc.npcId === input.npcId,
+      ),
+    ),
+  );
+
+  const removedDialogueIds = new Set<ID>();
+
+  if (!npcStillPlacedInNode) {
+    for (const dialogue of node.dialogues ?? []) {
+      if (dialogue.npcId === input.npcId) removedDialogueIds.add(dialogue.id);
+    }
+
+    nextProject = removeDialogues(
+      nextProject,
+      (dialogue) => removedDialogueIds.has(dialogue.id),
+    );
+  }
 
   nextProject = removeConditionsInProject(
     nextProject,
     (condition) =>
-      (condition.type === "placedNpcVisible" && condition.npcId === input.npcId) ||
-      (condition.type === "placedNpcReachable" && condition.npcId === input.npcId),
+      (
+        condition.type === "placedNpcVisible" ||
+        condition.type === "placedNpcReachable"
+      ) &&
+      condition.nodeId === input.nodeId &&
+      condition.layerId === input.layerId &&
+      condition.npcId === input.npcId,
   );
 
   nextProject = removeEffectsInProject(
     nextProject,
     (effect) =>
-      effect.type === "setPlacedNpcVisible" && effect.npcId === input.npcId ||
-      effect.type === "setPlacedNpcReachable" && effect.npcId === input.npcId,
+      (
+        effect.type === "setPlacedNpcVisible" ||
+        effect.type === "setPlacedNpcReachable"
+      ) &&
+      effect.nodeId === input.nodeId &&
+      effect.layerId === input.layerId &&
+      effect.npcId === input.npcId,
   );
+
+  if (removedDialogueIds.size > 0) {
+    nextProject = removeEffectsInProject(
+      nextProject,
+      (effect) => effectIsStartDialogueForAnyOf(effect, removedDialogueIds),
+    );
+  }
+
+  if (!npcStillPlacedInNode) {
+    nextProject = removeShowMessagesBySpeakerInNode(
+      nextProject,
+      input.nodeId,
+      { kind: "npc", id: input.npcId },
+    );
+
+    nextProject = removeRulePhrasesBySpeakerInNode(
+      nextProject,
+      input.nodeId,
+      { kind: "npc", id: input.npcId },
+    );
+  }
+
+  nextProject = removeEmptyInteractionRulesInProject(nextProject);
 
   return nextProject;
 }
 
-function cleanPlacedPlayer(project: Project, input: { nodeId: ID; layerId: ID; playerId: ID }): Project {
-  let nextProject = removePlacedPlayers(
-    project,
-    (placedPlayer) => placedPlayer.playerId === input.playerId,
+type SceneSpeakerRef =
+  | { kind: "player"; id: ID }
+  | { kind: "npc"; id: ID };
+
+function effectSpeakerMatches(effect: Effect, speaker: SceneSpeakerRef): boolean {
+  if (effect.type !== "showMessage") return false;
+
+  if (speaker.kind === "player") {
+    return (
+      effect.speaker?.kind === "player" &&
+      effect.speaker.playerId === speaker.id
+    );
+  }
+
+  return (
+    effect.speaker?.kind === "npc" &&
+    effect.speaker.npcId === speaker.id
   );
+}
+
+function phraseSpeakerMatches(phrase: RulePhrase | undefined, speaker: SceneSpeakerRef): boolean {
+  if (!phrase?.speaker) return false;
+
+  if (speaker.kind === "player") {
+    return (
+      phrase.speaker.kind === "player" &&
+      phrase.speaker.playerId === speaker.id
+    );
+  }
+
+  return (
+    phrase.speaker.kind === "npc" &&
+    phrase.speaker.npcId === speaker.id
+  );
+}
+
+function removeShowMessagesBySpeakerInNode(
+  project: Project,
+  nodeId: ID,
+  speaker: SceneSpeakerRef,
+): Project {
+  let touchedProject = false;
+
+  const pruneEffects = (effects: Effect[] | undefined): { effects: Effect[] | undefined; touched: boolean } => {
+    if (!effects || effects.length === 0) return { effects, touched: false };
+
+    const nextEffects = effects.filter((effect) => !effectSpeakerMatches(effect, speaker));
+
+    return nextEffects.length === effects.length
+      ? { effects, touched: false }
+      : { effects: nextEffects, touched: true };
+  };
+
+  const pruneRules = (rules: InteractionRules | undefined): { rules: InteractionRules | undefined; touched: boolean } => {
+    if (!rules) return { rules, touched: false };
+
+    let touched = false;
+
+    const mapRuleList = <T extends { effects: Effect[] }>(list: T[] | undefined): T[] | undefined => {
+      if (!list || list.length === 0) return list;
+
+      let touchedList = false;
+
+      const nextList = list.map((rule) => {
+        const result = pruneEffects(rule.effects);
+        if (!result.touched) return rule;
+
+        touchedList = true;
+        return { ...rule, effects: result.effects ?? [] };
+      });
+
+      if (touchedList) touched = true;
+      return touchedList ? nextList : list;
+    };
+
+    const nextOnClick = mapRuleList(rules.onClick);
+    const nextOnUseItem = mapRuleList(rules.onUseItem);
+
+    if (!touched) return { rules, touched: false };
+
+    return {
+      rules: {
+        ...rules,
+        onClick: nextOnClick,
+        onUseItem: nextOnUseItem,
+      },
+      touched: true,
+    };
+  };
+
+  const nextNodes = project.nodes.map((node) => {
+    if (node.id !== nodeId) return node;
+
+    let touchedNode = false;
+
+    const nextLayers = node.layers.map((layer) => {
+      let touchedLayer = false;
+
+      const mapRuleContainers = <T extends { rules?: InteractionRules }>(
+        list: T[] | undefined,
+      ): { list: T[] | undefined; touched: boolean } => {
+        if (!list || list.length === 0) return { list, touched: false };
+
+        let touchedList = false;
+
+        const nextList = list.map((entry) => {
+          const result = pruneRules(entry.rules);
+          if (!result.touched) return entry;
+
+          touchedList = true;
+          return { ...entry, rules: result.rules ?? entry.rules } as T;
+        });
+
+        return touchedList
+          ? { list: nextList, touched: true }
+          : { list, touched: false };
+      };
+
+      const hotspotResult = mapRuleContainers(layer.hotspots);
+      const placedItemResult = mapRuleContainers(layer.placedItems);
+      const placedNpcResult = mapRuleContainers(layer.placedNpcs);
+
+      if (hotspotResult.touched || placedItemResult.touched || placedNpcResult.touched) {
+        touchedLayer = true;
+      }
+
+      if (!touchedLayer) return layer;
+
+      touchedNode = true;
+
+      return {
+        ...layer,
+        hotspots: hotspotResult.touched ? hotspotResult.list : layer.hotspots,
+        placedItems: placedItemResult.touched ? placedItemResult.list : layer.placedItems,
+        placedNpcs: placedNpcResult.touched ? placedNpcResult.list : layer.placedNpcs,
+      };
+    });
+
+    const nextDialogues = (node.dialogues ?? []).map((dialogue) => {
+      let touchedDialogue = false;
+
+      const nextDialogueNodes = dialogue.nodes.map((dialogueNode) => {
+        if (dialogueNode.type !== "line") return dialogueNode;
+
+        const result = pruneEffects(dialogueNode.effects);
+        if (!result.touched) return dialogueNode;
+
+        touchedDialogue = true;
+        return { ...dialogueNode, effects: result.effects };
+      });
+
+      if (!touchedDialogue) return dialogue;
+
+      touchedNode = true;
+      return { ...dialogue, nodes: nextDialogueNodes };
+    });
+
+    if (!touchedNode) return node;
+
+    touchedProject = true;
+
+    return {
+      ...node,
+      layers: nextLayers,
+      dialogues: nextDialogues,
+    };
+  });
+
+  return touchedProject ? { ...project, nodes: nextNodes } : project;
+}
+
+function removeRulePhrasesBySpeakerInNode(
+  project: Project,
+  nodeId: ID,
+  speaker: SceneSpeakerRef,
+): Project {
+  let touchedProject = false;
+
+  const cleanRules = (rules: InteractionRules | undefined): { rules: InteractionRules | undefined; touched: boolean } => {
+    if (!rules) return { rules, touched: false };
+
+    let touched = false;
+
+    const mapRuleList = <T extends { phrase?: RulePhrase }>(list: T[] | undefined): T[] | undefined => {
+      if (!list || list.length === 0) return list;
+
+      let touchedList = false;
+
+      const nextList = list.map((rule) => {
+        if (!phraseSpeakerMatches(rule.phrase, speaker)) return rule;
+
+        touchedList = true;
+        return { ...rule, phrase: undefined };
+      });
+
+      if (touchedList) touched = true;
+      return touchedList ? nextList : list;
+    };
+
+    const nextOnClick = mapRuleList(rules.onClick);
+    const nextOnUseItem = mapRuleList(rules.onUseItem);
+
+    if (!touched) return { rules, touched: false };
+
+    return {
+      rules: {
+        ...rules,
+        onClick: nextOnClick,
+        onUseItem: nextOnUseItem,
+      },
+      touched: true,
+    };
+  };
+
+  const nextNodes = project.nodes.map((node) => {
+    if (node.id !== nodeId) return node;
+
+    let touchedNode = false;
+
+    const nextLayers = node.layers.map((layer) => {
+      let touchedLayer = false;
+
+      const mapRuleContainers = <T extends { rules?: InteractionRules }>(
+        list: T[] | undefined,
+      ): { list: T[] | undefined; touched: boolean } => {
+        if (!list || list.length === 0) return { list, touched: false };
+
+        let touchedList = false;
+
+        const nextList = list.map((entry) => {
+          const result = cleanRules(entry.rules);
+          if (!result.touched) return entry;
+
+          touchedList = true;
+          return { ...entry, rules: result.rules ?? entry.rules } as T;
+        });
+
+        return touchedList
+          ? { list: nextList, touched: true }
+          : { list, touched: false };
+      };
+
+      const hotspotResult = mapRuleContainers(layer.hotspots);
+      const placedItemResult = mapRuleContainers(layer.placedItems);
+      const placedNpcResult = mapRuleContainers(layer.placedNpcs);
+
+      if (hotspotResult.touched || placedItemResult.touched || placedNpcResult.touched) {
+        touchedLayer = true;
+      }
+
+      if (!touchedLayer) return layer;
+
+      touchedNode = true;
+
+      return {
+        ...layer,
+        hotspots: hotspotResult.touched ? hotspotResult.list : layer.hotspots,
+        placedItems: placedItemResult.touched ? placedItemResult.list : layer.placedItems,
+        placedNpcs: placedNpcResult.touched ? placedNpcResult.list : layer.placedNpcs,
+      };
+    });
+
+    if (!touchedNode) return node;
+
+    touchedProject = true;
+    return { ...node, layers: nextLayers };
+  });
+
+  return touchedProject ? { ...project, nodes: nextNodes } : project;
+}
+
+function cleanPlacedPlayer(project: Project, input: { nodeId: ID; layerId: ID; playerId: ID }): Project {
+  const node = project.nodes.find((entry) => entry.id === input.nodeId);
+  const layer = node?.layers.find((entry) => entry.id === input.layerId);
+
+  const placedPlayerExists = Boolean(
+    layer?.placedPlayers?.some((placedPlayer) => placedPlayer.playerId === input.playerId),
+  );
+
+  if (!node || !layer || !placedPlayerExists) return project;
+
+  let nextProject: Project = {
+    ...project,
+    nodes: project.nodes.map((currentNode) => {
+      if (currentNode.id !== input.nodeId) return currentNode;
+
+      return {
+        ...currentNode,
+        layers: currentNode.layers.map((currentLayer) => {
+          if (currentLayer.id !== input.layerId) return currentLayer;
+
+          return {
+            ...currentLayer,
+            placedPlayers: (currentLayer.placedPlayers ?? []).filter(
+              (placedPlayer) => placedPlayer.playerId !== input.playerId,
+            ),
+          };
+        }),
+      };
+    }),
+  };
+
+  const nextNode = nextProject.nodes.find((entry) => entry.id === input.nodeId);
+
+  const playerStillPlacedInNode = Boolean(
+    nextNode?.layers.some((currentLayer) =>
+      (currentLayer.placedPlayers ?? []).some(
+        (placedPlayer) => placedPlayer.playerId === input.playerId,
+      ),
+    ),
+  );
+
+  const removedDialogueIds = new Set<ID>();
+
+  if (!playerStillPlacedInNode) {
+    for (const dialogue of node.dialogues ?? []) {
+      if (dialogue.playerId === input.playerId) removedDialogueIds.add(dialogue.id);
+    }
+
+    nextProject = removeDialogues(
+      nextProject,
+      (dialogue) => removedDialogueIds.has(dialogue.id),
+    );
+  }
 
   nextProject = removeConditionsInProject(
     nextProject,
     (condition) =>
-      (condition.type === "placedPlayerVisible" && condition.playerId === input.playerId) ||
-      (condition.type === "placedPlayerImage" && condition.playerId === input.playerId),
+      (
+        condition.type === "placedPlayerVisible" ||
+        condition.type === "placedPlayerImage"
+      ) &&
+      condition.nodeId === input.nodeId &&
+      condition.layerId === input.layerId &&
+      condition.playerId === input.playerId,
   );
 
   nextProject = removeEffectsInProject(
     nextProject,
     (effect) =>
-      (effect.type === "setPlacedPlayerVisible" && effect.playerId === input.playerId) ||
-      (effect.type === "setPlacedPlayerImage" && effect.playerId === input.playerId),
+      (
+        effect.type === "setPlacedPlayerVisible" ||
+        effect.type === "setPlacedPlayerImage"
+      ) &&
+      effect.nodeId === input.nodeId &&
+      effect.layerId === input.layerId &&
+      effect.playerId === input.playerId,
   );
+
+  if (removedDialogueIds.size > 0) {
+    nextProject = removeEffectsInProject(
+      nextProject,
+      (effect) => effectIsStartDialogueForAnyOf(effect, removedDialogueIds),
+    );
+  }
+
+  if (!playerStillPlacedInNode) {
+    nextProject = removeShowMessagesBySpeakerInNode(
+      nextProject,
+      input.nodeId,
+      { kind: "player", id: input.playerId },
+    );
+
+    nextProject = removeRulePhrasesBySpeakerInNode(
+      nextProject,
+      input.nodeId,
+      { kind: "player", id: input.playerId },
+    );
+  }
+
+  nextProject = removeEmptyInteractionRulesInProject(nextProject);
 
   return nextProject;
 }
@@ -901,6 +1598,8 @@ function cleanDialogue(project: Project, input: { nodeId: ID; dialogueId: ID }):
     nextProject,
     (effect) => effectReferencesDialogue(effect, input.dialogueId),
   );
+
+  nextProject = removeEmptyInteractionRulesInProject(nextProject);
 
   return nextProject;
 }

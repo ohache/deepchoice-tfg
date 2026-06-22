@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-interface SceneTestToolbarProps {
+type SceneTestToolbarProps = {
   canGoPrevScene: boolean;
   canGoNextScene: boolean;
   onPrevScene: () => void;

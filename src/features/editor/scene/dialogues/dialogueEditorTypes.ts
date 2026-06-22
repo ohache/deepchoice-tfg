@@ -6,7 +6,7 @@ export type DialogueEditorContext = {
 };
 
 /* Estado operacional del editor */
-export type DialogueEditorMode =
+type DialogueEditorMode =
   | { type: "idle" }
   | { type: "creating" }
   | { type: "editing"; dialogueId: ID };

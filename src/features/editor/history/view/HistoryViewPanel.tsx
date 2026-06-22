@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useCallback, type CSSProperties, type PointerEvent } from "react";
 import type { ID } from "@/domain/types";
 import { useEditorStore } from "@/store/editorStore";
 import { buildStoryGraph } from "@/features/editor/history/view/storyGraph";
@@ -21,32 +21,32 @@ export function HistoryViewPanel() {
   const updateNodeLayoutsBatch = useEditorStore((s) => s.updateNodeLayoutsBatch);
 
   const graph = useMemo(() => buildStoryGraph(project), [project]);
-  const scale = (zoom ?? 100) / 100;
+  const scale = useMemo(() => (zoom ?? 100) / 100, [zoom]);
 
   const { svgRef, svgWidth, svgHeight, selectionBox, selected, nodePos, isPanning, beginBackgroundPointerDown, updatePan, updateSelectionBox,
     updateNodeDrag, endBackgroundPointerUp, endNodeDrag, onPointerCancel, beginNodeDrag }
     = useHistoryInteraction({ graphNodes: graph.nodes, scale, projectId: project?.id, primaryMode, secondaryMode, updateNodeLayoutsBatch });
 
-  const openSceneFromNode = (nodeId: ID) => {
+  const openSceneFromNode = useCallback((nodeId: ID) => {
     setPrimaryMode("escena");
     setSecondaryMode("crear");
     enterEditNodeMode(nodeId);
-  };
+  }, [enterEditNodeMode, setPrimaryMode, setSecondaryMode]);
 
-  const handlePointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+  const handlePointerMove = (e: PointerEvent<SVGSVGElement>) => {
     updatePan(e);
     updateSelectionBox(e);
     updateNodeDrag(e);
   };
 
-  const handlePointerUp = (e: React.PointerEvent<SVGSVGElement>) => {
+  const handlePointerUp = (e: PointerEvent<SVGSVGElement>) => {
     endBackgroundPointerUp(e);
     endNodeDrag(e);
   };
 
   const svgCursor = isPanning ? "grabbing" : selectionBox ? "crosshair" : "default";
 
-  const svgStyle: React.CSSProperties = { width: `${svgWidth}px`, height: `${svgHeight}px`, touchAction: "none", cursor: svgCursor, display: "block" };
+  const svgStyle: CSSProperties = { width: `${svgWidth}px`, height: `${svgHeight}px`, touchAction: "none", cursor: svgCursor, display: "block" };
 
   const gridWidth = Math.max(0, svgWidth - VIEW_CONFIG.gridInsetPx * 2);
   const gridHeight = Math.max(0, svgHeight - VIEW_CONFIG.gridInsetPx * 2);

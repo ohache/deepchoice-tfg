@@ -1,8 +1,7 @@
 import { useMemo } from "react";
 import type { ID, Dialogue, DialogueLineNode } from "@/domain/types";
-import { buildDialogueIndex, findDialogueLineNodeInIndex, findDialogueNodeInIndex } from "@/features/editor/scene/dialogues/dialogueHelpersSlice";
+import { buildDialogueIndex, getDialogueChildLines } from "@/features/editor/scene/dialogues/dialogueHelpers";
 import { DialogueTreeNodeCard } from "@/features/editor/scene/dialogues/DialogueTreeNodeCard";
-
 
 type DialogueTreeViewProps = {
   dialogue: Dialogue;
@@ -24,29 +23,24 @@ export function DialogueTreeView({ dialogue, playerName, npcName, selectedLineId
   onUpdateLine, onSaveLine, onOpenLineRule, onReorderSiblings }: DialogueTreeViewProps) {
   const dialogueIndex = useMemo(() => buildDialogueIndex(dialogue), [dialogue]);
 
-  const root = findDialogueNodeInIndex(dialogueIndex, dialogue.rootId);
-
-  const rootChildren: DialogueLineNode[] = root?.childrenIds
-    ?.map((childId) => findDialogueLineNodeInIndex(dialogueIndex, childId))
-    .filter((child): child is DialogueLineNode => Boolean(child)) ?? [];
+  const rootChildren = useMemo(() => getDialogueChildLines(dialogueIndex, dialogue.rootId), [dialogueIndex, dialogue.rootId]);
 
   return (
     <div className="space-y-4">
-      {/* Acción principal: añadir raíz */}
       <div className="flex items-center justify-center gap-2">
         <button
           type="button"
           className="btn btn-add-variant text-[13px]"
           onClick={onAddRootLine}
         >
-          + Añadir raíz
+          + Añadir línea inicial
         </button>
       </div>
 
       {/* Estado vacío */}
       {!rootChildren.length ? (
         <div className="rounded-lg border border-dashed border-slate-700 bg-slate-950/80 px-4 py-6 text-center text-[12px] text-slate-400">
-          Aún no hay líneas iniciales. Añade una raíz para empezar el árbol.
+          Aún no hay líneas iniciales. Añade una línea inicial para empezar el árbol de diálogo.
         </div>
       ) : (
         /* Render del árbol (nivel 0 → recursivo en NodeCard) */
@@ -55,6 +49,7 @@ export function DialogueTreeView({ dialogue, playerName, npcName, selectedLineId
             <DialogueTreeNodeCard
               key={line.id}
               dialogue={dialogue}
+              dialogueIndex={dialogueIndex}
               playerName={playerName}
               npcName={npcName}
               line={line}

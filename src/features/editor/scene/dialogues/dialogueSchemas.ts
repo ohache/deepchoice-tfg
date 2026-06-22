@@ -1,46 +1,35 @@
 import { z } from "zod";
+import type { Dialogue, DialogueLineNode, DialogueNode, DialogueRootNode } from "@/domain/types";
 import { IdSchema } from "@/validation/genericSchemas";
 import { conditionSchema, effectSchema } from "@/validation/rulesSchemas";
 
-/* Speaker */
 export const DialogueSpeakerSchema = z.enum(["player", "npc"]);
 
-/* Root node */
 export const DialogueRootNodeSchema = z.object({
   id: IdSchema,
   type: z.literal("root"),
   childrenIds: z.array(IdSchema).default([]),
-});
+}) satisfies z.ZodType<DialogueRootNode>;
 
-/* Line Node */
 export const DialogueLineNodeSchema = z.object({
   id: IdSchema,
   type: z.literal("line"),
   speaker: DialogueSpeakerSchema,
-  text: z.string().trim(),
+  text: z.string().trim().min(1, "El texto de la línea es obligatorio"),
   when: conditionSchema.optional(),
   effects: z.array(effectSchema).optional(),
   childrenIds: z.array(IdSchema).default([]),
-});
+}) satisfies z.ZodType<DialogueLineNode>;
 
-/* Dialogue node */
-export const DialogueNodeSchema = z.discriminatedUnion("type", [DialogueRootNodeSchema, DialogueLineNodeSchema]);
+export const DialogueNodeSchema = z.discriminatedUnion("type", [DialogueRootNodeSchema, DialogueLineNodeSchema]) satisfies z.ZodType<DialogueNode>;
 
-/* Dialogue */
 export const DialogueSchema = z.object({
   id: IdSchema,
   playerId: IdSchema,
   npcId: IdSchema,
-  title: z.string().trim().min(1, "El título es obligatorio"),
-  description: z.string().trim().optional(),
+  title: z.string().trim().min(1, "El título es obligatorio").max(60, "Máximo 60 caracteres"),
+  description: z.string().trim().max(200, "Máximo 200 caracteres").optional(),
   when: conditionSchema.optional(),
   rootId: IdSchema,
   nodes: z.array(DialogueNodeSchema).default([]),
-});
-
-/* Types inferidos */
-export type Dialogue = z.infer<typeof DialogueSchema>;
-export type DialogueRootNode = z.infer<typeof DialogueRootNodeSchema>;
-export type DialogueLineNode = z.infer<typeof DialogueLineNodeSchema>;
-export type DialogueNode = z.infer<typeof DialogueNodeSchema>;
-export type DialogueSpeaker = z.infer<typeof DialogueSpeakerSchema>;
+}) satisfies z.ZodType<Dialogue>;

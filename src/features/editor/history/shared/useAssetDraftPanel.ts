@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 
 export type DraftMode = "none" | "new" | "edit";
 
@@ -6,32 +6,36 @@ type UseAssetDraftPanelOptions<T extends { id: string }> = {
   hasProject: boolean;
   selectedId: string | null;
   initialMode?: DraftMode;
-  focusRef?: React.RefObject<HTMLInputElement | null>;
+  focusRef?: RefObject<HTMLInputElement | null>;
   items: T[];
   setSelectedId: (id: string | null) => void;
   onResetDraftFields: () => void;
   onLoadDraftFieldsFromSelected: (selected: T) => void;
 };
 
-/* Hook genérico para paneles de edición */
+/* Hook genérico para paneles de edición/creación de entidades */
 export function useAssetDraftPanel<T extends { id: string }>(opts: UseAssetDraftPanelOptions<T>) {
   const { hasProject, selectedId, initialMode = "none", focusRef, items, setSelectedId, onResetDraftFields, onLoadDraftFieldsFromSelected } = opts;
 
   const [mode, setMode] = useState<DraftMode>(initialMode);
 
-  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-
+  /* Referencias estables para evitar cierres obsoletos dentro de efectos */
   const itemsRef = useRef<T[]>(items);
   const onLoadRef = useRef(onLoadDraftFieldsFromSelected);
   const onResetRef = useRef(onResetDraftFields);
 
-  useEffect(() => { itemsRef.current = items; }, [items]);
-  useEffect(() => { onLoadRef.current = onLoadDraftFieldsFromSelected; }, [onLoadDraftFieldsFromSelected]);
-  useEffect(() => { onResetRef.current = onResetDraftFields; }, [onResetDraftFields]);
-
   const prevSelectedIdRef = useRef<string | null>(null);
 
   const selected = selectedId ? items.find((item) => item.id === selectedId) ?? null : null;
+
+  /* Mantiene actualizada la referencia a la colección de entidades */
+  useEffect(() => { itemsRef.current = items; }, [items]);
+
+  /* Mantiene actualizada la referencia al cargador del draft */
+  useEffect(() => { onLoadRef.current = onLoadDraftFieldsFromSelected; }, [onLoadDraftFieldsFromSelected]);
+
+  /* Mantiene actualizada la referencia al reseteo del draft */
+  useEffect(() => { onResetRef.current = onResetDraftFields; }, [onResetDraftFields]);
 
   /* Sincroniza el modo y carga el draft cuando cambia la selección */
   useEffect(() => {
@@ -56,7 +60,6 @@ export function useAssetDraftPanel<T extends { id: string }>(opts: UseAssetDraft
   const reset = () => {
     setMode("none");
     setSelectedId(null);
-    setIsDeleteModalOpen(false);
 
     onResetRef.current();
     prevSelectedIdRef.current = null;
@@ -75,7 +78,7 @@ export function useAssetDraftPanel<T extends { id: string }>(opts: UseAssetDraft
     setTimeout(() => focusRef?.current?.focus(), 0);
   };
 
-  /* Gestión de click en la lista */
+   /* Selecciona/deselecciona una entidad de la lista */
   const handleListClick = (entity: T) => {
     if (entity.id === selectedId) {
       reset();
@@ -85,16 +88,5 @@ export function useAssetDraftPanel<T extends { id: string }>(opts: UseAssetDraft
     setSelectedId(entity.id);
   };
 
-  /* Abre el modal de borrado solo si hay selección */
-  const openDelete = () => {
-    if (!selectedId) return;
-    setIsDeleteModalOpen(true);
-  };
-
-  /* Cierra el modal de borrado */
-  const cancelDelete = () => {
-    setIsDeleteModalOpen(false);
-  };
-
-  return { mode, selected, isDeleteModalOpen, reset, startNew, handleListClick, openDelete, cancelDelete };
+  return { mode, selected, reset, startNew, handleListClick };
 }

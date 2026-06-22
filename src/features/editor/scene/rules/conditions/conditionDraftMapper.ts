@@ -4,11 +4,10 @@ import { generateId } from "@/utils/id";
 import { isEnabledLeaf, type EnabledLeafCondition } from "@/features/editor/scene/rules/conditions/conditionLeafRegistry";
 
 /* Átomo editable en UI */
-export type UiAtom = {
+type UiAtom = {
   id: ID;
   not: boolean;
   cond: EnabledLeafCondition;
-  collapsed: boolean;
 };
 
 export type UiGroup = {
@@ -26,7 +25,15 @@ export function createDefaultRootCondition(): Condition {
   return { type: "and", all: [] };
 }
 
-export function createEmptyUiDraft(): UiDraft {
+function createGroup(atoms: UiAtom[] = []): UiGroup {
+  return { id: generateId.conditionGroup(), atoms };
+}
+
+function createAtom(cond: EnabledLeafCondition, not: boolean): UiAtom {
+  return { id: generateId.condition(), not, cond };
+}
+
+function createEmptyUiDraft(): UiDraft {
   return {
     groups: [{ id: generateId.conditionGroup(), atoms: [] }],
     lastGroupId: undefined,
@@ -41,16 +48,10 @@ export function ensureAtLeastOneGroup(draft: UiDraft): UiDraft {
 }
 
 export function makeAtom(cond: EnabledLeafCondition, not: boolean): UiAtom {
-  return { id: generateId.condition(), not, cond, collapsed: true };
+  return createAtom(cond, not);
 }
 
-export function moveAtomBetweenGroups(args: {
-  draft: UiDraft;
-  fromGroupId: ID;
-  fromIndex: number;
-  toGroupId: ID;
-  toIndex: number | null;
-}): UiDraft {
+export function moveAtomBetweenGroups(args: { draft: UiDraft; fromGroupId: ID; fromIndex: number; toGroupId: ID; toIndex: number | null }): UiDraft {
   const { draft, fromGroupId, fromIndex, toGroupId, toIndex } = args;
 
   const groups = (draft.groups ?? []).map((g) => ({ ...g, atoms: [...(g.atoms ?? [])] }));
@@ -70,9 +71,7 @@ export function moveAtomBetweenGroups(args: {
   const prunedGroups = groups.filter((g) => (g.atoms?.length ?? 0) > 0);
   if (prunedGroups.length === 0) return createEmptyUiDraft();
 
-  const nextLast = prunedGroups.some((g) => g.id === toGroupId)
-    ? toGroupId
-    : prunedGroups[prunedGroups.length - 1].id;
+  const nextLast = prunedGroups.some((g) => g.id === toGroupId) ? toGroupId : prunedGroups[prunedGroups.length - 1].id;
 
   return { ...draft, groups: prunedGroups, lastGroupId: nextLast };
 }
@@ -91,12 +90,10 @@ export function conditionToUiDraft(value: Condition | null | undefined): UiDraft
     if (c.type === "not") {
       const inner = c.cond;
       if (!isEnabledLeaf(inner)) return null;
-      return { id: generateId.condition(), not: true, cond: inner, collapsed: true };
+      return createAtom(inner, true);
     }
 
-    if (isEnabledLeaf(c)) {
-      return { id: generateId.condition(), not: false, cond: c, collapsed: true };
-    }
+    if (isEnabledLeaf(c)) return createAtom(c, false);
 
     return null;
   };
@@ -104,19 +101,16 @@ export function conditionToUiDraft(value: Condition | null | undefined): UiDraft
   const mkGroupFromCondition = (c: Condition): UiGroup => {
     if (c.type === "and") {
       const atoms = (c.all ?? []).map(mkAtomFromCondition).filter(Boolean) as UiAtom[];
-      return { id: generateId.conditionGroup(), atoms };
+      return createGroup(atoms);
     }
 
     const atom = mkAtomFromCondition(c);
-    return { id: generateId.conditionGroup(), atoms: atom ? [atom] : [] };
+    return createGroup(atom ? [atom] : []);
   };
 
   if (value.type === "or") {
     const groups = (value.any ?? []).map((child) => mkGroupFromCondition(child));
-    return {
-      groups: groups.length ? groups : createEmptyUiDraft().groups,
-      lastGroupId: groups[0]?.id,
-    };
+    return { groups: groups.length ? groups : createEmptyUiDraft().groups, lastGroupId: groups[0]?.id };
   }
 
   if (value.type === "and") {

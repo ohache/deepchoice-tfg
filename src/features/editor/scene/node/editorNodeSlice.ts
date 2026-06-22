@@ -1,15 +1,17 @@
-import type { ID, Node, Project, NodeMapLocation, NodeMeta } from "@/domain/types";
-import { createDefaultNodeMeta, deepClonePojo, safeTrim } from "@/features/editor/core/editorGenericSlice";
-import type { HotspotEditorState } from "@/features/editor/scene/hotspots/hotspotEditorTypes";
-import { initialHotspotEditorState } from "@/features/editor/scene/interactiveComponents/interactiveEditorHelpers";
-import { cleanupUnusedBackgroundAssets, computeNewNodeFallbackLayout, createEmptyDraftNode, ensureDraftHasLayout, indexNodeIssues, reconcileNodeMapEntries,
-  rebuildMapsFromNodes, sameMapLocation, validateNodeDraft, type NodeValidationIssue} from "@/features/editor/scene/node/editorNodeHelpersSlice";
+import type { ID, Node, Project, NodeMapLocation } from "@/domain/types";
 import type { DeleteTarget } from "@/features/editor/delete/deleteTypes";
-import { applyDeleteWithCleanup } from "@/features/editor/delete/deleteReferenceCleaner";
-import type { DeleteApplyFn } from "@/features/editor/delete/editorDeleteSlice";
+import type { HotspotEditorState } from "@/features/editor/scene/hotspots/hotspotEditorTypes";
+import type { NodeFieldErrors } from "@/features/editor/scene/node/nodeValidator";
+import { deepClonePojo, safeTrim } from "@/features/editor/core/editorDataUtils";
+import { cleanupUnusedBackgroundAssets, createEmptyDraftNode, reconcileNodeMapEntries, rebuildMapsFromNodes,
+  sameMapLocation, normalizeOptionalId, resetInteractionState, buildNodeFromDraft, buildNodeFromEditDraft} from "@/features/editor/scene/node/NodeHelpers";
+import { ensureNodeHasLayoutPure, computeNewNodeFallbackLayout, hasValidLayout } from "@/features/editor/history/view/nodeLayout";
 
-export type NodeMode = "creating" | "editing";
+type NodeMode = "creating" | "editing";
 
+const emptyNodeErrors: NodeFieldErrors = {};
+
+/* Mínimo contrato del store que necesita este slice */
 type EditorStoreLike = {
   project: Project | null;
   assetFiles: Record<ID, File>;
@@ -17,10 +19,12 @@ type EditorStoreLike = {
   hotspotEditor: HotspotEditorState;
   selectedInteractionKind: "hotspot" | "placedItem" | "placedNpc" | "placedPlayer" | null;
   selectedInteractionId: ID | null;
-  requestDelete: (input: {
-    target: DeleteTarget;
-    apply: DeleteApplyFn;
-  }) => void;
+  nodeMode: NodeMode;
+  selectedNodeId: ID | null;
+  editingNodeId: ID | null;
+  nodeDraft: Node | null;
+  nodeErrors: NodeFieldErrors;
+  requestDelete: (target: DeleteTarget) => void;
 };
 
 export interface EditorNodesSlice {
@@ -28,100 +32,33 @@ export interface EditorNodesSlice {
   selectedNodeId: ID | null;
   editingNodeId: ID | null;
   nodeDraft: Node | null;
-  nodeIssues: NodeValidationIssue[];
-
-  getActiveNode: () => Node | null;
-  getNodeIssueIndex: () => Record<string, NodeValidationIssue>;
+  nodeErrors: NodeFieldErrors;
   enterCreateNodeMode: () => void;
   enterEditNodeMode: (nodeId: ID) => void;
   cancelNodeDraft: () => void;
-  setSelectedNodeId: (id: ID | null) => void;
-
+  setNodeErrors: (errors: NodeFieldErrors) => void;
   setNodeTitle: (title: string) => void;
   setNodeIsStart: (value: boolean) => void;
   setNodeIsFinal: (value: boolean) => void;
   setNodeMusicTrackId: (musicTrackId: ID | null | undefined) => void;
   setNodeMapLocation: (loc: NodeMapLocation | null | undefined) => void;
-  setNodeLayout: (nodeId: ID, layout: { x: number; y: number }) => void;
-
-  getSceneTestNodeId: () => ID | null;
-  canOpenSceneTest: () => boolean;
-
-  validateActiveNode: () => boolean;
   commitNode: () => { id: ID; title: string; mode: NodeMode } | null;
   deleteNode: (nodeId: ID) => { deletedId: ID; deletedWasStart: boolean } | null;
-  clearNodeIssues: () => void;
+  clearNodeErrors: () => void;
 }
 
-const applyNodeDeleteTarget = (
-  target: Extract<DeleteTarget, { kind: "node" }>,
-): DeleteApplyFn => (state) => {
-  if (!state.project) return state;
-
-  const node = state.project.nodes.find((entry) => entry.id === target.nodeId);
-  if (!node) return state;
-
-  const deletedWasStart = Boolean(node.isStart);
-
-  let nextProject = applyDeleteWithCleanup(state.project, target);
-
-  if (deletedWasStart && nextProject.nodes.length > 0) {
-    const firstId = nextProject.nodes[0]!.id;
-
-    nextProject = {
-      ...nextProject,
-      nodes: nextProject.nodes.map((entry) =>
-        entry.id === firstId
-          ? { ...entry, isStart: true }
-          : { ...entry, isStart: false },
-      ),
-    };
-  }
-
-  const cleaned = cleanupUnusedBackgroundAssets({
-    project: nextProject,
-    assetFiles: state.assetFiles,
-    nodes: nextProject.nodes,
-  });
-
-  const draftKilled = state.editingNodeId === target.nodeId;
-  const selectedKilled = state.selectedNodeId === target.nodeId;
-
-  return {
-    ...state,
-    project: cleaned.project,
-    assetFiles: cleaned.assetFiles,
-    selectedNodeId: selectedKilled ? null : state.selectedNodeId,
-    nodeMode: draftKilled ? "creating" : state.nodeMode,
-    editingNodeId: draftKilled ? null : state.editingNodeId,
-    nodeDraft: draftKilled ? null : state.nodeDraft,
-    nodeIssues: [],
-    activeLayerId: draftKilled || selectedKilled ? null : state.activeLayerId,
-    hotspotEditor: draftKilled || selectedKilled ? initialHotspotEditorState : state.hotspotEditor,
-    selectedInteractionKind: draftKilled || selectedKilled ? null : state.selectedInteractionKind,
-    selectedInteractionId: draftKilled || selectedKilled ? null : state.selectedInteractionId,
-  };
-};
-
-type Store = EditorStoreLike & EditorNodesSlice;
-
-export function createEditorNodesSlice(set: (partial: Partial<Store> | ((state: Store) => Partial<Store> | Store)) => void, get: () => Store): EditorNodesSlice {
+export function createEditorNodesSlice(set: (partial: Partial<EditorStoreLike> | ((state: EditorStoreLike) => Partial<EditorStoreLike> | EditorStoreLike)) => void,
+  get: () => EditorStoreLike): EditorNodesSlice {
   const commitCreate = (): { id: ID; title: string; mode: NodeMode } | null => {
     const state = get();
     const project = state.project;
     const draft0 = state.nodeDraft;
+
     if (!project || !draft0) return null;
 
     const nodes0 = project.nodes ?? [];
     const fallbackLayout = computeNewNodeFallbackLayout(nodes0);
-    const draft = ensureDraftHasLayout(draft0, fallbackLayout);
-
-    const issues = validateNodeDraft({ draft, project, editingId: null });
-
-    if (issues.length) {
-      set({ nodeIssues: issues });
-      return null;
-    }
+    const draft = ensureNodeHasLayoutPure(draft0, fallbackLayout);
 
     const id = draft.id;
     const title = safeTrim(draft.title);
@@ -130,32 +67,19 @@ export function createEditorNodesSlice(set: (partial: Partial<Store> | ((state: 
     const willBeFinal = Boolean(draft.isFinal);
     const autoStart = !hasStartAlready && !willBeFinal;
 
-    const newNodeBase: Node = {
-      ...draft,
-      id,
-      title,
-      layers: deepClonePojo(draft.layers ?? []),
-      dialogues: deepClonePojo(draft.dialogues ?? []),
-      meta: draft.meta ?? createDefaultNodeMeta(),
-      musicTrackId: draft.musicTrackId || undefined,
-      mapLocation: draft.mapLocation || undefined,
-      isFinal: willBeFinal ? true : undefined,
-      isStart: willBeFinal ? undefined : draft.isStart ? true : autoStart ? true : undefined,
-    };
-
-    const newNode = ensureDraftHasLayout(newNodeBase, fallbackLayout);
+    const newNode = buildNodeFromDraft({ draft, id: draft.id, fallbackLayout, autoStart });
 
     let nextNodes = [...nodes0, newNode];
 
     if (newNode.isStart) {
-      nextNodes = nextNodes.map((node) =>
-        node.id === newNode.id
+      nextNodes = nextNodes.map((node) => node.id === newNode.id
           ? { ...node, isStart: true }
-          : { ...node, isStart: false }
+          : { ...node, isStart: false },
       );
     }
 
     nextNodes = reconcileNodeMapEntries(nextNodes, newNode.id);
+
     const nextMaps = rebuildMapsFromNodes(project.maps ?? [], nextNodes);
 
     set((currentState) => ({
@@ -165,7 +89,7 @@ export function createEditorNodesSlice(set: (partial: Partial<Store> | ((state: 
       nodeMode: "editing",
       editingNodeId: id,
       nodeDraft: deepClonePojo(newNode),
-      nodeIssues: [],
+      nodeErrors: emptyNodeErrors,
     }));
 
     return { id, title, mode: "creating" };
@@ -176,52 +100,30 @@ export function createEditorNodesSlice(set: (partial: Partial<Store> | ((state: 
     const project = state.project;
     const draft0 = state.nodeDraft;
     const editingId = state.editingNodeId;
+
     if (!project || !draft0 || !editingId) return null;
 
     const nodes0 = project.nodes ?? [];
     const prev = nodes0.find((node) => node.id === editingId);
+
     if (!prev) return null;
 
     const prevLayout = prev.meta?.layout;
-    const draftMeta = draft0.meta ?? prev.meta ?? createDefaultNodeMeta();
+    const draftMeta = draft0.meta ?? prev.meta ?? {};
 
-    const nextMeta = prevLayout &&
-      (!draftMeta?.layout ||
-        !Number.isFinite(draftMeta.layout.x) ||
-        !Number.isFinite(draftMeta.layout.y))
-      ? { ...draftMeta, layout: prevLayout }
-      : draftMeta;
+    const nextMeta = prevLayout && !hasValidLayout(draftMeta) ? { ...draftMeta, layout: prevLayout } : draftMeta;
 
     const draft: Node = { ...draft0, id: editingId, meta: nextMeta };
 
-    const issues = validateNodeDraft({ draft, project, editingId });
-
-    if (issues.length) {
-      set({ nodeIssues: issues });
-      return null;
-    }
-
     const title = safeTrim(draft.title);
 
-    const nextNode: Node = {
-      ...prev,
-      title,
-      layers: deepClonePojo(draft.layers ?? prev.layers ?? []),
-      dialogues: deepClonePojo(draft.dialogues ?? prev.dialogues ?? []),
-      musicTrackId: draft.musicTrackId || undefined,
-      mapLocation: draft.mapLocation || undefined,
-      isStart: draft.isStart || undefined,
-      isFinal: draft.isFinal || undefined,
-      meta: nextMeta,
-    };
-
+    const nextNode = buildNodeFromEditDraft({ prev, draft, nextMeta});
     let nextNodes = nodes0.map((node) => node.id === editingId ? nextNode : node);
 
-    if (nextNode.isStart) {
-      nextNodes = nextNodes.map((node) => node.id === editingId ? node : { ...node, isStart: false });
-    }
+    if (nextNode.isStart) nextNodes = nextNodes.map((node) => node.id === editingId ? node : { ...node, isStart: false });
 
     nextNodes = reconcileNodeMapEntries(nextNodes, nextNode.id, prev.mapLocation);
+
     const nextMaps = rebuildMapsFromNodes(project.maps ?? [], nextNodes);
 
     const cleaned = cleanupUnusedBackgroundAssets({
@@ -235,10 +137,10 @@ export function createEditorNodesSlice(set: (partial: Partial<Store> | ((state: 
       project: cleaned.project,
       assetFiles: cleaned.assetFiles,
       selectedNodeId: editingId,
-      nodeDraft: deepClonePojo(nextNode),
-      nodeIssues: [],
       nodeMode: "editing",
       editingNodeId: editingId,
+      nodeDraft: deepClonePojo(nextNode),
+      nodeErrors: emptyNodeErrors,
     }));
 
     return { id: editingId, title, mode: "editing" };
@@ -253,45 +155,28 @@ export function createEditorNodesSlice(set: (partial: Partial<Store> | ((state: 
 
     nodeDraft: null,
 
-    nodeIssues: [],
+    nodeErrors: emptyNodeErrors,
 
-    getActiveNode: () => {
-      const state = get();
-
-      if (state.nodeDraft) return state.nodeDraft;
-
-      const project = state.project;
-      if (!project) return null;
-
-      const id = state.selectedNodeId;
-      if (!id) return null;
-
-      return (project.nodes ?? []).find((node) => node.id === id) ?? null;
-    },
-
-    getNodeIssueIndex: () => indexNodeIssues(get().nodeIssues),
-
+    /* Inicia la creación de una nueva escena */
     enterCreateNodeMode: () => {
-      const draft = createEmptyDraftNode();
       const project = get().project;
       const nodes0 = project?.nodes ?? [];
+
       const fallbackLayout = computeNewNodeFallbackLayout(nodes0);
-      const nextDraft = ensureDraftHasLayout(draft, fallbackLayout);
+      const draft = ensureNodeHasLayoutPure(createEmptyDraftNode(), fallbackLayout);
 
       set((state) => ({
         ...state,
         nodeMode: "creating",
         selectedNodeId: null,
         editingNodeId: null,
-        nodeDraft: nextDraft,
-        nodeIssues: [],
-        activeLayerId: null,
-        hotspotEditor: initialHotspotEditorState,
-        selectedInteractionKind: null,
-        selectedInteractionId: null,
+        nodeDraft: draft,
+        nodeErrors: emptyNodeErrors,
+        ...resetInteractionState(),
       }));
     },
 
+    /* Carga una escena existente */
     enterEditNodeMode: (nodeId) => {
       set((state) => {
         const project = state.project;
@@ -306,15 +191,13 @@ export function createEditorNodesSlice(set: (partial: Partial<Store> | ((state: 
           selectedNodeId: nodeId,
           editingNodeId: nodeId,
           nodeDraft: deepClonePojo(node),
-          nodeIssues: [],
-          activeLayerId: null,
-          hotspotEditor: initialHotspotEditorState,
-          selectedInteractionKind: null,
-          selectedInteractionId: null,
+          nodeErrors: emptyNodeErrors,
+          ...resetInteractionState(),
         };
       });
     },
 
+    /* Cancela la edición/creación actual */
     cancelNodeDraft: () =>
       set((state) => ({
         ...state,
@@ -322,71 +205,75 @@ export function createEditorNodesSlice(set: (partial: Partial<Store> | ((state: 
         selectedNodeId: null,
         editingNodeId: null,
         nodeDraft: null,
-        nodeIssues: [],
-        activeLayerId: null,
-        hotspotEditor: initialHotspotEditorState,
-        selectedInteractionKind: null,
-        selectedInteractionId: null,
+        nodeErrors: emptyNodeErrors,
+        ...resetInteractionState(),
       })),
 
-    setSelectedNodeId: (id) => set({ selectedNodeId: id }),
+    /* Guarda los errores de validación de la escena */
+    setNodeErrors: (errors) => set({ nodeErrors: errors }),
 
+    /* Actualiza el título */
     setNodeTitle: (title) =>
       set((state) => {
         if (!state.nodeDraft) return state;
 
         const nextTitle = typeof title === "string" ? title : "";
+
         if (state.nodeDraft.title === nextTitle) return state;
 
         return {
           ...state,
-          nodeDraft: { ...state.nodeDraft, title: nextTitle },
+          nodeDraft: {
+            ...state.nodeDraft,
+            title: nextTitle,
+          },
         };
       }),
 
+    /* Marca o desmarca la opción de escena inicial */
     setNodeIsStart: (value) =>
       set((state) => {
         if (!state.nodeDraft) return state;
 
-        const nextIsStart = Boolean(value) ? true : undefined;
-        if (Boolean(state.nodeDraft.isStart) === Boolean(nextIsStart)) return state;
+        const nextIsStart = value ? true : undefined;
 
-        const nextIsFinal = nextIsStart ? undefined : state.nodeDraft.isFinal;
+        if (Boolean(state.nodeDraft.isStart) === Boolean(nextIsStart)) return state;
 
         return {
           ...state,
           nodeDraft: {
             ...state.nodeDraft,
             isStart: nextIsStart,
-            isFinal: nextIsFinal,
+            isFinal: nextIsStart ? undefined : state.nodeDraft.isFinal,
           },
         };
       }),
 
+    /* Marca o desmarca la opción de escena final */
     setNodeIsFinal: (value) =>
       set((state) => {
         if (!state.nodeDraft) return state;
 
-        const nextIsFinal = Boolean(value) ? true : undefined;
-        if (Boolean(state.nodeDraft.isFinal) === Boolean(nextIsFinal)) return state;
+        const nextIsFinal = value ? true : undefined;
 
-        const nextIsStart = nextIsFinal ? undefined : state.nodeDraft.isStart;
+        if (Boolean(state.nodeDraft.isFinal) === Boolean(nextIsFinal)) return state;
 
         return {
           ...state,
           nodeDraft: {
             ...state.nodeDraft,
             isFinal: nextIsFinal,
-            isStart: nextIsStart,
+            isStart: nextIsFinal ? undefined : state.nodeDraft.isStart,
           },
         };
       }),
 
+    /* Asigna o elimina la música asociada a la escena */
     setNodeMusicTrackId: (musicTrackId) =>
       set((state) => {
         if (!state.nodeDraft) return state;
 
-        const nextMusicTrackId = typeof musicTrackId === "string" && musicTrackId.trim() ? musicTrackId : undefined;
+        const nextMusicTrackId = normalizeOptionalId(musicTrackId);
 
         if (state.nodeDraft.musicTrackId === nextMusicTrackId) return state;
 
@@ -399,158 +286,43 @@ export function createEditorNodesSlice(set: (partial: Partial<Store> | ((state: 
         };
       }),
 
-setNodeMapLocation: (loc) =>
-  set((state) => {
-    if (!state.nodeDraft) return state;
-
-    const nodeId = state.nodeDraft.id;
-    const prevMapLocation = state.nodeDraft.mapLocation;
-    const nextMapLocation = loc ?? undefined;
-
-    if (sameMapLocation(prevMapLocation, nextMapLocation)) return state;
-
-    const shouldClearPreviousEntry =
-      prevMapLocation?.isEntry &&
-      prevMapLocation.mapId &&
-      prevMapLocation.regionId;
-
-    const shouldSetNextEntry =
-      nextMapLocation?.isEntry &&
-      nextMapLocation.mapId &&
-      nextMapLocation.regionId;
-
-    const nextProject = state.project
-      ? {
-          ...state.project,
-          maps: state.project.maps.map((map) => ({
-            ...map,
-            regions: map.regions.map((region) => {
-              const isPreviousEntry =
-                shouldClearPreviousEntry &&
-                map.id === prevMapLocation.mapId &&
-                region.id === prevMapLocation.regionId &&
-                region.entrySceneId === nodeId;
-
-              const isNextEntry =
-                shouldSetNextEntry &&
-                map.id === nextMapLocation.mapId &&
-                region.id === nextMapLocation.regionId;
-
-              if (isNextEntry) {
-                return {
-                  ...region,
-                  entrySceneId: nodeId,
-                  sceneIds: region.sceneIds.includes(nodeId)
-                    ? region.sceneIds
-                    : [...region.sceneIds, nodeId],
-                };
-              }
-
-              if (isPreviousEntry) {
-                return {
-                  ...region,
-                  entrySceneId: undefined,
-                };
-              }
-
-              return region;
-            }),
-          })),
-        }
-      : state.project;
-
-    return {
-      ...state,
-      project: nextProject,
-      nodeDraft: {
-        ...state.nodeDraft,
-        mapLocation: nextMapLocation,
-      },
-    };
-  }),
-
-    setNodeLayout: (nodeId, layout) =>
+    /* Asigna o elimina la región de mapa a la escena */
+    setNodeMapLocation: (loc) =>
       set((state) => {
-        const project = state.project;
-        if (!project) return state;
+        if (!state.nodeDraft) return state;
 
-        const nodes0 = project.nodes ?? [];
-        const index = nodes0.findIndex((node) => node.id === nodeId);
-        if (index < 0) return state;
+        const nextMapLocation = loc ?? undefined;
 
-        const prev = nodes0[index]!;
-        const meta0 = prev.meta ?? createDefaultNodeMeta();
-        const nextMeta: NodeMeta = {
-          ...meta0,
-          layout: { x: layout.x, y: layout.y },
-        };
-
-        const nextNodes = nodes0.slice();
-        nextNodes[index] = { ...prev, meta: nextMeta };
-
-        const nextDraft = state.nodeDraft && state.editingNodeId === nodeId
-          ? { ...state.nodeDraft, meta: nextMeta }
-          : state.nodeDraft;
+        if (sameMapLocation(state.nodeDraft.mapLocation, nextMapLocation)) {
+          return state;
+        }
 
         return {
           ...state,
-          project: { ...project, nodes: nextNodes },
-          nodeDraft: nextDraft,
+          nodeDraft: {
+            ...state.nodeDraft,
+            mapLocation: nextMapLocation,
+          },
         };
       }),
 
-    getSceneTestNodeId: () => {
-      const state = get();
-      const project = state.project;
-      if (!project) return null;
-
-      const candidates = [state.selectedNodeId, state.editingNodeId].filter(Boolean) as ID[];
-
-      for (const id of candidates) {
-        const exists = (project.nodes ?? []).some((node) => node.id === id);
-        if (exists) return id;
-      }
-
-      return null;
-    },
-
-    canOpenSceneTest: () => {
-      return get().getSceneTestNodeId() != null;
-    },
-
-    validateActiveNode: () => {
-      const state = get();
-      const project = state.project;
-      const draft = state.nodeDraft;
-
-      if (!draft) {
-        set({ nodeIssues: [] });
-        return true;
-      }
-
-      const issues = validateNodeDraft({ draft, project, editingId: state.editingNodeId });
-
-      if (issues.length === 0) {
-        set({ nodeIssues: [] });
-        return true;
-      }
-
-      set({ nodeIssues: issues });
-      return false;
-    },
-
+    /* Guarda el draft actual, creando o editando la escena */
     commitNode: () => {
       const state = get();
+
       if (!state.project || !state.nodeDraft) return null;
 
-      if (state.nodeMode === "editing" && state.editingNodeId) return commitEdit();
+      if (state.nodeMode === "editing" && state.editingNodeId) {
+        return commitEdit();
+      }
 
       return commitCreate();
     },
 
+    /* Solicita el borrado de la escena */
     deleteNode: (nodeId) => {
-      const state = get();
-      const project = state.project;
+       const { project, requestDelete } = get();
+
       if (!project) return null;
 
       const node = (project.nodes ?? []).find((entry) => entry.id === nodeId);
@@ -558,14 +330,12 @@ setNodeMapLocation: (loc) =>
 
       const deletedWasStart = Boolean(node.isStart);
 
-      state.requestDelete({
-        target: { kind: "node", nodeId },
-        apply: applyNodeDeleteTarget({ kind: "node", nodeId }),
-      });
+      requestDelete({ kind: "node", nodeId });
 
       return { deletedId: nodeId, deletedWasStart };
     },
 
-    clearNodeIssues: () => set({ nodeIssues: [] }),
+    /* Limpia los errores de validación de la escena */
+    clearNodeErrors: () => set({ nodeErrors: emptyNodeErrors }),
   };
 }

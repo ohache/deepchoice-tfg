@@ -1,13 +1,13 @@
-import { useMemo } from "react";
-import type { FC, ReactNode } from "react";
+import { useMemo, type FC, type ReactNode } from "react";
 import { buildInlineErrorMapByFirst, formatZodIssues } from "@/shared/zodIssues";
-import type { EndGameLine, ID } from "@/domain/types";
+import type { EndGameLine, ID, Speaker } from "@/domain/types";
 import { effectSchema } from "@/validation/rulesSchemas";
+import type { FactoryCtx } from "@/features/editor/scene/rules/effects/effectShared";
+import type { OwnerVarKind } from "@/features/editor/scene/rules/effects/effectProjectIndex";
 import {
   applyEffectPatch, effectFamilyOf, getEffectOptions, getEffectUi, hasSelectedPrimaryEffectEntity, getAvailableEffectTypesForCurrentSelection,
-  type EffectFieldSpec, type FactoryCtx, type EnabledEffect, type EnabledEffectType, type OwnerVarKind
+  type EffectFieldSpec, type EnabledEffect, type EnabledEffectType, type EffectFamilyId
 } from "@/features/editor/scene/rules/effects/effectFactory";
-import type { EffectFamilyId } from "@/features/editor/scene/rules/effects/effectFamilies";
 import { Select, type Option } from "@/components/Select";
 
 const booleanOptions: Option<"true" | "false">[] = [
@@ -83,17 +83,9 @@ function buildNestedPatch(base: unknown, path: string, value: unknown): Partial<
 
     if (!key) return value;
 
-    const currentObject =
-      typeof current === "object" && current !== null
-        ? (current as Record<string, unknown>)
-        : {};
+    const currentObject = typeof current === "object" && current !== null ? (current as Record<string, unknown>) : {};
 
-    return {
-      ...currentObject,
-      [key]: tail.length === 0
-        ? value
-        : build(currentObject[key], tail),
-    };
+    return { ...currentObject, [key]: tail.length === 0 ? value : build(currentObject[key], tail) };
   };
 
   return build(base, keys) as Partial<EnabledEffect>;
@@ -104,10 +96,28 @@ function getEndGameLines(effect: EnabledEffect): EndGameLine[] {
   return effect.ending?.lines ?? [];
 }
 
+function speakerToOption(factory: FactoryCtx, speaker?: Speaker): string {
+  if (!speaker || speaker.kind === "narrator") return factory.idx.formatMessageSpeakerOption({ speakerKind: "narrator" });
+
+  if (speaker.kind === "player") return factory.idx.formatMessageSpeakerOption({ speakerKind: "player", speakerId: speaker.playerId });
+
+  return factory.idx.formatMessageSpeakerOption({ speakerKind: "npc", speakerId: speaker.npcId });
+}
+
+function speakerFromOption(factory: FactoryCtx, value: string): Speaker {
+  const parsed = factory.idx.parseMessageSpeakerOption(value as never);
+
+  if (parsed.speakerKind === "player") return { kind: "player", playerId: parsed.speakerId ?? "" };
+
+  if (parsed.speakerKind === "npc") return { kind: "npc", npcId: parsed.speakerId ?? "" };
+
+  return { kind: "narrator" };
+}
+
 function getMessageSpeakerValue(factory: FactoryCtx, effect: EnabledEffect): string {
   if (effect.type !== "showMessage") return "narrator";
 
-  return factory.idx.formatMessageSpeakerOption({ speakerKind: effect.speakerKind, speakerId: effect.speakerId });
+  return speakerToOption(factory, effect.speaker);
 }
 
 function getEffectVarKind(factory: FactoryCtx, effect: EnabledEffect): OwnerVarKind {
@@ -208,11 +218,10 @@ export function EffectLeafEditor({ factory, eff, selectedFamily, familyTypeOptio
 
       if (option.id === "togglePlayerVar" || option.id === "incPlayerVar" || option.id === "decPlayerVar") topLevelType = "setPlayerVar";
 
-
       if (!dedup.has(topLevelType)) {
         dedup.set(topLevelType, {
           id: topLevelType,
-          label: topLevelType === "setHotspotVar" || topLevelType === "setNpcVar" || topLevelType === "setPlayerVar" ? "Variable" : option.label,
+          label: topLevelType === "setHotspotVar" || topLevelType === "setNpcVar" || topLevelType === "setPlayerVar" ? "Variable" : option.label
         });
       }
     }
@@ -276,40 +285,47 @@ export function EffectLeafEditor({ factory, eff, selectedFamily, familyTypeOptio
 
   const hasPrimaryEntity = eff ? hasSelectedPrimaryEffectEntity(eff) : false;
 
-  const showOptionField = family === "progress"
-    ? filteredFamilyTypeOptions.length > 1
-    : family === "dialogue"
-      ? filteredFamilyTypeOptions.length >= 1
-      : topLevelFamilyTypeOptions.length > 1 &&
-      family !== "message" &&
-      family !== "ending" &&
-      (family === "player" ? hasPrimaryEntity : true);
+  const isProgressFamily = family === "progress";
+  const isAudioFamily = family === "audio";
+  const isDialogueFamily = family === "dialogue";
+  const isSingleTypeFamily = family === "message" || family === "ending";
 
-  const isUnselectedProgress = family === "progress" && !eff;
+  const shouldShowOptionField = (() => {
+    if (isSingleTypeFamily) return false;
+    if (isProgressFamily) return filteredFamilyTypeOptions.length > 1;
+    if (isDialogueFamily) return filteredFamilyTypeOptions.length > 0;
+    if (family === "item") return topLevelFamilyTypeOptions.length > 1;
+    if (family === "player") return hasPrimaryEntity && topLevelFamilyTypeOptions.length > 1;
 
-  const optionField = showOptionField ? (
+    return topLevelFamilyTypeOptions.length > 1;
+  })();
+
+  const optionFieldOptions = isProgressFamily ? filteredFamilyTypeOptions : topLevelFamilyTypeOptions;
+
+  const optionFieldValue = (() => {
+    if (isProgressFamily) return eff?.type ?? "";
+    if (isAudioFamily && forceEmptyAudioOption) return "";
+
+    return currentTopLevelType;
+  })();
+
+  const optionFieldDisabled = (() => {
+    if (isProgressFamily || isAudioFamily || isDialogueFamily || family === "item") return false;
+
+    return !eff || !hasPrimaryEntity;
+  })();
+
+  const optionField = shouldShowOptionField ? (
     <Field label="Opción">
       <Select<EnabledEffectType>
-        value={
-          family === "progress"
-            ? ((isUnselectedProgress ? "" : eff?.type ?? "") as EnabledEffectType)
-            : family === "audio" && forceEmptyAudioOption
-              ? ("" as EnabledEffectType)
-              : (currentTopLevelType as EnabledEffectType)
-        }
+        value={optionFieldValue as EnabledEffectType | ""}
         onChange={(value) => {
           if (!value || !onChangeType) return;
           onChangeType(value);
         }}
-        options={family === "progress" ? filteredFamilyTypeOptions : topLevelFamilyTypeOptions}
+        options={optionFieldOptions}
         placeholder="Selecciona…"
-        disabled={
-          family === "progress" || family === "audio"
-            ? false
-            : family === "player" && topLevelFamilyTypeOptions.length === 1
-              ? false
-              : !eff || !hasSelectedPrimaryEffectEntity(eff)
-        }
+        disabled={optionFieldDisabled}
       />
     </Field>
   ) : null;
@@ -329,22 +345,6 @@ export function EffectLeafEditor({ factory, eff, selectedFamily, familyTypeOptio
         />
       </Field>
     ) : null;
-
-  const inlineOptionFieldForProgress = family === "progress" && filteredFamilyTypeOptions.length > 1 ? (
-    <Field label="Opción">
-      <Select<EnabledEffectType>
-        value={(isUnselectedProgress ? "" : eff?.type ?? "") as EnabledEffectType}
-        onChange={(value) => {
-          if (!value || !onChangeType) return;
-          onChangeType(value);
-        }}
-        options={filteredFamilyTypeOptions}
-        placeholder="Selecciona…"
-      />
-    </Field>
-  ) : null;
-
-  const stackedOptionField = family === "progress" ? null : optionField;
 
   const renderField = (field?: EffectFieldSpec) => {
     if (!eff || !field) return null;
@@ -368,14 +368,7 @@ export function EffectLeafEditor({ factory, eff, selectedFamily, familyTypeOptio
         <Field key={field.key} label={field.label} className={field.className} errorText={errorText}>
           <Select<string>
             value={speakerValue}
-            onChange={(nextValue) => {
-              const parsed = factory.idx.parseMessageSpeakerOption(nextValue as never);
-
-              patch({
-                speakerKind: parsed.speakerKind,
-                speakerId: parsed.speakerId,
-              } as Partial<EnabledEffect>);
-            }}
+            onChange={(nextValue) => { patchField(field.path, speakerFromOption(factory, nextValue)) }}
             options={options}
             disabled={disabled}
             placeholder="Selecciona…"
@@ -493,11 +486,7 @@ export function EffectLeafEditor({ factory, eff, selectedFamily, familyTypeOptio
                   onClick={() => {
                     patchField("ending.lines", [
                       ...getEndGameLines(eff),
-                      {
-                        id: crypto.randomUUID(),
-                        text: "",
-                        speaker: { kind: "narrator" },
-                      },
+                      { id: crypto.randomUUID(), text: "", speaker: { kind: "narrator" } },
                     ]);
                   }}
                 >
@@ -506,25 +495,13 @@ export function EffectLeafEditor({ factory, eff, selectedFamily, familyTypeOptio
               </div>
 
               {getEndGameLines(eff).map((line, index) => {
-                const speakerValue = line.speaker
-                  ? line.speaker.kind === "player"
-                    ? `player:${line.speaker.playerId}`
-                    : line.speaker.kind === "npc"
-                      ? `npc:${line.speaker.npcId}`
-                      : "narrator"
-                  : "narrator";
+                const speakerValue = line.speaker ? line.speaker.kind === "player" ? `player:${line.speaker.playerId}` : line.speaker.kind === "npc"
+                  ? `npc:${line.speaker.npcId}` : "narrator" : "narrator";
 
-                const layerId =
-                  factory.ctx.owner.kind === "hotspot" ||
-                    factory.ctx.owner.kind === "placedItem" ||
-                    factory.ctx.owner.kind === "placedNpc"
-                    ? factory.ctx.owner.layerId
-                    : null;
+                const layerId = factory.ctx.owner.kind === "hotspot" || factory.ctx.owner.kind === "placedItem" || factory.ctx.owner.kind === "placedNpc"
+                  ? factory.ctx.owner.layerId : null;
 
-                const speakerOptions = factory.idx.getMessageSpeakerOptions({
-                  nodeId: factory.ctx.nodeId,
-                  layerId,
-                });
+                const speakerOptions = factory.idx.getMessageSpeakerOptions({ nodeId: factory.ctx.nodeId, layerId });
 
                 return (
                   <div
@@ -538,19 +515,11 @@ export function EffectLeafEditor({ factory, eff, selectedFamily, familyTypeOptio
                           const parsed = factory.idx.parseMessageSpeakerOption(nextValue as never);
 
                           const nextLines = getEndGameLines(eff).map((entry, currentIndex) =>
-                            currentIndex === index
-                              ? {
-                                ...entry,
-                                speaker:
-                                  parsed.speakerKind === "player"
-                                    ? { kind: "player", playerId: parsed.speakerId ?? "" }
-                                    : parsed.speakerKind === "npc"
-                                      ? { kind: "npc", npcId: parsed.speakerId ?? "" }
-                                      : { kind: "narrator" },
-                              }
-                              : entry,
-                          );
-
+                            currentIndex === index ? {
+                              ...entry,
+                              speaker: parsed.speakerKind === "player" ? { kind: "player", playerId: parsed.speakerId ?? "" } : parsed.speakerKind === "npc"
+                                ? { kind: "npc", npcId: parsed.speakerId ?? "" } : { kind: "narrator" }
+                            } : entry);
                           patchField("ending.lines", nextLines);
                         }}
                         options={speakerOptions}
@@ -562,10 +531,7 @@ export function EffectLeafEditor({ factory, eff, selectedFamily, familyTypeOptio
                       <TextInput
                         value={line.text}
                         onChange={(nextText) => {
-                          const nextLines = getEndGameLines(eff).map((entry, currentIndex) =>
-                            currentIndex === index ? { ...entry, text: nextText } : entry,
-                          );
-
+                          const nextLines = getEndGameLines(eff).map((entry, currentIndex) => currentIndex === index ? { ...entry, text: nextText } : entry);
                           patchField("ending.lines", nextLines);
                         }}
                         placeholder="Escribe…"
@@ -575,12 +541,7 @@ export function EffectLeafEditor({ factory, eff, selectedFamily, familyTypeOptio
                     <button
                       type="button"
                       className="btn btn-danger-condition text-[12px] px-2 py-1"
-                      onClick={() => {
-                        patchField(
-                          "ending.lines",
-                          getEndGameLines(eff).filter((_, currentIndex) => currentIndex !== index),
-                        );
-                      }}
+                      onClick={() => { patchField("ending.lines", getEndGameLines(eff).filter((_, currentIndex) => currentIndex !== index)) }}
                     >
                       Eliminar
                     </button>
@@ -593,31 +554,40 @@ export function EffectLeafEditor({ factory, eff, selectedFamily, familyTypeOptio
       ) : null}
       {family === "progress" ? (
         <>
-          <div className="grid grid-cols-1 gap-2">{inlineOptionFieldForProgress}</div>
+          {optionField ? (
+            <div className="grid grid-cols-1 gap-2">{optionField}</div>
+          ) : null}
 
-          {!isUnselectedProgress && eff ? (
+          {eff ? (
             eff.type === "goToNode" ? (
-              <div className="grid grid-cols-1 gap-2">{renderField(fieldMap.targetNodeId)}</div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2">
+              <div className="grid grid-cols-1 gap-2">
+                {renderField(fieldMap.targetNodeId)}
+              </div>
+            ) : eff.type === "setMapRegionAvailable" ? (
+              <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_140px] gap-2">
                 {renderField(fieldMap.mapId)}
                 {renderField(fieldMap.regionId)}
+                {renderField(fieldMap.value)}
               </div>
-            )
+            ) : null
           ) : null}
         </>
       ) : null}
-
+      {family === "item" && !eff ? (
+        <div className="grid grid-cols-1 gap-2">
+          {optionField}
+        </div>
+      ) : null}
       {family === "item" && eff ? (
         <>
           {eff.type === "transformItem" ? (
             <>
               <div className="grid grid-cols-1 gap-2">
-                {renderField(fieldMap.sourceItemInstanceId)}
+                {renderField(fieldMap.itemInstanceId)}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-[180px_minmax(0,1fr)] gap-2">
-                {stackedOptionField}
+                {optionField}
                 {renderField(fieldMap.resultItemId)}
               </div>
 
@@ -628,38 +598,43 @@ export function EffectLeafEditor({ factory, eff, selectedFamily, familyTypeOptio
           ) : eff.type === "combineItems" ? (
             <>
               <div className="grid grid-cols-1 gap-2">
-                {renderField(fieldMap.sourceItemInstanceId)}
+                {renderField(fieldMap.itemAInstanceId)}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-[180px_minmax(0,1fr)] gap-2">
-                {stackedOptionField}
-                {renderField(fieldMap.targetItemInstanceId)}
+                {optionField}
+                {renderField(fieldMap.itemBInstanceId)}
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)] gap-2">
-                {renderField(fieldMap.resultItemId)}
-              </div>
-
-              <div className="grid grid-cols-1 gap-2">
-                {renderField(fieldMap.resultItemLabel)}
-              </div>
-            </>
-          ) : (
-            <>
-              {fieldMap.itemInstanceId ? (
-                <div className="grid grid-cols-1 gap-2">{renderField(fieldMap.itemInstanceId)}</div>
-              ) : null}
-
-              {eff.type === "addItem" || eff.type === "removeItem" ? (
                 <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)] gap-2">
-                  {stackedOptionField}
+                  {renderField(fieldMap.resultItemId)}
                 </div>
-              ) : (
+
+                <div className="grid grid-cols-1 gap-2">
+                  {renderField(fieldMap.resultItemLabel)}
+                </div>
+              </>
+            ) : eff.type === "addItem" || eff.type === "removeItem" ? (
+              <>
+                <div className="grid grid-cols-1 gap-2">
+                  {optionField}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2">
+                  {renderField(fieldMap.itemInstanceId)}
+                  {renderField(fieldMap.playerId)}
+                </div>
+              </>
+            ) : (
+              <>
+                {fieldMap.itemInstanceId ? (
+                  <div className="grid grid-cols-1 gap-2">{renderField(fieldMap.itemInstanceId)}</div>
+                ) : null}
+
                 <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_140px] gap-2">
-                  {stackedOptionField}
-                  {renderField(fieldMap.value)}
-                </div>
-              )}
+                {optionField}
+                {renderField(fieldMap.value)}
+              </div>
             </>
           )}
         </>
@@ -674,7 +649,7 @@ export function EffectLeafEditor({ factory, eff, selectedFamily, familyTypeOptio
           {eff.type === "setHotspotVar" || eff.type === "toggleHotspotVar" || eff.type === "incHotspotVar" || eff.type === "decHotspotVar" ? (
             <>
               <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)] gap-2">
-                {stackedOptionField}
+                {optionField}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_180px_140px] gap-2">
@@ -689,7 +664,7 @@ export function EffectLeafEditor({ factory, eff, selectedFamily, familyTypeOptio
             </>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_140px] gap-2">
-              {stackedOptionField}
+              {optionField}
               {renderField(fieldMap.value)}
             </div>
           )}
@@ -705,7 +680,7 @@ export function EffectLeafEditor({ factory, eff, selectedFamily, familyTypeOptio
           {eff.type === "setNpcVar" || eff.type === "toggleNpcVar" || eff.type === "incNpcVar" || eff.type === "decNpcVar" ? (
             <>
               <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)] gap-2">
-                {stackedOptionField}
+                {optionField}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_180px_140px] gap-2">
@@ -720,14 +695,14 @@ export function EffectLeafEditor({ factory, eff, selectedFamily, familyTypeOptio
             </>
           ) : eff.type === "setPlacedNpcVisible" || eff.type === "setPlacedNpcReachable" ? (
             <div className="grid grid-cols-1 md:grid-cols-[100px_minmax(0,2fr)_minmax(0,2fr)_96px] gap-2">
-              {stackedOptionField}
+              {optionField}
               {renderField(fieldMap.nodeId)}
               {renderField(fieldMap.layerId)}
               {renderField(fieldMap.value)}
             </div>
           ) : eff.type === "giveItemToNpc" || eff.type === "receiveItemFromNpc" ? (
             <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2">
-              {stackedOptionField}
+              {optionField}
               {renderField(fieldMap.itemInstanceId)}
             </div>
           ) : null}
@@ -743,7 +718,7 @@ export function EffectLeafEditor({ factory, eff, selectedFamily, familyTypeOptio
           {eff.type === "setPlayerVar" || eff.type === "togglePlayerVar" || eff.type === "incPlayerVar" || eff.type === "decPlayerVar" ? (
             <>
               <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)] gap-2">
-                {stackedOptionField}
+                {optionField}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_180px_140px] gap-2">
@@ -758,14 +733,14 @@ export function EffectLeafEditor({ factory, eff, selectedFamily, familyTypeOptio
             </>
           ) : eff.type === "setPlacedPlayerVisible" ? (
             <div className="grid grid-cols-1 md:grid-cols-[100px_minmax(0,2fr)_minmax(0,2fr)_90px] gap-2">
-              {stackedOptionField}
+              {optionField}
               {renderField(fieldMap.nodeId)}
               {renderField(fieldMap.layerId)}
               {renderField(fieldMap.value)}
             </div>
           ) : eff.type === "setPlacedPlayerImage" ? (
             <div className="grid grid-cols-1 md:grid-cols-[100px_minmax(0,2fr)_minmax(0,2fr)_minmax(0,2fr)] gap-2">
-              {stackedOptionField}
+              {optionField}
               {renderField(fieldMap.nodeId)}
               {renderField(fieldMap.layerId)}
               {renderField(fieldMap.imageId)}
@@ -789,6 +764,11 @@ export function EffectLeafEditor({ factory, eff, selectedFamily, familyTypeOptio
                 {renderField(fieldMap.startAt)}
               </div>
             </>
+          ) : eff.type === "stopMusic" ? (
+            <div className="grid grid-cols-1 md:grid-cols-[180px_minmax(0,1fr)] gap-2">
+              {optionField}
+              {renderField(fieldMap.trackId)}
+            </div>
           ) : (
             <>{optionField}</>
           )}

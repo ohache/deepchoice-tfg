@@ -2,15 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import type { DraftMode } from "@/features/editor/history/shared/useAssetDraftPanel";
 import { toast } from "@/shared/toast/toastStore";
 
-type FieldCtx = {
-  mode: DraftMode;
-  selectedId: string | null;
-};
-
 type UseImageFileDraftOptions = {
   mode: DraftMode;
   selectedId: string | null;
-  isDuplicateFile: (file: File, ctx: FieldCtx) => boolean;
+  isDuplicateFile: (file: File, ctx: { mode: DraftMode, selectedId: string | null}) => boolean;
   messages: {
     duplicateFieldError: string;
     duplicateToastTitle: string;
@@ -29,17 +24,14 @@ export function useImageFileDraft(opts: UseImageFileDraftOptions) {
   const [isHoveringSelectButton, setIsHoveringSelectButton] = useState(false);
 
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-
   const [fileError, setFileError] = useState<string | undefined>(undefined);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const isReady = Boolean(draftFile || previewUrl);
 
-  /* Revoca la blob URL si procede */
-  const revokePreview = (url: string | null) => {
-    if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
-  };
+  /* Libera una blob URL para evitar fugas de memoria */
+  const revokePreview = (url: string | null) => { if (url?.startsWith("blob:")) URL.revokeObjectURL(url)};
 
   useEffect(() => () => revokePreview(previewUrl), [previewUrl]);
 
@@ -51,13 +43,9 @@ export function useImageFileDraft(opts: UseImageFileDraftOptions) {
     });
   };
 
-  const loadPreviewFromExistingFile = (file: File | undefined) => {
-    setPreviewFromFile(file ?? null);
-  };
+  const loadPreviewFromExistingFile = (file: File | undefined) => { setPreviewFromFile(file ?? null) };
 
-  const clearFileError = () => {
-    setFileError(undefined);
-  };
+  const clearFileError = () => { setFileError(undefined) };
 
   /* Procesa un fichero entrante */
   const processIncomingFile = (file: File) => {

@@ -1,9 +1,9 @@
 import type { ID } from "@/domain/types";
 
-export type MusicStartAt = "resume" | "restart";
-export type MusicPlaybackStatus = "playing" | "stopped";
+type MusicStartAt = "resume" | "restart";
+type MusicPlaybackStatus = "playing" | "stopped";
 
-export interface MusicRuntimeState {
+export type MusicRuntimeState = {
   status: MusicPlaybackStatus;
   currentTrackId?: ID;
   targetTrackId?: ID;
@@ -11,21 +11,13 @@ export interface MusicRuntimeState {
 }
 
 export function createInitialMusicRuntime(): MusicRuntimeState {
-  return {
-    status: "stopped",
-    currentTrackId: undefined,
-    targetTrackId: undefined,
-    savedPositionByTrackId: {},
-  };
+  return { status: "stopped", currentTrackId: undefined, targetTrackId: undefined, savedPositionByTrackId: {} };
 }
 
 export function musicSetTargetTrack(state: MusicRuntimeState, trackId: ID | undefined): MusicRuntimeState {
   if (state.targetTrackId === trackId) return state;
 
-  return {
-    ...state,
-    targetTrackId: trackId,
-  };
+  return { ...state, targetTrackId: trackId };
 }
 
 export function musicRememberPosition(state: MusicRuntimeState, trackId: ID, seconds: number): MusicRuntimeState {
@@ -48,8 +40,7 @@ export function musicPlay(state: MusicRuntimeState, trackId: ID, opts?: { startA
 
   if (state.status === "playing" && state.currentTrackId === trackId) return state;
 
-  const savedPositionByTrackId =
-    startAt === "restart" ? { ...state.savedPositionByTrackId, [trackId]: 0 } : state.savedPositionByTrackId;
+  const savedPositionByTrackId = startAt === "restart" ? { ...state.savedPositionByTrackId, [trackId]: 0 } : state.savedPositionByTrackId;
 
   return {
     ...state,

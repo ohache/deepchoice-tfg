@@ -1,18 +1,10 @@
 import type { ID, Node, Project, SceneImageLayer, TextDock } from "@/domain/types";
 import type { GameState } from "@/engine/state/runtimeState";
 import { evaluateCondition } from "@/engine/conditions/evaluateConditions";
-import { isEmptyCondition } from "@/features/editor/core/editorGenericSlice";
+import { isEmptyCondition } from "@/shared/helpers";
 
 export function pickNodeById(project: Project, id: ID): Node | null {
   return project.nodes.find((node) => node.id === id) ?? null;
-}
-
-export function indexOfNode(project: Project, id: ID): number {
-  return project.nodes.findIndex((node) => node.id === id);
-}
-
-export function nodeIdAtIndex(project: Project, index: number): ID | null {
-  return project.nodes[index]?.id ?? null;
 }
 
 export function pickActiveLayer(node: Node, gameState: GameState): SceneImageLayer | null {
@@ -65,9 +57,7 @@ export function findPlacedItemShapeByInstanceId(project: Project, instanceId: ID
   for (const node of project.nodes ?? []) {
     for (const layer of node.layers ?? []) {
       for (const placedItem of layer.placedItems ?? []) {
-        if (placedItem.id === instanceId) {
-          return placedItem.shape;
-        }
+        if (placedItem.itemInstanceId === instanceId) return placedItem.placement?.shape;
       }
     }
   }

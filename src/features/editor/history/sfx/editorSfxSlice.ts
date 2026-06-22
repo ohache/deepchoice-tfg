@@ -1,24 +1,17 @@
 import type { ID, Project, SoundEffectDef } from "@/domain/types";
 import type { DeleteTarget } from "@/features/editor/delete/deleteTypes";
 import { hasDuplicateName } from "@/validation/genericValidator";
+import { safeTrim, upsertAsset, upsertAssetFile } from "@/features/editor/core/editorDataUtils";
+import { findAssetByIdAndKind, findEntityById, isNameChanged, normalizeOptionalFile, normalizeOptionalName, replaceById } from "@/features/editor/history/shared/assetBackedEntityHelpers";
 import { buildAssetPath } from "@/store/assets/assetPath";
 import { generateId } from "@/utils/id";
-import { safeTrim, upsertAsset, upsertAssetFile, removeAssetFile } from "@/features/editor/core/editorGenericSlice";
-import { someEffectsInProject } from "@/features/editor/core/editorProjectWalkers";
-import { findAssetByIdAndKind, replaceById } from "@/features/editor/history/shared/assetBackedEntityHelpers";
-import { effectMatchesTypedId, nextSelectedAfterRemoval } from "@/features/editor/history/shared/genericHelpers";
-import { applyDeleteWithCleanup } from "@/features/editor/delete/deleteReferenceCleaner";
-import type { DeleteApplyFn } from "@/features/editor/delete/editorDeleteSlice";
 
 /* Mínimo contrato del store que necesita este slice */
 type EditorStoreLike = {
   project: Project | null;
   assetFiles: Record<ID, File>;
   selectedSfxId: ID | null;
-  requestDelete: (input: {
-    target: DeleteTarget;
-    apply: DeleteApplyFn;
-  }) => void;
+  requestDelete: (target: DeleteTarget) => void;
 };
 
 export interface EditorSfxSlice {
@@ -27,31 +20,7 @@ export interface EditorSfxSlice {
   addSfx: (file: File, name: string) => ID | null;
   updateSfx: (id: ID, changes: { name?: string; file?: File | null }) => void;
   removeSfx: (id: ID) => void;
-  isSfxReferenced: (sfxId: ID) => boolean;
 }
-
-const applySfxDeleteTarget = (
-  target: DeleteTarget,
-): DeleteApplyFn => (state) => {
-  if (!state.project) return state;
-
-  const nextProject = applyDeleteWithCleanup(state.project, target);
-
-  let nextAssetFiles = state.assetFiles;
-  let nextSelectedSfxId = state.selectedSfxId;
-
-  if (target.kind === "sfx") {
-    nextAssetFiles = removeAssetFile(nextAssetFiles, target.sfxId).assetFiles;
-    nextSelectedSfxId = nextSelectedAfterRemoval(state.selectedSfxId, target.sfxId);
-  }
-
-  return {
-    ...state,
-    project: nextProject,
-    assetFiles: nextAssetFiles,
-    selectedSfxId: nextSelectedSfxId,
-  };
-};
 
 export function createEditorSfxSlice(set: (partial: | Partial<EditorStoreLike> | ((state: EditorStoreLike) => Partial<EditorStoreLike> | EditorStoreLike)) => void,
   get: () => EditorStoreLike): EditorSfxSlice {
@@ -60,13 +29,13 @@ export function createEditorSfxSlice(set: (partial: | Partial<EditorStoreLike> |
 
     setSelectedSfxId: (id) => set({ selectedSfxId: id }),
 
-    /* Añade un Sfx */
+    /* Añade un efecto de sonido */
     addSfx: (file: File, name: string) => {
       const { project, assetFiles } = get();
       if (!project) return null;
       if (!(file instanceof File)) return null;
 
-      const nextName = safeTrim(name);
+      const nextName = normalizeOptionalName(name);
       if (!nextName) return null;
 
       if (hasDuplicateName({ list: project.soundEffects, incomingName: nextName })) return null;
@@ -99,15 +68,15 @@ export function createEditorSfxSlice(set: (partial: | Partial<EditorStoreLike> |
         if (!state.project) return state;
 
         const project = state.project;
-        const prevSfx = project.soundEffects.find((sfx) => sfx.id === id);
+        const prevSfx = findEntityById(project.soundEffects, id);
         if (!prevSfx) return state;
 
-        const nextName = typeof changes.name === "string" ? safeTrim(changes.name) : "";
-        const nameChanged = Boolean(nextName) && nextName !== prevSfx.name;
+        const nextName = normalizeOptionalName(changes.name);
+        const nameChanged = isNameChanged(prevSfx.name, nextName);
 
         if (nameChanged && hasDuplicateName({ list: project.soundEffects, incomingName: nextName, ignoreId: id })) return state;
 
-        const nextFile = changes.file instanceof File ? changes.file : null;
+        const nextFile = normalizeOptionalFile(changes.file);
         const fileChanged = Boolean(nextFile);
 
         if (!nameChanged && !fileChanged) return state;
@@ -148,25 +117,13 @@ export function createEditorSfxSlice(set: (partial: | Partial<EditorStoreLike> |
         };
       }),
 
-    /* Elimina un Sfx */
+    /* Elimina un efecto de sonido */
     removeSfx: (id) => {
       const { project, requestDelete } = get();
       if (!project) return;
       if (!project.soundEffects.some((sfx) => sfx.id === id)) return;
 
-      requestDelete({
-        target: { kind: "sfx", sfxId: id },
-        apply: applySfxDeleteTarget({ kind: "sfx", sfxId: id }),
-      });
-    },
-
-    /* Comprueba si un Sfx está referenciado en efectos */
-    isSfxReferenced: (sfxId: ID) => {
-      const { project } = get();
-      if (!project) return false;
-
-      return someEffectsInProject(project, (effect) => effectMatchesTypedId(effect, "playSfx", "sfxId", sfxId)
-      );
+      requestDelete({ kind: "sfx", sfxId: id });
     },
   };
 }

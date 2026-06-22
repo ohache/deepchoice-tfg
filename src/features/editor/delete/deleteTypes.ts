@@ -16,45 +16,29 @@ export type DeleteTarget =
 
   | { kind: "map"; mapId: ID }
   | { kind: "mapRegion"; mapId: ID; regionId: ID }
-  | { kind: "mapRegionMusic"; mapId: ID; regionId: ID }
-  | { kind: "mapRegionSubMap"; mapId: ID; regionId: ID }
 
   | { kind: "node"; nodeId: ID }
   | { kind: "layer"; nodeId: ID; layerId: ID }
-  | { kind: "layerMusic"; nodeId: ID; layerId: ID }
 
-  | { kind: "nodeMusic"; nodeId: ID }
   | { kind: "nodeMapLocation"; nodeId: ID }
-
-  | { kind: "conditionalText"; nodeId: ID; layerId: ID; textId: ID }
 
   | { kind: "hotspot"; nodeId: ID; layerId: ID; hotspotId: ID }
   | { kind: "hotspotVar"; nodeId: ID; layerId: ID; hotspotId: ID; varId: ID }
-  | { kind: "hotspotRule"; nodeId: ID; layerId: ID; hotspotId: ID; ruleId: ID }
 
   | { kind: "placedItem"; nodeId: ID; layerId: ID; placedItemId: ID }
-  | { kind: "placedItemRule"; nodeId: ID; layerId: ID; placedItemId: ID; ruleId: ID }
-
   | { kind: "placedNpc"; nodeId: ID; layerId: ID; npcId: ID }
-  | { kind: "placedNpcRule"; nodeId: ID; layerId: ID; npcId: ID; ruleId: ID }
-
   | { kind: "placedPlayer"; nodeId: ID; layerId: ID; playerId: ID }
 
-  | { kind: "dialogue"; nodeId: ID; dialogueId: ID }
-  | { kind: "dialogueLine"; nodeId: ID; dialogueId: ID; lineId: ID }
-  | { kind: "dialogueRule"; nodeId: ID; dialogueId: ID }
-  | { kind: "dialogueLineRule"; nodeId: ID; dialogueId: ID; lineId: ID };
+  | { kind: "dialogue"; nodeId: ID; dialogueId: ID };
 
-export type DeleteImpactSeverity =
-  | "info"
-  | "logic-change"
-  | "blocking-risk";
+export type DeleteImpactSeverity = "info" | "logic-change" | "blocking-risk";
 
 export type DeleteImpactAction =
   | "delete-target"
   | "remove-condition"
   | "remove-effect"
   | "remove-rule"
+  | "remove-phrase"
   | "remove-dialogue"
   | "remove-dialogue-line"
   | "remove-placed-entity"
@@ -78,6 +62,7 @@ export type DeleteLocationKind =
   | "placed-npc"
   | "placed-player"
   | "rule"
+  | "phrase"
   | "condition"
   | "effect"
   | "dialogue"
@@ -149,16 +134,4 @@ export type DiagnosticIssue = {
 export type ProjectDiagnostics = {
   errors: DiagnosticIssue[];
   warnings: DiagnosticIssue[];
-};
-
-export type DeleteCleanupSummaryEntry = {
-  id: string;
-  action: DeleteImpactAction;
-  location: DeleteLocation;
-  message: string;
-};
-
-export type DeleteCleanupResult<TProject> = {
-  project: TProject;
-  summary: DeleteCleanupSummaryEntry[];
 };

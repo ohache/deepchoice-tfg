@@ -2,22 +2,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ID, PlayerDef, PlayerImage } from "@/domain/types";
 import { generateId } from "@/utils/id";
 
-export type DraftPlayerImage = {
+type DraftPlayerImage = {
   uiId: ID;
   imageId?: ID;
   name: string;
   file?: File;
-  previewLogicalPath?: string;
+  previewSource?: string;
 };
 
 function playerImagesToDraft(images: PlayerImage[] | undefined): DraftPlayerImage[] {
-  return (images ?? []).map((img) => ({
-    uiId: generateId.playerImage(),
-    imageId: img.id,
-    name: img.name,
-    file: undefined,
-    previewLogicalPath: img.id,
-  }));
+  return (images ?? []).map((img) => ({ uiId: generateId.playerImage(), imageId: img.id, name: img.name, file: undefined, previewSource: img.id }));
 }
 
 /* Devuelve el uiId draft que corresponde al defaultImageId del dominio */
@@ -31,17 +25,12 @@ function resolveDraftDefaultImageUiId(draft: DraftPlayerImage[], defaultImageId?
 
 /* Crea un draft a partir de un File entrante */
 function createDraftImageFromFile(file: File): DraftPlayerImage {
-  return {
-    uiId: generateId.playerImage(),
-    name: file.name.replace(/\.[^.]+$/, ""),
-    file,
-    previewLogicalPath: URL.createObjectURL(file),
-  };
+  return { uiId: generateId.playerImage(), name: file.name.replace(/\.[^.]+$/, ""), file, previewSource: URL.createObjectURL(file) };
 }
 
 /* Revoca el blob si el draft apunta a blob:... */
 function revokeDraftImageBlob(image?: DraftPlayerImage | null) {
-  const path = image?.previewLogicalPath;
+  const path = image?.previewSource;
   if (path?.startsWith("blob:")) URL.revokeObjectURL(path);
 }
 
@@ -56,7 +45,6 @@ function ensureDefaultImageUiId(list: DraftPlayerImage[], current: string | null
   return list[0]!.uiId;
 }
 
-/* Hook: usePlayerImagesDraft */
 export function usePlayerImagesDraft() {
   const [draftImages, setDraftImages] = useState<DraftPlayerImage[]>([]);
   const [draftDefaultImageUiId, setDraftDefaultImageUiId] = useState<ID | null>(null);
@@ -72,16 +60,18 @@ export function usePlayerImagesDraft() {
   useEffect(() => () => revokeDraftImageBlobs(latestDraftImagesRef.current), []);
 
   /* Carga el draft desde un PlayerDef (dominio) */
-const loadFromPlayer = (player: PlayerDef) => {
-  const nextDraft = playerImagesToDraft(player.images);
+  const loadFromPlayer = (player: PlayerDef) => {
+    const nextDraft = playerImagesToDraft(player.images);
 
-  setDraftImages((prev) => {
-    revokeDraftImageBlobs(prev);
-    return nextDraft;
-  });
+    setDraftImages((prev) => {
+      revokeDraftImageBlobs(prev);
+      return nextDraft;
+    });
 
-  setDraftDefaultImageUiId(resolveDraftDefaultImageUiId(nextDraft, player.defaultImageId ?? undefined));
-};
+    setDraftDefaultImageUiId(resolveDraftDefaultImageUiId(nextDraft, player.defaultImageId ?? undefined));
+    setIsDragging(false);
+    setIsHoveringSelectButton(false);
+  };
 
   /* Reset completo (y revoca blobs existentes) */
   const resetDraft = () => {
@@ -89,7 +79,10 @@ const loadFromPlayer = (player: PlayerDef) => {
       revokeDraftImageBlobs(prev);
       return [];
     });
+
     setDraftDefaultImageUiId(null);
+    setIsDragging(false);
+    setIsHoveringSelectButton(false);
   };
 
   /* Añadir un File nuevo al draft */
@@ -150,7 +143,7 @@ const loadFromPlayer = (player: PlayerDef) => {
     });
   };
 
-  /* Reemplazar el file de una imagen concreta */
+  /* Reemplazar el file de una imagen concreta y actualizar su nombre */
   const replaceDraftImageFile = (uiId: string, file: File) => {
     setDraftImages((prev) =>
       prev.map((image) => {
@@ -160,26 +153,25 @@ const loadFromPlayer = (player: PlayerDef) => {
 
         return {
           ...image,
+          name: file.name.replace(/\.[^.]+$/, ""),
           file,
-          previewLogicalPath: URL.createObjectURL(file),
+          previewSource: URL.createObjectURL(file),
         };
       }),
     );
   };
 
-  const renameDraftImage = (uiId: string, name: string) => {
-    setDraftImages((prev) =>
-      prev.map((image) => image.uiId === uiId ? { ...image, name } : image),
-    );
-  };
+  const renameDraftImage = (uiId: string, name: string) => setDraftImages((prev) => prev.map((image) => image.uiId === uiId ? { ...image, name } : image));
 
-  const previewLogicalPath = useMemo(() => {
+  const previewSource = useMemo(() => {
     const defaultImage = draftImages.find((image) => image.uiId === draftDefaultImageUiId) ?? draftImages[0];
 
-    return defaultImage?.previewLogicalPath;
+    return defaultImage?.previewSource;
   }, [draftImages, draftDefaultImageUiId]);
 
-  return { draftImages, draftDefaultImageUiId, setDraftDefaultImageUiId, fileInputRef, previewLogicalPath, loadFromPlayer, resetDraft, addIncomingImageFile,
+  return {
+    draftImages, draftDefaultImageUiId, setDraftDefaultImageUiId, fileInputRef, previewSource, loadFromPlayer, resetDraft, addIncomingImageFile,
     renameDraftImage, removeDraftImage, replaceDraftImageFile, handleFileChange, isDragging, setIsDragging, isHoveringSelectButton,
-    setIsHoveringSelectButton, handleDragOver, handleDragLeave, handleDrop };
+    setIsHoveringSelectButton, handleDragOver, handleDragLeave, handleDrop
+  };
 }

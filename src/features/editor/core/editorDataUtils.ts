@@ -1,12 +1,11 @@
-import type { Condition } from "@/domain/conditions";
-import type { AssetDef, ID, NodeMeta, VarDef } from "@/domain/types";
+import type { AssetDef, ID, VarDef } from "@/domain/types";
 
 /* Normaliza cualquier valor a string limpio */
 export function safeTrim(value: string | undefined | null): string {
   return String(value ?? "").trim();
 }
 
-/* Inserta o actualiza un asset identificado por (id + kind) */
+/* Inserta o actualiza un asset identificado por id + kind */
 export function upsertAsset(assets: AssetDef[], input: { id: ID; kind: AssetDef["kind"]; name: string; file: string }): { assets: AssetDef[]; touched: boolean } {
   const index = assets.findIndex((asset) => asset.id === input.id && asset.kind === input.kind);
 
@@ -32,24 +31,19 @@ export function upsertAsset(assets: AssetDef[], input: { id: ID; kind: AssetDef[
   return {
     assets: [
       ...assets,
-      {
-        id: input.id,
-        kind: input.kind,
-        name: input.name,
-        file: input.file,
-      },
-    ],
-    touched: true,
+      { id: input.id, kind: input.kind, name: input.name, file: input.file },
+    ], touched: true,
   };
 }
 
 /* Elimina un asset identificado por (id + kind) */
 export function removeAsset(assets: AssetDef[], input: { id: ID; kind: AssetDef["kind"] }): { assets: AssetDef[]; touched: boolean } {
-  const exists = assets.some((asset) => asset.id === input.id && asset.kind === input.kind,);
+  const nextAssets = assets.filter((asset) => !(asset.id === input.id && asset.kind === input.kind));
 
-  if (!exists) return { assets, touched: false };
-
-  return { assets: assets.filter((asset) => !(asset.id === input.id && asset.kind === input.kind)), touched: true };
+  return {
+    assets: nextAssets.length === assets.length ? assets : nextAssets,
+    touched: nextAssets.length !== assets.length,
+  };
 }
 
 /* Asocia un File a un assetId */
@@ -96,28 +90,4 @@ export function deepClonePojo<T>(value: T): T {
   if (typeof structuredClone === "function") return structuredClone(value);
 
   return JSON.parse(JSON.stringify(value)) as T;
-}
-
-/* Meta por defecto para nodo */
-export function createDefaultNodeMeta(): NodeMeta {
-  return {};
-}
-
-/* Devuelve true si la condición está vacía o no aporta lógica útil */
-export function isEmptyCondition(condition: Condition | undefined): boolean {
-  if (!condition) return true;
-
-  switch (condition.type) {
-    case "and":
-      return (condition.all.length === 0 || condition.all.every(isEmptyCondition));
-
-    case "or":
-      return (condition.any.length === 0 || condition.any.every(isEmptyCondition));
-
-    case "not":
-      return isEmptyCondition(condition.cond);
-
-    default:
-      return false;
-  }
 }

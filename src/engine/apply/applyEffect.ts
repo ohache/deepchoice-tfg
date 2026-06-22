@@ -1,30 +1,20 @@
-import type { Hotspot, ID, Project, VarDef } from "@/domain/types";
+import type { ID, Project, Hotspot, VarDef } from "@/domain/types";
 import type { Effect } from "@/domain/effects";
 import type { GameState, InventoryEntry } from "@/engine/state/runtimeState";
 import { ensureNodeRuntime } from "@/engine/state/runtimeState";
 import { musicPlay, musicStop } from "@/engine/state/slices/musicSlice";
-import type { AudioAdapter } from "@/engine/adapters/audioAdapter";
+import type { AudioAdapter } from "@/engine/adapters/SfxAdapter";
 
 export type ApplyEffectCtx = {
   audio?: AudioAdapter;
-  emitMessage?: (
-    text: string,
-    speaker: {
-      kind: "narrator" | "player" | "npc";
-      speakerId?: ID;
-    }
-  ) => void;
-
-  itemUsePair?: {
-    sourceItemInstanceId: ID;
-    targetItemInstanceId: ID;
-  };
+  emitMessage?: (text: string, speaker: { kind: "narrator" | "player" | "npc"; speakerId?: ID }) => void;
+  itemUsePair?: { sourceItemInstanceId: ID; targetItemInstanceId: ID };
 };
 
 type RuntimeVarValue = boolean | number;
 type RuntimeVarMap = Record<ID, RuntimeVarValue>;
 
-/* Inventario*/
+/* Inventario */
 function addInventoryEntry(inventory: InventoryEntry[], entry: InventoryEntry): InventoryEntry[] {
   const alreadyExists = inventory.some((item) => item.itemInstanceId === entry.itemInstanceId);
 
@@ -41,23 +31,47 @@ function removeFromInventory(inventory: InventoryEntry[], instanceId: ID): Inven
   return [...inventory.slice(0, index), ...inventory.slice(index + 1)];
 }
 
-export function addInventoryInstance(state: GameState, itemInstanceId: ID, itemId: ID, label?: string): GameState {
-  return {
-    ...state,
-    inventory: addInventoryEntry(state.inventory, { itemInstanceId, itemId, label }),
-  };
+function getPlayerInventory(state: GameState, playerId: ID): InventoryEntry[] {
+  return state.playerInventory[playerId] ?? [];
+}
+
+function setPlayerInventory(state: GameState, playerId: ID, inventory: InventoryEntry[]): GameState {
+  return { ...state, playerInventory: { ...state.playerInventory, [playerId]: inventory }};
+}
+
+function addPlayerInventoryEntry(state: GameState, playerId: ID, entry: InventoryEntry): GameState {
+  const inventory = getPlayerInventory(state, playerId);
+
+  return setPlayerInventory(state, playerId, addInventoryEntry(inventory, entry));
+}
+
+function removePlayerInventoryEntry(state: GameState, playerId: ID, itemInstanceId: ID): GameState {
+  const inventory = getPlayerInventory(state, playerId);
+
+  return setPlayerInventory(state, playerId, removeFromInventory(inventory, itemInstanceId));
+}
+
+function findInventoryEntryInAnyPlayer(state: GameState, itemInstanceId: ID): { playerId: ID; entry: InventoryEntry } | null {
+  for (const [playerId, inventory] of Object.entries(state.playerInventory)) {
+    const entry = inventory.find((item) => item.itemInstanceId === itemInstanceId);
+
+    if (entry) return { playerId, entry };
+  }
+
+  return null;
+}
+
+export function addInventoryInstance(state: GameState, playerId: ID, itemInstanceId: ID, itemId: ID, label?: string): GameState {
+  return addPlayerInventoryEntry(state, playerId, { itemInstanceId, itemId, label });
 }
 
 function isMatchingItemUsePair(effect: Extract<Effect, { type: "combineItems" }>, pair?: ApplyEffectCtx["itemUsePair"]): boolean {
   if (!pair) return false;
 
-  const a = effect.sourceItemInstanceId;
-  const b = effect.targetItemInstanceId;
+  const a = effect.itemAInstanceId;
+  const b = effect.itemBInstanceId;
 
-  return (
-    (pair.sourceItemInstanceId === a && pair.targetItemInstanceId === b) ||
-    (pair.sourceItemInstanceId === b && pair.targetItemInstanceId === a)
-  );
+  return ((pair.sourceItemInstanceId === a && pair.targetItemInstanceId === b) || (pair.sourceItemInstanceId === b && pair.targetItemInstanceId === a));
 }
 
 /* Búsquedas en proyecto */
@@ -71,9 +85,7 @@ function findDialogueInCurrentNode(state: GameState, dialogueId: ID) {
 function findPlacedItemInProject(project: Project, itemInstanceId: ID) {
   for (const node of project.nodes ?? []) {
     for (const layer of node.layers ?? []) {
-      const found = (layer.placedItems ?? []).find(
-        (placedItem) => placedItem.id === itemInstanceId
-      );
+      const found = (layer.placedItems ?? []).find((placedItem) => placedItem.itemInstanceId === itemInstanceId);
 
       if (found) return found;
     }
@@ -86,25 +98,13 @@ function findInventoryItemInProject(project: Project, itemInstanceId: ID): Inven
   for (const player of project.players ?? []) {
     const found = (player.initialInventory ?? []).find((item) => item.itemInstanceId === itemInstanceId);
 
-    if (found) {
-      return {
-        itemInstanceId: found.itemInstanceId,
-        itemId: found.itemId,
-        label: found.label,
-      };
-    }
+    if (found) return { itemInstanceId: found.itemInstanceId, itemId: found.itemId, label: found.label };
   }
 
   for (const npc of project.npcs ?? []) {
     const found = (npc.initialInventory ?? []).find((item) => item.itemInstanceId === itemInstanceId);
 
-    if (found) {
-      return {
-        itemInstanceId: found.itemInstanceId,
-        itemId: found.itemId,
-        label: found.label,
-      };
-    }
+    if (found) return { itemInstanceId: found.itemInstanceId, itemId: found.itemId, label: found.label };
   }
 
   return null;
@@ -113,13 +113,7 @@ function findInventoryItemInProject(project: Project, itemInstanceId: ID): Inven
 function findGameItemEntryInProject(project: Project, itemInstanceId: ID): InventoryEntry | null {
   const placedItem = findPlacedItemInProject(project, itemInstanceId);
 
-  if (placedItem) {
-    return {
-      itemInstanceId: placedItem.id,
-      itemId: placedItem.itemId,
-      label: placedItem.label,
-    };
-  }
+  if (placedItem) return { itemInstanceId: placedItem.itemInstanceId, itemId: placedItem.itemId, label: placedItem.label };
 
   return findInventoryItemInProject(project, itemInstanceId);
 }
@@ -178,20 +172,14 @@ function coerceToBoolean(value: RuntimeVarValue | undefined): boolean {
 function setRuntimeVar(varsByOwner: Record<ID, RuntimeVarMap>, ownerId: ID, varId: ID, value: RuntimeVarValue): Record<ID, RuntimeVarMap> {
   const previousVars = varsByOwner[ownerId] ?? {};
 
-  return {
-    ...varsByOwner,
-    [ownerId]: { ...previousVars, [varId]: value },
-  };
+  return { ...varsByOwner, [ownerId]: { ...previousVars, [varId]: value } };
 }
 
-function updateRuntimeVar(varsByOwner: Record<ID, RuntimeVarMap>, ownerId: ID, varId: ID, updater: (previous: RuntimeVarValue | undefined) => RuntimeVarValue
-): Record<ID, RuntimeVarMap> {
+function updateRuntimeVar(varsByOwner: Record<ID, RuntimeVarMap>, ownerId: ID, varId: ID, updater: (previous: RuntimeVarValue | undefined) => RuntimeVarValue)
+  : Record<ID, RuntimeVarMap> {
   const previousVars = varsByOwner[ownerId] ?? {};
 
-  return {
-    ...varsByOwner,
-    [ownerId]: { ...previousVars, [varId]: updater(previousVars[varId]) },
-  };
+  return { ...varsByOwner, [ownerId]: { ...previousVars, [varId]: updater(previousVars[varId]) }};
 }
 
 /* Asegura que las variables propias de un hotspot existen en runtime */
@@ -200,18 +188,29 @@ export function ensureHotspotVars(state: GameState, hotspot: Hotspot): GameState
 
   const initialVars: RuntimeVarMap = {};
 
-  for (const variable of hotspot.vars ?? []) {
-    initialVars[variable.id] = variable.initial;
-  }
+  for (const variable of hotspot.vars ?? []) initialVars[variable.id] = variable.initial;
 
-  return {
-    ...state,
-    hotspotVars: { ...state.hotspotVars, [hotspot.id]: initialVars },
-  };
+  return { ...state, hotspotVars: { ...state.hotspotVars, [hotspot.id]: initialVars }};
 }
 
 /* Estado visual de entidades */
-function updatePlacedItemState(state: GameState, nodeId: ID, placedItemId: ID, patch: Partial<{ visible: boolean; reachable: boolean }>): GameState {
+function findNodeIdContainingPlacedItem(state: GameState, placedItemId: ID): ID | null {
+  for (const node of state.project.nodes ?? []) {
+    for (const layer of node.layers ?? []) {
+      const exists = (layer.placedItems ?? []).some((placedItem) => placedItem.itemInstanceId === placedItemId);
+
+      if (exists) return node.id;
+    }
+  }
+
+  return null;
+}
+
+function updatePlacedItemState(state: GameState, placedItemId: ID, patch: Partial<{ visible: boolean; reachable: boolean }>): GameState {
+  const nodeId = findNodeIdContainingPlacedItem(state, placedItemId);
+
+  if (!nodeId) return state;
+
   const preparedState = ensureNodeRuntime(state, nodeId);
   const nodeRuntime = preparedState.nodes[nodeId];
   const previous = nodeRuntime?.placedItems[placedItemId];
@@ -317,7 +316,7 @@ function setPlacedPlayerImage(state: GameState, nodeId: ID, playerId: ID, imageI
 
   if (!nodeRuntime?.placedPlayers[playerId]) return preparedState;
 
-  const previousImages = nodeRuntime.placedPlayerImageId ?? {};
+  const previousImages = nodeRuntime.placedPlayerImageId;
 
   return {
     ...preparedState,
@@ -364,58 +363,66 @@ function setMapRegionAvailable(state: GameState, mapId: ID, regionId: ID, value:
 export function applyEffect(state: GameState, effect: Effect, ctx: ApplyEffectCtx = {}): GameState {
   switch (effect.type) {
     case "goToNode": {
-      const legacyEffect = effect as {
-        type: "goToNode";
-        targetNodeId?: ID;
-        nodeId?: ID;
-        goToNodeId?: ID;
-      };
-
-      const targetNodeId = legacyEffect.targetNodeId ?? legacyEffect.nodeId ?? legacyEffect.goToNodeId;
-
-      if (!targetNodeId) throw new Error("goToNode sin id de destino.");
+      const targetNodeId = effect.targetNodeId;
 
       const exists = state.project.nodes.some((node) => node.id === targetNodeId);
-
       if (!exists) throw new Error(`goToNode apunta a un nodo inexistente: "${targetNodeId}".`);
 
-      return ensureNodeRuntime(
-        {
-          ...state,
-          currentNodeId: targetNodeId,
-          activeDialogue: undefined,
-          visitedNodes: {
-            ...state.visitedNodes,
-            [targetNodeId]: true,
-          },
-        },
-        targetNodeId
-      );
+      return ensureNodeRuntime({
+        ...state,
+        currentNodeId: targetNodeId,
+        activeDialogue: undefined,
+        visitedNodes: { ...state.visitedNodes, [targetNodeId]: true },
+      }, targetNodeId);
     }
 
     case "addItem": {
       const entry = findGameItemEntryInProject(state.project, effect.itemInstanceId);
+      if (!entry) throw new Error(`addItem apunta a un itemInstanceId inexistente: "${effect.itemInstanceId}".`);
 
-      if (!entry) {
-        throw new Error(`addItem apunta a un itemInstanceId inexistente: "${effect.itemInstanceId}".`);
-      }
+      ctx.audio?.playSfxUrl("/sounds/add_item.wav");
 
-      const nextState = {
-        ...state,
-        inventory: addInventoryEntry(state.inventory, entry),
+      return addPlayerInventoryEntry(state, effect.playerId, entry);
+    }
+
+    case "transformItem": {
+      const found = findInventoryEntryInAnyPlayer(state, effect.itemInstanceId);
+      if (!found) return state;
+
+      const resultEntry: InventoryEntry = {
+        itemInstanceId: effect.resultItemInstanceId,
+        itemId: effect.resultItemId,
+        label: effect.resultItemLabel,
       };
+
+      const withoutSource = removeFromInventory(getPlayerInventory(state, found.playerId), effect.itemInstanceId);
+
+      const nextState = setPlayerInventory(state, found.playerId, addInventoryEntry(withoutSource, resultEntry));
 
       ctx.audio?.playSfxUrl("/sounds/add_item.wav");
 
       return nextState;
     }
 
-    case "transformItem": {
-      const hasSource = state.inventory.some((entry) => entry.itemInstanceId === effect.sourceItemInstanceId);
+    case "removeItem":
+      return removePlayerInventoryEntry(state, effect.playerId, effect.itemInstanceId);
 
-      if (!hasSource) return state;
+    case "combineItems": {
+      if (effect.itemAInstanceId === effect.itemBInstanceId) return state;
 
-      const withoutSource = removeFromInventory(state.inventory, effect.sourceItemInstanceId);
+      if (!isMatchingItemUsePair(effect, ctx.itemUsePair)) return state;
+
+      const foundA = findInventoryEntryInAnyPlayer(state, effect.itemAInstanceId);
+      const foundB = findInventoryEntryInAnyPlayer(state, effect.itemBInstanceId);
+
+      if (!foundA || !foundB) return state;
+      if (foundA.playerId !== foundB.playerId) return state;
+
+      const playerId = foundA.playerId;
+      const inventory = getPlayerInventory(state, playerId);
+
+      const withoutA = removeFromInventory(inventory, effect.itemAInstanceId);
+      const withoutBoth = removeFromInventory(withoutA, effect.itemBInstanceId);
 
       const resultEntry: InventoryEntry = {
         itemInstanceId: effect.resultItemInstanceId,
@@ -425,52 +432,11 @@ export function applyEffect(state: GameState, effect: Effect, ctx: ApplyEffectCt
 
       ctx.audio?.playSfxUrl("/sounds/add_item.wav");
 
-      return {
-        ...state,
-        inventory: addInventoryEntry(withoutSource, resultEntry),
-      };
-    }
-
-    case "removeItem":
-      return {
-        ...state,
-        inventory: removeFromInventory(state.inventory, effect.itemInstanceId),
-      };
-
-    case "combineItems": {
-      if (effect.sourceItemInstanceId === effect.targetItemInstanceId) return state;
-
-      if (!isMatchingItemUsePair(effect, ctx.itemUsePair)) return state;
-
-      const hasSource = state.inventory.some(
-        (entry) => entry.itemInstanceId === effect.sourceItemInstanceId
-      );
-
-      const hasTarget = state.inventory.some(
-        (entry) => entry.itemInstanceId === effect.targetItemInstanceId
-      );
-
-      if (!hasSource || !hasTarget) return state;
-
-      const withoutSource = removeFromInventory(state.inventory, effect.sourceItemInstanceId);
-      const withoutBoth = removeFromInventory(withoutSource, effect.targetItemInstanceId);
-
-      const resultEntry: InventoryEntry = {
-        itemInstanceId: effect.resultItemInstanceId,
-        itemId: effect.resultItemId,
-      };
-
-      ctx.audio?.playSfxUrl("/sounds/add_item.wav");
-
-      return {
-        ...state,
-        inventory: addInventoryEntry(withoutBoth, resultEntry),
-      };
+      return setPlayerInventory(state, playerId, addInventoryEntry(withoutBoth, resultEntry));
     }
 
     case "startDialogue": {
       const dialogue = findDialogueInCurrentNode(state, effect.nodeDialogueId);
-
       if (!dialogue) throw new Error(`startDialogue apunta a un diálogo inexistente en el nodo actual: "${effect.nodeDialogueId}".`);
 
       return {
@@ -489,58 +455,40 @@ export function applyEffect(state: GameState, effect: Effect, ctx: ApplyEffectCt
 
     case "giveItemToNpc": {
       const npc = findNpcInProject(state.project, effect.npcId);
+      if (!npc) throw new Error(`giveItemToNpc apunta a un npc inexistente: "${effect.npcId}".`);
 
-      if (!npc) {
-        throw new Error(`giveItemToNpc apunta a un npc inexistente: "${effect.npcId}".`);
-      }
-
-      const inventoryEntry = state.inventory.find(
-        (entry) => entry.itemInstanceId === effect.itemInstanceId
-      );
-
-      if (!inventoryEntry) return state;
+      const found = findInventoryEntryInAnyPlayer(state, effect.itemInstanceId);
+      if (!found) return state;
 
       const currentNpcInventory = state.npcInventory[effect.npcId] ?? [];
-
-      const alreadyHasItem = currentNpcInventory.some(
-        (entry) => entry.itemInstanceId === effect.itemInstanceId
-      );
+      const alreadyHasItem = currentNpcInventory.some((entry) => entry.itemInstanceId === effect.itemInstanceId);
 
       return {
-        ...state,
-        inventory: removeFromInventory(state.inventory, effect.itemInstanceId),
+        ...removePlayerInventoryEntry(state, found.playerId, effect.itemInstanceId),
         npcInventory: {
           ...state.npcInventory,
-          [effect.npcId]: alreadyHasItem
-            ? currentNpcInventory
-            : [...currentNpcInventory, inventoryEntry],
+          [effect.npcId]: alreadyHasItem ? currentNpcInventory : [...currentNpcInventory, found.entry],
         },
       };
     }
 
     case "receiveItemFromNpc": {
       const npc = findNpcInProject(state.project, effect.npcId);
+      if (!npc) throw new Error(`receiveItemFromNpc apunta a un npc inexistente: "${effect.npcId}".`);
 
-      if (!npc) {
-        throw new Error(`receiveItemFromNpc apunta a un npc inexistente: "${effect.npcId}".`);
-      }
+      const playerId = state.project.players[0]?.id;
+      if (!playerId) throw new Error("receiveItemFromNpc no puede aplicarse porque el proyecto no tiene players.");
 
       const currentNpcInventory = state.npcInventory[effect.npcId] ?? [];
 
-      const inventoryEntry = currentNpcInventory.find(
-        (entry) => entry.itemInstanceId === effect.itemInstanceId
-      );
-
+      const inventoryEntry = currentNpcInventory.find((entry) => entry.itemInstanceId === effect.itemInstanceId);
       if (!inventoryEntry) return state;
 
       const nextState = {
-        ...state,
-        inventory: addInventoryEntry(state.inventory, inventoryEntry),
+        ...addPlayerInventoryEntry(state, playerId, inventoryEntry),
         npcInventory: {
           ...state.npcInventory,
-          [effect.npcId]: currentNpcInventory.filter(
-            (entry) => entry.itemInstanceId !== effect.itemInstanceId
-          ),
+          [effect.npcId]: currentNpcInventory.filter((entry) => entry.itemInstanceId !== effect.itemInstanceId),
         },
       };
 
@@ -553,19 +501,21 @@ export function applyEffect(state: GameState, effect: Effect, ctx: ApplyEffectCt
       const text = effect.text?.trim();
       if (!text) return state;
 
+      const speaker = effect.speaker ?? { kind: "narrator" };
+
       ctx.emitMessage?.(text, {
-        kind: effect.speakerKind,
-        speakerId: effect.speakerId,
+        kind: speaker.kind,
+        speakerId: speaker.kind === "player" ? speaker.playerId : speaker.kind === "npc" ? speaker.npcId : undefined,
       });
 
       return state;
     }
 
     case "setPlacedItemVisible":
-      return updatePlacedItemState(state, effect.nodeId, effect.itemInstanceId, { visible: effect.value });
+      return updatePlacedItemState(state, effect.itemInstanceId, { visible: effect.value });
 
     case "setPlacedItemReachable":
-      return updatePlacedItemState(state, effect.nodeId, effect.itemInstanceId, { reachable: effect.value });
+      return updatePlacedItemState(state, effect.itemInstanceId, { reachable: effect.value });
 
     case "setHotspotVisible":
       return updateHotspotState(state, state.currentNodeId, effect.hotspotId, { visible: effect.value });
@@ -577,10 +527,7 @@ export function applyEffect(state: GameState, effect: Effect, ctx: ApplyEffectCt
       const def = findHotspotVarDef(state.project, effect.hotspotId, effect.varId);
       const nextValue = typeof effect.value === "number" ? clampNumber(def, effect.value) : effect.value;
 
-      return {
-        ...state,
-        hotspotVars: setRuntimeVar(state.hotspotVars, effect.hotspotId, effect.varId, nextValue),
-      };
+      return { ...state, hotspotVars: setRuntimeVar(state.hotspotVars, effect.hotspotId, effect.varId, nextValue) };
     }
 
     case "toggleHotspotVar":
@@ -629,10 +576,7 @@ export function applyEffect(state: GameState, effect: Effect, ctx: ApplyEffectCt
       const def = findPlayerVarDef(state.project, effect.playerId, effect.varId);
       const nextValue = typeof effect.value === "number" ? clampNumber(def, effect.value) : effect.value;
 
-      return {
-        ...state,
-        playerVars: setRuntimeVar(state.playerVars, effect.playerId, effect.varId, nextValue),
-      };
+      return { ...state, playerVars: setRuntimeVar(state.playerVars, effect.playerId, effect.varId, nextValue) };
     }
 
     case "togglePlayerVar":
@@ -669,10 +613,7 @@ export function applyEffect(state: GameState, effect: Effect, ctx: ApplyEffectCt
       const def = findNpcVarDef(state.project, effect.npcId, effect.varId);
       const nextValue = typeof effect.value === "number" ? clampNumber(def, effect.value) : effect.value;
 
-      return {
-        ...state,
-        npcVars: setRuntimeVar(state.npcVars, effect.npcId, effect.varId, nextValue),
-      };
+      return { ...state, npcVars: setRuntimeVar(state.npcVars, effect.npcId, effect.varId, nextValue) };
     }
 
     case "toggleNpcVar":
@@ -710,16 +651,12 @@ export function applyEffect(state: GameState, effect: Effect, ctx: ApplyEffectCt
       return state;
 
     case "playMusic":
-      return {
-        ...state,
-        music: musicPlay(state.music, effect.trackId, { startAt: effect.startAt }),
-      };
+      return { ...state, music: musicPlay(state.music, effect.trackId, { startAt: effect.startAt }) };
 
     case "stopMusic":
-      return {
-        ...state,
-        music: musicStop(state.music),
-      };
+      if (state.music.currentTrackId !== effect.trackId) return state;
+
+      return { ...state, music: musicStop(state.music) };
 
     case "setMapRegionAvailable":
       return setMapRegionAvailable(state, effect.mapId, effect.regionId, effect.value);
@@ -734,14 +671,9 @@ export function applyEffect(state: GameState, effect: Effect, ctx: ApplyEffectCt
         activeDialogue: undefined,
         ending,
         endingLineIndex: lines.length > 0 ? 0 : lines.length,
-        music: ending?.musicTrackId
-          ? musicPlay(state.music, ending.musicTrackId, { startAt: "restart" })
-          : state.music,
+        music: ending?.musicTrackId ? musicPlay(state.music, ending.musicTrackId, { startAt: "restart" }) : state.music
       };
     }
-
-    default:
-      throw new Error(`Efecto no soportado en el motor: ${(effect as { type?: string }).type ?? "desconocido"}`);
   }
 }
 

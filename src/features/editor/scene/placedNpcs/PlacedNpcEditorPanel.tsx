@@ -3,7 +3,7 @@ import type { ID, ClickRule, UseItemRule, NpcDef, BaseInteractionRule, Project, 
 import type { PlacedNpcDraft, PlacedNpcRuleChannel } from "@/features/editor/scene/placedNpcs/placedNpcEditorTypes";
 import type { Condition } from "@/domain/conditions";
 import type { Effect } from "@/domain/effects";
-import type { EffectOwner } from "@/features/editor/scene/rules/effects/effectFactory";
+import type { EffectOwner } from "@/features/editor/scene/rules/effects/effectShared";
 import { RegionStatusNotice } from "@/features/editor/scene/interactiveComponents/RegionStatusNotice";
 import { PlaceableStateSection } from "@/features/editor/scene/interactiveComponents/PlaceableStateSection";
 import { InteractionRulesSection } from "@/features/editor/scene/interactiveComponents/InteractionRulesSection";
@@ -12,9 +12,9 @@ import { Pencil } from "lucide-react";
 
 type PlacedNpcEditorPanelProps = {
   draft: PlacedNpcDraft | null;
-  selectedCatalogNpcId: string;
+  selectedCatalogNpcId: ID;
   projectNpcs: NpcDef[];
-  onSelectedCatalogNpcIdChange: (npcId: string) => void;
+  onSelectedCatalogNpcIdChange: (npcId: ID) => void;
 
   isDrawing: boolean;
   hasShape: boolean;
@@ -75,35 +75,37 @@ export function PlacedNpcEditorPanel({ draft, selectedCatalogNpcId, projectNpcs,
   initialReachable, initialNotReachableText, notReachableInputRef, onNpcChange, onStartRedrawShape, onVisibleChange, onReachableChange,
   onNotReachableTextChange, owner, activeChannel, setActiveChannel, clickRules, useItemRulesForSelected, ruleModalOpen, currentRuleValue,
   nodeId, project, onOpenAddClickRule, onOpenEditClickRule, onRemoveClickRule, onOpenAddUseItemRule, onOpenEditUseItemRule, onRemoveUseItemRule,
-  onCloseRuleModal, onSaveRule, panelError, showRulesRequiredError, useItemSourceOptions, onDelete, onCancel, onCommit }: PlacedNpcEditorPanelProps) {
-  const npcOptions: Option<string>[] = projectNpcs.map((npc) => ({ id: npc.id, label: npc.name || npc.id }));
+  onCloseRuleModal, onSaveRule, panelError, useItemSourceOptions, onDelete, onCancel, onCommit }: PlacedNpcEditorPanelProps) {
+  const npcOptions: Option<ID>[] = projectNpcs.map((npc) => ({ id: npc.id, label: npc.name || npc.id }));
 
   const useItemOptions: Option<ID>[] = useItemSourceOptions;
 
-  const rulesRequiredErrorText = showRulesRequiredError ? "Debes añadir al menos una regla para guardar el NPC." : null;
-
   const saveButtonTitle = isDrawing ? "Termina o cancela el dibujo actual antes de guardar" : !hasShape
         ? "Dibuja una región válida antes de guardar" : !draft?.npcId
-          ? "Debes seleccionar un NPC" : hasCollisions
+          ? "Debes seleccionar un PNJ" : hasCollisions
             ? "Colisión con otro clicable" : undefined;
+
+  const selectButtonClassName = "w-full rounded-md border-2 border-slate-700 bg-slate-900/30 px-2 py-1.5 text-xs text-slate-100"
+    + "focus:outline-none focus:border-transparent focus:ring-2 focus:ring-fuchsia-500 disabled:opacity-50";
 
   if (!draft) {
     return (
       <div className="bg-slate-950/40 p-1 space-y-3">
-        <div className="rounded-md border border-slate-700 bg-slate-950/20 px-3 py-3 space-y-3">
+        <div className="bg-slate-950/20 px-3 py-3 space-y-3">
           <div className="text-xs text-slate-200 text-center">
-            Selecciona un NPC del catálogo para dibujarlo directamente en la escena
+            Selecciona un PNJ del catálogo para dibujarlo directamente en la escena
           </div>
 
           <div className="space-y-1">
-            <div className="text-xs text-slate-100">NPC</div>
+            <div className="text-xs text-slate-100">PNJ</div>
 
-            <Select<string>
+            <Select<ID>
               value={selectedCatalogNpcId}
               onChange={onSelectedCatalogNpcIdChange}
               options={npcOptions}
               placeholder="Seleccionar NPC"
               disabled={!projectNpcs.length}
+              buttonClassName={selectButtonClassName}
             />
           </div>
         </div>
@@ -126,26 +128,26 @@ export function PlacedNpcEditorPanel({ draft, selectedCatalogNpcId, projectNpcs,
           collisionSummary={collisionSummary}
           collisionLock={collisionLock}
           drawingText="Dibuja una región en la imagen (arrastra con el ratón). Pulsa “Cancelar” para salir."
-          missingShapeText="Falta una región válida. Dibuja un rectángulo dentro de la imagen para definir el NPC."
+          missingShapeText="Falta una región válida. Dibuja un rectángulo dentro de la imagen para definir el PNJ."
         />
       )}
 
       {/* Selector del NPC y botón para redibujar la región */}
       <div className="space-y-1">
-        <div className="mb-1.5 text-xs text-slate-100">NPC</div>
+        <div className="mb-1.5 text-xs text-slate-100">PNJ</div>
 
         <div className="flex items-center gap-2">
           <div className="min-w-0 flex-1">
-            <Select<string>
+            <Select<ID>
               value={draft.npcId}
               onChange={(value) => {
                 if (!value) return;
-                onNpcChange(value as ID);
+                onNpcChange(value);
               }}
               options={npcOptions}
-              placeholder="Seleccionar NPC"
+              placeholder="Seleccionar PNJ"
               disabled={!projectNpcs.length || disableAllEditorFields || isExistingPlacedNpc}
-              className="w-full rounded-md border-2 border-slate-700 bg-slate-900/30 px-2 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-transparent focus:ring-2 focus:ring-fuchsia-500 disabled:opacity-50"
+              buttonClassName={selectButtonClassName}
             />
           </div>
 
@@ -153,7 +155,7 @@ export function PlacedNpcEditorPanel({ draft, selectedCatalogNpcId, projectNpcs,
             type="button"
             className="btn border-2 border-slate-700 bg-slate-900 hover:bg-slate-800 text-xs text-white"
             onClick={onStartRedrawShape}
-            title={isDrawing ? "Termina o cancela el dibujo actual antes de editar la región" : "Editar región del NPC"}
+            title={isDrawing ? "Termina o cancela el dibujo actual antes de editar la región" : "Editar región del PNJ"}
             disabled={isDrawing}
           >
             <Pencil className="w-4 h-4" />
@@ -200,7 +202,6 @@ export function PlacedNpcEditorPanel({ draft, selectedCatalogNpcId, projectNpcs,
         onRemoveUseItemRule={onRemoveUseItemRule}
         onCloseRuleModal={onCloseRuleModal}
         onSaveRule={onSaveRule}
-        requiredErrorText={rulesRequiredErrorText}
       />
 
       {/* Acciones finales */}
@@ -211,7 +212,7 @@ export function PlacedNpcEditorPanel({ draft, selectedCatalogNpcId, projectNpcs,
               type="button"
               className="btn btn-danger text-[11px] disabled:opacity-40 disabled:cursor-not-allowed"
               onClick={onDelete}
-              title="Eliminar NPC"
+              title="Eliminar PNJ"
               disabled={isDrawing}
             >
               Eliminar
@@ -226,9 +227,10 @@ export function PlacedNpcEditorPanel({ draft, selectedCatalogNpcId, projectNpcs,
 
           <button
             type="button"
-            className="btn btn-create text-[11px]"
+            className="btn btn-create text-[11px]  disabled:cursor-not-allowed"
             onClick={onCommit}
             title={saveButtonTitle}
+            disabled={isDrawing}
           >
             Guardar
           </button>

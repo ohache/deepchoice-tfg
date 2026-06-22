@@ -1,14 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
+import type { CSSProperties, DragEvent as ReactDragEvent, PointerEvent, MouseEvent } from "react";
 import type { RegionShape } from "@/domain/types";
 import type { Rect } from "@/features/editor/hooks/useObjectContainRect";
 
 type DragState =
-  | { kind: "dragging";
-      start: { x: number; y: number };
-      current: { x: number; y: number };
-      pointerId: number; }
+  | {
+    kind: "dragging";
+    start: { x: number; y: number };
+    current: { x: number; y: number };
+    pointerId: number;
+  }
   | { kind: "idle" };
+
+type CapturedPointer = {
+  element: HTMLElement;
+  pointerId: number;
+};
+
+const PRIMARY_POINTER_BUTTON = 0;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -23,6 +32,15 @@ function rectFromTwoPoints(a: { x: number; y: number }, b: { x: number; y: numbe
   return { left, top, width: right - left, height: bottom - top };
 }
 
+function stopDrawingEvent(event: PointerEvent<HTMLElement>) {
+  event.preventDefault();
+  event.stopPropagation();
+}
+
+function isMatchingDragPointer(drag: DragState, pointerId: number): drag is Extract<DragState, { kind: "dragging" }> {
+  return drag.kind === "dragging" && drag.pointerId === pointerId;
+}
+
 export type UseRegionShapeRectDrawingOptions = {
   contentRect: Rect | null;
   enabled: boolean;
@@ -32,123 +50,106 @@ export type UseRegionShapeRectDrawingOptions = {
   resetKey?: unknown;
 };
 
-/* Hook para dibujar una región rectangular sobre un área visible de contenidon */
+/* Hook para dibujar una región rectangular sobre el área visible real del contenido */
 export function useRegionShapeRectDrawing({ contentRect, enabled, minPx = 6, toContainerPx, onCommit, resetKey }: UseRegionShapeRectDrawingOptions) {
   const [drag, setDrag] = useState<DragState>({ kind: "idle" });
 
   const dragRef = useRef<DragState>({ kind: "idle" });
+  const capturedPointerRef = useRef<CapturedPointer | null>(null);
 
-  const lastCaptureElRef = useRef<HTMLElement | null>(null);
+  useEffect(() => { dragRef.current = drag }, [drag]);
 
-  useEffect(() => { dragRef.current = drag; }, [drag]);
+  const releasePointerCaptureSafely = useCallback(() => {
+    const captured = capturedPointerRef.current;
+    if (!captured) return;
 
+    try {
+      if (captured.element.hasPointerCapture(captured.pointerId)) captured.element.releasePointerCapture(captured.pointerId);
+    } catch { }
 
-  useEffect(() => {
-    dragRef.current = { kind: "idle" };
-    setDrag({ kind: "idle" });
-  }, [resetKey]);
-
-  const resetDrag = useCallback(() => {
-    dragRef.current = { kind: "idle" };
-    setDrag({ kind: "idle" });
+    capturedPointerRef.current = null;
   }, []);
 
-  const releasePointerCaptureSafely = useCallback(
-    (event: ReactPointerEvent<HTMLElement>) => {
-      const element = event.currentTarget as HTMLElement;
+  const resetDrag = useCallback(() => {
+    releasePointerCaptureSafely();
+    dragRef.current = { kind: "idle" };
+    setDrag({ kind: "idle" });
+  }, [releasePointerCaptureSafely]);
 
-      try {
-        if (element.hasPointerCapture(event.pointerId)) element.releasePointerCapture(event.pointerId);
-      } catch { }
+  useEffect(() => resetDrag(), [resetKey, resetDrag]);
 
-      if (lastCaptureElRef.current === element) lastCaptureElRef.current = null;
-    }, [],
+  useEffect(() => {
+    if (enabled) return;
+    resetDrag();
+  }, [enabled, resetDrag]);
+
+  /* Comprueba si un punto en coords del contenedor cae dentro del contentRect */
+  const isInsideContent = useCallback((point: { x: number; y: number }) => {
+    if (!contentRect) return false;
+
+    return (point.x >= contentRect.x && point.x <= contentRect.x + contentRect.w && point.y >= contentRect.y && point.y <= contentRect.y + contentRect.h);
+  }, [contentRect]);
+
+  /* Limita un punto al área visible real del contenido */
+  const clampToContent = useCallback((point: { x: number; y: number }) => {
+    if (!contentRect) return point;
+
+    return { x: clamp(point.x, contentRect.x, contentRect.x + contentRect.w), y: clamp(point.y, contentRect.y, contentRect.y + contentRect.h) };
+  }, [contentRect]);
+
+  const onPointerDown = useCallback((event: PointerEvent<HTMLElement>) => {
+    if (!enabled || !contentRect) return;
+    if (event.button !== PRIMARY_POINTER_BUTTON) return;
+
+    const point = toContainerPx({ x: event.clientX, y: event.clientY });
+    if (!point || !isInsideContent(point)) return;
+
+    stopDrawingEvent(event);
+
+    const element = event.currentTarget as HTMLElement;
+
+    try {
+      element.setPointerCapture(event.pointerId);
+      capturedPointerRef.current = { element, pointerId: event.pointerId };
+    } catch {
+      capturedPointerRef.current = null;
+    }
+
+    const start = clampToContent(point);
+
+    const nextDrag: DragState = { kind: "dragging", start, current: start, pointerId: event.pointerId };
+
+    dragRef.current = nextDrag;
+    setDrag(nextDrag);
+  }, [enabled, contentRect, toContainerPx, isInsideContent, clampToContent],
   );
 
-  /*Comprueba si un punto (en coords del contenedor) cae dentro del contentRect */
-  const isInsideContent = useCallback(
-    (point: { x: number; y: number }) => {
-      if (!contentRect) return false;
-
-      return ( point.x >= contentRect.x && point.x <= contentRect.x + contentRect.w &&
-        point.y >= contentRect.y && point.y <= contentRect.y + contentRect.h);
-    }, [contentRect],
-  );
-
-  /**
-   * Limita un punto al área visible real del contenido.
-   */
-  const clampToContent = useCallback(
-    (point: { x: number; y: number }) => {
-      if (!contentRect) return point;
-
-      return {
-        x: clamp(point.x, contentRect.x, contentRect.x + contentRect.w),
-        y: clamp(point.y, contentRect.y, contentRect.y + contentRect.h),
-      };
-    },
-    [contentRect],
-  );
-
-  const onPointerDown = useCallback(
-    (event: ReactPointerEvent<HTMLElement>) => {
-      if (!enabled || !contentRect) return;
-
-      const point = toContainerPx({ x: event.clientX, y: event.clientY });
-      if (!point || !isInsideContent(point)) return;
-
-      const element = event.currentTarget as HTMLElement;
-
-      try {
-        element.setPointerCapture(event.pointerId);
-        lastCaptureElRef.current = element;
-      } catch { }
-
-      const start = clampToContent(point);
-
-      const nextDrag: DragState = {
-        kind: "dragging",
-        start,
-        current: start,
-        pointerId: event.pointerId,
-      };
-
-      dragRef.current = nextDrag;
-      setDrag(nextDrag);
-    },
-    [enabled, contentRect, toContainerPx, isInsideContent, clampToContent],
-  );
-
-  /* Actualiza el drag actual si corresponde al mismo pointer */
-  const onPointerMove = useCallback(
-    (event: ReactPointerEvent<HTMLElement>) => {
-      if (!enabled || !contentRect) return;
-
-      const point = toContainerPx({ x: event.clientX, y: event.clientY });
-      if (!point) return;
-
-      setDrag((prev) => {
-        if (prev.kind !== "dragging") return prev;
-        if (prev.pointerId !== event.pointerId) return prev;
-
-        const next: DragState = {
-          ...prev,
-          current: clampToContent(point),
-        };
-
-        dragRef.current = next;
-        return next;
-      });
-    },
-    [enabled, contentRect, toContainerPx, clampToContent],
-  );
-
-  /* Finaliza el drag */
-  const finish = useCallback(() => {
+  const onPointerMove = useCallback((event: PointerEvent<HTMLElement>) => {
     if (!enabled || !contentRect) return;
 
     const currentDrag = dragRef.current;
-    if (currentDrag.kind !== "dragging") return;
+    if (!isMatchingDragPointer(currentDrag, event.pointerId)) return;
+
+    const point = toContainerPx({ x: event.clientX, y: event.clientY });
+    if (!point) return;
+
+    stopDrawingEvent(event);
+
+    const next: DragState = { ...currentDrag, current: clampToContent(point) };
+
+    dragRef.current = next;
+    setDrag(next);
+  }, [enabled, contentRect, toContainerPx, clampToContent]);
+
+  // Sustituye finish por este:
+  const finish = useCallback((pointerId: number) => {
+    if (!enabled || !contentRect) {
+      resetDrag();
+      return;
+    }
+
+    const currentDrag = dragRef.current;
+    if (!isMatchingDragPointer(currentDrag, pointerId)) return;
 
     const rect = rectFromTwoPoints(currentDrag.start, currentDrag.current);
 
@@ -167,19 +168,38 @@ export function useRegionShapeRectDrawing({ contentRect, enabled, minPx = 6, toC
     onCommit(shape);
   }, [enabled, contentRect, minPx, onCommit, resetDrag]);
 
-  const onPointerUp = useCallback(
-    (event: ReactPointerEvent<HTMLElement>) => {
-      finish();
-      releasePointerCaptureSafely(event);
-    }, [finish, releasePointerCaptureSafely],
-  );
+  const onPointerUp = useCallback((event: PointerEvent<HTMLElement>) => {
+    if (!enabled) return;
+    if (!isMatchingDragPointer(dragRef.current, event.pointerId)) return;
+
+    stopDrawingEvent(event);
+    finish(event.pointerId);
+  }, [enabled, finish]);
 
   const onPointerCancel = useCallback(
-    (event: ReactPointerEvent<HTMLElement>) => {
+    (event: PointerEvent<HTMLElement>) => {
+      if (!enabled) return;
+      if (!isMatchingDragPointer(dragRef.current, event.pointerId)) return;
+
+      stopDrawingEvent(event);
       resetDrag();
-      releasePointerCaptureSafely(event);
-    }, [resetDrag, releasePointerCaptureSafely],
-  );
+    }, [enabled, resetDrag]);
+
+  const onLostPointerCapture = useCallback(() => capturedPointerRef.current = null, []);
+
+  const onDragStart = useCallback((event: ReactDragEvent<HTMLElement>) => {
+    if (!enabled) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+  }, [enabled]);
+
+  const onContextMenu = useCallback((event: MouseEvent<HTMLElement>) => {
+    if (!enabled) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+  }, [enabled]);
 
   /* Estilo temporal del rectángulo mientras se arrastra */
   const tempRectStyle = useMemo<CSSProperties | null>(() => {
@@ -190,5 +210,8 @@ export function useRegionShapeRectDrawing({ contentRect, enabled, minPx = 6, toC
     return { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` };
   }, [drag, contentRect]);
 
-  return { drag, isDragging: drag.kind === "dragging", tempRectStyle, bind: { onPointerDown, onPointerMove, onPointerUp, onPointerCancel }};
+  return {
+    drag, isDragging: drag.kind === "dragging", tempRectStyle,
+    bind: { onPointerDown, onPointerMove, onPointerUp, onPointerCancel, onLostPointerCapture, onDragStart, onContextMenu, draggable: false }
+  };
 }

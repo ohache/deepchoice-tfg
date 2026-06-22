@@ -1,23 +1,8 @@
-import type {
-  Dialogue,
-  Hotspot,
-  ID,
-  InteractionRules,
-  PlacedItem,
-  PlacedNpc,
-  PlacedPlayer,
-  Project,
-  SceneImageLayer,
-} from "@/domain/types";
+import type { Dialogue, Hotspot, ID, InteractionRules, ItemInstance, PlacedNpc, PlacedPlayer, Project, RulePhrase, SceneImageLayer } from "@/domain/types";
 import type { Condition } from "@/domain/conditions";
 import type { Effect } from "@/domain/effects";
-import type {
-  DeleteImpactEntry,
-  DeleteImpactReport,
-  DeleteImpactSeverity,
-  DeleteLocation,
-  DeleteTarget,
-} from "./deleteTypes";
+import type { DeleteImpactEntry, DeleteImpactReport, DeleteImpactSeverity, DeleteLocation, DeleteTarget } from "@/features/editor/delete/deleteTypes";
+import { conditionMatchesDeleteTarget, effectMatchesDeleteTarget } from "@/features/editor/delete/deleteReferenceQueries";
 
 type Ctx = {
   nodeId?: ID;
@@ -30,6 +15,18 @@ type Ctx = {
   ruleId?: ID;
   dialogueId?: ID;
   dialogueLineId?: ID;
+};
+
+type AnalysisOptions = {
+  removedItemInstanceIds?: Set<ID>;
+  removedHotspotIds?: Set<ID>;
+  removedDialogueIds?: Set<ID>;
+  removedSceneSpeaker?: {
+    nodeId: ID;
+    kind: "player" | "npc";
+    id: ID;
+  };
+  replacementPlayerImageId?: ID;
 };
 
 function label(value?: string | null, fallback = "—"): string {
@@ -77,8 +74,545 @@ function addEntry(
   entries.push(input);
 }
 
-/* ---------- Labels del objetivo ---------- */
+function analyzeDeletedGlobalItemRefs(
+  entries: DeleteImpactEntry[],
+  project: Project,
+  itemId: ID,
+): void {
+  for (const player of project.players) {
+    for (const item of player.initialInventory ?? []) {
+      if (item.itemId !== itemId) continue;
 
+      addEntry(entries, {
+        id: makeId("player-inventory-item", [player.id, item.itemInstanceId]),
+        severity: "logic-change",
+        action: "delete-target",
+        location: {
+          kind: "player",
+          playerId: player.id,
+          placedItemId: item.itemInstanceId,
+          label: `Player ${label(player.name, player.id)} > Inventario ${label(item.label, item.itemInstanceId)}`,
+        },
+        message: "Se eliminará este item del inventario inicial del player.",
+      });
+    }
+  }
+
+  for (const npc of project.npcs) {
+    for (const item of npc.initialInventory ?? []) {
+      if (item.itemId !== itemId) continue;
+
+      addEntry(entries, {
+        id: makeId("npc-inventory-item", [npc.id, item.itemInstanceId]),
+        severity: "logic-change",
+        action: "delete-target",
+        location: {
+          kind: "npc",
+          npcId: npc.id,
+          placedItemId: item.itemInstanceId,
+          label: `NPC ${label(npc.name, npc.id)} > Inventario ${label(item.label, item.itemInstanceId)}`,
+        },
+        message: "Se eliminará este item del inventario inicial del NPC.",
+      });
+    }
+  }
+}
+
+function collectPlayerInventoryItemInstanceIds(project: Project, playerId: ID): Set<ID> {
+  const player = project.players.find((entry) => entry.id === playerId);
+
+  return new Set<ID>(
+    (player?.initialInventory ?? []).map((item) => item.itemInstanceId),
+  );
+}
+
+function collectNpcInventoryItemInstanceIds(project: Project, npcId: ID): Set<ID> {
+  const npc = project.npcs.find((entry) => entry.id === npcId);
+
+  return new Set<ID>(
+    (npc?.initialInventory ?? []).map((item) => item.itemInstanceId),
+  );
+}
+
+function collectGlobalItemInstanceIds(project: Project, itemId: ID): Set<ID> {
+  const playerItemInstanceIds = project.players.flatMap((player) =>
+    (player.initialInventory ?? [])
+      .filter((item) => item.itemId === itemId)
+      .map((item) => item.itemInstanceId),
+  );
+
+  const npcItemInstanceIds = project.npcs.flatMap((npc) =>
+    (npc.initialInventory ?? [])
+      .filter((item) => item.itemId === itemId)
+      .map((item) => item.itemInstanceId),
+  );
+
+  const sceneItemInstanceIds = project.nodes.flatMap((node) =>
+    node.layers.flatMap((layer) =>
+      (layer.placedItems ?? [])
+        .filter((item) => item.itemId === itemId)
+        .map((item) => item.itemInstanceId),
+    ),
+  );
+
+  return new Set<ID>([
+    ...playerItemInstanceIds,
+    ...npcItemInstanceIds,
+    ...sceneItemInstanceIds,
+  ]);
+}
+
+function collectNodeDeleteContext(project: Project, nodeId: ID): {
+  removedItemInstanceIds: Set<ID>;
+  removedHotspotIds: Set<ID>;
+  removedDialogueIds: Set<ID>;
+} {
+  const node = project.nodes.find((entry) => entry.id === nodeId);
+
+  const removedItemInstanceIds = new Set<ID>();
+  const removedHotspotIds = new Set<ID>();
+  const removedDialogueIds = new Set<ID>();
+
+  if (!node) {
+    return {
+      removedItemInstanceIds,
+      removedHotspotIds,
+      removedDialogueIds,
+    };
+  }
+
+  for (const layer of node.layers ?? []) {
+    for (const hotspot of layer.hotspots ?? []) {
+      removedHotspotIds.add(hotspot.id);
+    }
+
+    for (const placedItem of layer.placedItems ?? []) {
+      removedItemInstanceIds.add(placedItem.itemInstanceId);
+    }
+  }
+
+  for (const dialogue of node.dialogues ?? []) {
+    removedDialogueIds.add(dialogue.id);
+  }
+
+  return {
+    removedItemInstanceIds,
+    removedHotspotIds,
+    removedDialogueIds,
+  };
+}
+
+function collectLayerDeleteContext(
+  project: Project,
+  input: { nodeId: ID; layerId: ID },
+): {
+  removedItemInstanceIds: Set<ID>;
+  removedHotspotIds: Set<ID>;
+} {
+  const node = project.nodes.find((entry) => entry.id === input.nodeId);
+  const layer = node?.layers.find((entry) => entry.id === input.layerId);
+
+  const removedItemInstanceIds = new Set<ID>();
+  const removedHotspotIds = new Set<ID>();
+
+  if (!layer) {
+    return {
+      removedItemInstanceIds,
+      removedHotspotIds,
+    };
+  }
+
+  for (const hotspot of layer.hotspots ?? []) {
+    removedHotspotIds.add(hotspot.id);
+  }
+
+  for (const placedItem of layer.placedItems ?? []) {
+    removedItemInstanceIds.add(placedItem.itemInstanceId);
+  }
+
+  return {
+    removedItemInstanceIds,
+    removedHotspotIds,
+  };
+}
+
+function collectPlacedNpcDeleteContext(
+  project: Project,
+  input: { nodeId: ID; layerId: ID; npcId: ID },
+): {
+  removedDialogueIds: Set<ID>;
+  removedSceneSpeaker?: { nodeId: ID; kind: "npc"; id: ID };
+} {
+  const node = project.nodes.find((entry) => entry.id === input.nodeId);
+  const layer = node?.layers.find((entry) => entry.id === input.layerId);
+
+  const removedDialogueIds = new Set<ID>();
+
+  const placedNpcExists = Boolean(
+    layer?.placedNpcs?.some((placedNpc) => placedNpc.npcId === input.npcId),
+  );
+
+  if (!node || !placedNpcExists) {
+    return { removedDialogueIds };
+  }
+
+  const npcStillPlacedInNodeAfterDelete = node.layers.some((currentLayer) =>
+    (currentLayer.placedNpcs ?? []).some((placedNpc) => {
+      if (
+        currentLayer.id === input.layerId &&
+        placedNpc.npcId === input.npcId
+      ) {
+        return false;
+      }
+
+      return placedNpc.npcId === input.npcId;
+    }),
+  );
+
+  if (npcStillPlacedInNodeAfterDelete) {
+    return { removedDialogueIds };
+  }
+
+  for (const dialogue of node.dialogues ?? []) {
+    if (dialogue.npcId === input.npcId) {
+      removedDialogueIds.add(dialogue.id);
+    }
+  }
+
+  return {
+    removedDialogueIds,
+    removedSceneSpeaker: {
+      nodeId: input.nodeId,
+      kind: "npc",
+      id: input.npcId,
+    },
+  };
+}
+
+function collectPlacedPlayerDeleteContext(
+  project: Project,
+  input: { nodeId: ID; layerId: ID; playerId: ID },
+): {
+  removedDialogueIds: Set<ID>;
+  removedSceneSpeaker?: { nodeId: ID; kind: "player"; id: ID };
+} {
+  const node = project.nodes.find((entry) => entry.id === input.nodeId);
+  const layer = node?.layers.find((entry) => entry.id === input.layerId);
+
+  const removedDialogueIds = new Set<ID>();
+
+  const placedPlayerExists = Boolean(
+    layer?.placedPlayers?.some((placedPlayer) => placedPlayer.playerId === input.playerId),
+  );
+
+  if (!node || !placedPlayerExists) {
+    return { removedDialogueIds };
+  }
+
+  const playerStillPlacedInNodeAfterDelete = node.layers.some((currentLayer) =>
+    (currentLayer.placedPlayers ?? []).some((placedPlayer) => {
+      if (
+        currentLayer.id === input.layerId &&
+        placedPlayer.playerId === input.playerId
+      ) {
+        return false;
+      }
+
+      return placedPlayer.playerId === input.playerId;
+    }),
+  );
+
+  if (playerStillPlacedInNodeAfterDelete) {
+    return { removedDialogueIds };
+  }
+
+  for (const dialogue of node.dialogues ?? []) {
+    if (dialogue.playerId === input.playerId) {
+      removedDialogueIds.add(dialogue.id);
+    }
+  }
+
+  return {
+    removedDialogueIds,
+    removedSceneSpeaker: {
+      nodeId: input.nodeId,
+      kind: "player",
+      id: input.playerId,
+    },
+  };
+}
+
+function getReplacementPlayerImageId(project: Project, input: { playerId: ID; imageId: ID }): ID | undefined {
+  const player = project.players.find((entry) => entry.id === input.playerId);
+  if (!player) return undefined;
+
+  const remainingImages = player.images.filter((image) => image.id !== input.imageId);
+  if (remainingImages.length === 0) return undefined;
+
+  if (player.defaultImageId && player.defaultImageId !== input.imageId) {
+    return player.defaultImageId;
+  }
+
+  return remainingImages[0]?.id;
+}
+
+function phraseMatchesDeleteTarget(
+  phrase: RulePhrase | undefined,
+  target: DeleteTarget,
+  ctx?: Ctx,
+  options: AnalysisOptions = {},
+): boolean {
+  if (!phrase?.speaker) return false;
+
+  if (target.kind === "player") {
+    return phrase.speaker.kind === "player" && phrase.speaker.playerId === target.playerId;
+  }
+
+  if (target.kind === "npc") {
+    return phrase.speaker.kind === "npc" && phrase.speaker.npcId === target.npcId;
+  }
+
+  const removedSpeaker = options.removedSceneSpeaker;
+
+  if (!removedSpeaker || ctx?.nodeId !== removedSpeaker.nodeId) return false;
+
+  if (removedSpeaker.kind === "player") {
+    return (
+      phrase.speaker.kind === "player" &&
+      phrase.speaker.playerId === removedSpeaker.id
+    );
+  }
+
+  return (
+    phrase.speaker.kind === "npc" &&
+    phrase.speaker.npcId === removedSpeaker.id
+  );
+}
+
+function hasMeaningfulPhrase(phrase: RulePhrase | undefined): boolean {
+  return Boolean(phrase?.text.trim());
+}
+
+function conditionWillBeRemoved(
+  condition: Condition,
+  target: DeleteTarget,
+  options: AnalysisOptions = {},
+): boolean {
+  const matchesTarget = conditionMatchesDeleteTarget(condition, target);
+
+  const matchesRemovedItemInstance =
+    options.removedItemInstanceIds &&
+    "itemInstanceId" in condition &&
+    options.removedItemInstanceIds.has(condition.itemInstanceId);
+
+  const matchesRemovedHotspot =
+    options.removedHotspotIds &&
+    "hotspotId" in condition &&
+    options.removedHotspotIds.has(condition.hotspotId);
+
+  return Boolean(
+    matchesTarget ||
+    matchesRemovedItemInstance ||
+    matchesRemovedHotspot,
+  );
+}
+
+function conditionAfterDelete(
+  condition: Condition | undefined,
+  target: DeleteTarget,
+  options: AnalysisOptions = {},
+): Condition | undefined {
+  if (!condition) return undefined;
+
+  switch (condition.type) {
+    case "and": {
+      const nextAll = condition.all
+        .map((child) => conditionAfterDelete(child, target, options))
+        .filter(Boolean) as Condition[];
+
+      if (nextAll.length === 0) return undefined;
+      if (nextAll.length === 1) return nextAll[0];
+
+      return nextAll.length === condition.all.length
+        ? condition
+        : { ...condition, all: nextAll };
+    }
+
+    case "or": {
+      const nextAny = condition.any
+        .map((child) => conditionAfterDelete(child, target, options))
+        .filter(Boolean) as Condition[];
+
+      if (nextAny.length === 0) return undefined;
+      if (nextAny.length === 1) return nextAny[0];
+
+      return nextAny.length === condition.any.length
+        ? condition
+        : { ...condition, any: nextAny };
+    }
+
+    case "not": {
+      const nextCond = conditionAfterDelete(condition.cond, target, options);
+      if (!nextCond) return undefined;
+
+      return nextCond === condition.cond
+        ? condition
+        : { ...condition, cond: nextCond };
+    }
+
+    default:
+      return conditionWillBeRemoved(condition, target, options) ? undefined : condition;
+  }
+}
+
+function endGameMusicWillBeCleared(effect: Effect, target: DeleteTarget): boolean {
+  return (
+    target.kind === "music" &&
+    effect.type === "endGame" &&
+    effect.ending?.musicTrackId === target.trackId
+  );
+}
+
+function effectSpeakerMatchesRemovedSceneSpeaker(
+  effect: Effect,
+  ctx: Ctx,
+  options: AnalysisOptions = {},
+): boolean {
+  const removedSpeaker = options.removedSceneSpeaker;
+
+  if (!removedSpeaker || ctx.nodeId !== removedSpeaker.nodeId) return false;
+  if (effect.type !== "showMessage") return false;
+
+  if (removedSpeaker.kind === "player") {
+    return (
+      effect.speaker?.kind === "player" &&
+      effect.speaker.playerId === removedSpeaker.id
+    );
+  }
+
+  return (
+    effect.speaker?.kind === "npc" &&
+    effect.speaker.npcId === removedSpeaker.id
+  );
+}
+
+function effectWillBeRemoved(effect: Effect, target: DeleteTarget, options: AnalysisOptions = {}): boolean {
+  if (target.kind === "music") {
+    return (
+      (effect.type === "playMusic" || effect.type === "stopMusic") &&
+      effect.trackId === target.trackId
+    );
+  }
+
+  const matchesTarget = effectMatchesDeleteTarget(effect, target);
+
+  const matchesRemovedDialogue =
+    options.removedDialogueIds &&
+    effect.type === "startDialogue" &&
+    options.removedDialogueIds.has(effect.nodeDialogueId);
+
+  const matchesRemovedHotspot =
+    options.removedHotspotIds &&
+    "hotspotId" in effect &&
+    options.removedHotspotIds.has(effect.hotspotId);
+
+  const matchesRemovedItemInstance =
+    options.removedItemInstanceIds &&
+    "itemInstanceId" in effect &&
+    options.removedItemInstanceIds.has(effect.itemInstanceId);
+
+  const matchesRemovedTransformOrCombineItemInstance =
+    options.removedItemInstanceIds &&
+    (
+      (effect.type === "transformItem" && options.removedItemInstanceIds.has(effect.itemInstanceId)) ||
+      (
+        effect.type === "combineItems" &&
+        (
+          options.removedItemInstanceIds.has(effect.itemAInstanceId) ||
+          options.removedItemInstanceIds.has(effect.itemBInstanceId)
+        )
+      )
+    );
+
+  return Boolean(
+    matchesTarget ||
+    matchesRemovedDialogue ||
+    matchesRemovedHotspot ||
+    matchesRemovedItemInstance ||
+    matchesRemovedTransformOrCombineItemInstance,
+  );
+}
+
+function ruleWillBeEmptyAfterDelete(
+  rule: { when?: Condition; phrase?: RulePhrase; effects: Effect[] },
+  target: DeleteTarget,
+  ctx: Ctx,
+  options: AnalysisOptions = {},
+): boolean {
+  const nextWhen = conditionAfterDelete(rule.when, target, options);
+
+  const keepsPhrase =
+    hasMeaningfulPhrase(rule.phrase) &&
+    !phraseMatchesDeleteTarget(rule.phrase, target, ctx, options);
+
+  const remainingEffects = rule.effects.filter(
+    (effect) =>
+      !effectWillBeRemoved(effect, target, options) &&
+      !effectSpeakerMatchesRemovedSceneSpeaker(effect, ctx, options),
+  );
+
+  return !nextWhen && !keepsPhrase && remainingEffects.length === 0;
+}
+
+function analyzeRuleRemovalIfEmptyAfterDelete(
+  entries: DeleteImpactEntry[],
+  rule: { id: ID; when?: Condition; phrase?: RulePhrase; effects: Effect[] },
+  target: DeleteTarget,
+  ctx: Ctx,
+  options: AnalysisOptions = {},
+): void {
+  if (!ruleWillBeEmptyAfterDelete(rule, target, ctx, options)) return;
+
+  addEntry(entries, {
+    id: makeId("empty-rule-after-delete", [
+      ctx.nodeId,
+      ctx.layerId,
+      ctx.ownerId,
+      rule.id,
+    ]),
+    severity: "logic-change",
+    action: "remove-rule",
+    location: location(ctx, { kind: "rule" }),
+    message: "La regla quedará vacía tras eliminar sus referencias y se borrará automáticamente.",
+  });
+}
+
+function analyzePhrase(
+  entries: DeleteImpactEntry[],
+  phrase: RulePhrase | undefined,
+  target: DeleteTarget,
+  ctx: Ctx,
+  options: AnalysisOptions = {},
+): void {
+  if (!phraseMatchesDeleteTarget(phrase, target, ctx, options)) return;
+
+  addEntry(entries, {
+    id: makeId("phrase", [
+      ctx.nodeId,
+      ctx.layerId,
+      ctx.ownerId,
+      ctx.ruleId,
+    ]),
+    severity: "logic-change",
+    action: "remove-phrase",
+    location: location(ctx, {
+      kind: "phrase",
+    }),
+    message: "Se eliminará la frase de esta regla porque su emisor será eliminado de la escena.",
+  });
+}
+
+/* ---------- Labels del objetivo ---------- */
 function getTargetLabel(project: Project, target: DeleteTarget): string {
   switch (target.kind) {
     case "player":
@@ -143,6 +677,45 @@ function getTargetLabel(project: Project, target: DeleteTarget): string {
       return `Variante de escena: ${label(layer?.label, target.layerId)}`;
     }
 
+    case "hotspot": {
+      const node = project.nodes.find((entry) => entry.id === target.nodeId);
+      const layer = node?.layers.find((entry) => entry.id === target.layerId);
+      const hotspot = layer?.hotspots?.find((entry) => entry.id === target.hotspotId);
+
+      return `Hotspot: ${label(hotspot?.label, target.hotspotId)}`;
+    }
+
+    case "hotspotVar": {
+      const node = project.nodes.find((entry) => entry.id === target.nodeId);
+      const layer = node?.layers.find((entry) => entry.id === target.layerId);
+      const hotspot = layer?.hotspots?.find((entry) => entry.id === target.hotspotId);
+      const variable = hotspot?.vars.find((entry) => entry.id === target.varId);
+
+      return `Variable de hotspot: ${label(variable?.name, target.varId)}`;
+    }
+
+    case "placedItem": {
+      const node = project.nodes.find((entry) => entry.id === target.nodeId);
+      const layer = node?.layers.find((entry) => entry.id === target.layerId);
+      const placedItem = layer?.placedItems?.find(
+        (entry) => entry.itemInstanceId === target.placedItemId,
+      );
+
+      return `Item colocado: ${label(placedItem?.label, target.placedItemId)}`;
+    }
+
+    case "placedPlayer": {
+      const player = project.players.find((entry) => entry.id === target.playerId);
+
+      return `Player colocado: ${label(player?.name, target.playerId)}`;
+    }
+
+    case "placedNpc": {
+      const npc = project.npcs.find((entry) => entry.id === target.npcId);
+
+      return `NPC colocado: ${label(npc?.name, target.npcId)}`;
+    }
+
     case "dialogue": {
       const node = project.nodes.find((n) => n.id === target.nodeId);
       const dialogue = node?.dialogues?.find((d) => d.id === target.dialogueId);
@@ -151,250 +724,16 @@ function getTargetLabel(project: Project, target: DeleteTarget): string {
     }
 
     default:
-      return target.kind;
+      return assertNever(target);
   }
 }
 
-/* ---------- Matchers ---------- */
-
-function conditionMatchesTarget(condition: Condition, target: DeleteTarget): boolean {
-  switch (target.kind) {
-    case "player":
-      return (
-        (condition.type === "playerVar" && condition.playerId === target.playerId) ||
-        (condition.type === "hasItem" && condition.playerId === target.playerId) ||
-        (condition.type === "placedPlayerVisible" && condition.playerId === target.playerId) ||
-        (condition.type === "placedPlayerImage" && condition.playerId === target.playerId)
-      );
-
-    case "playerImage":
-      return condition.type === "placedPlayerImage" &&
-        condition.playerId === target.playerId &&
-        condition.imageId === target.imageId;
-
-    case "playerVar":
-      return condition.type === "playerVar" &&
-        condition.playerId === target.playerId &&
-        condition.varId === target.varId;
-
-    case "playerInventoryItem":
-      return condition.type === "hasItem" &&
-        condition.playerId === target.playerId &&
-        condition.itemInstanceId === target.itemInstanceId;
-
-    case "npc":
-      return (
-        (condition.type === "npcVar" && condition.npcId === target.npcId) ||
-        (condition.type === "npcHasItem" && condition.npcId === target.npcId) ||
-        (condition.type === "placedNpcVisible" && condition.npcId === target.npcId) ||
-        (condition.type === "placedNpcReachable" && condition.npcId === target.npcId)
-      );
-
-    case "npcVar":
-      return condition.type === "npcVar" &&
-        condition.npcId === target.npcId &&
-        condition.varId === target.varId;
-
-    case "npcInventoryItem":
-      return condition.type === "npcHasItem" &&
-        condition.npcId === target.npcId &&
-        condition.itemInstanceId === target.itemInstanceId;
-
-    case "node":
-      return condition.type === "nodeVisited" && condition.nodeId === target.nodeId;
-
-    case "hotspot":
-      return (
-        (condition.type === "hotspotVar" && condition.hotspotId === target.hotspotId) ||
-        (condition.type === "hotspotVisible" && condition.hotspotId === target.hotspotId) ||
-        (condition.type === "hotspotReachable" && condition.hotspotId === target.hotspotId)
-      );
-
-    case "hotspotVar":
-      return condition.type === "hotspotVar" &&
-        condition.hotspotId === target.hotspotId &&
-        condition.varId === target.varId;
-
-    case "placedItem":
-      return (
-        (condition.type === "placedItemVisible" && condition.placedItemId === target.placedItemId) ||
-        (condition.type === "placedItemReachable" && condition.placedItemId === target.placedItemId)
-      );
-
-    case "placedNpc":
-      return (
-        (condition.type === "placedNpcVisible" && condition.npcId === target.npcId) ||
-        (condition.type === "placedNpcReachable" && condition.npcId === target.npcId)
-      );
-
-    case "placedPlayer":
-      return (
-        (condition.type === "placedPlayerVisible" && condition.playerId === target.playerId) ||
-        (condition.type === "placedPlayerImage" && condition.playerId === target.playerId)
-      );
-
-    case "map":
-      return condition.type === "mapRegionVisited" && condition.mapId === target.mapId;
-
-    case "mapRegion":
-      return condition.type === "mapRegionVisited" &&
-        condition.mapId === target.mapId &&
-        condition.regionId === target.regionId;
-
-    default:
-      return false;
-  }
-}
-
-function effectMatchesTarget(effect: Effect, target: DeleteTarget): boolean {
-  switch (target.kind) {
-    case "player":
-      return (
-        (effect.type === "setPlayerVar" && effect.playerId === target.playerId) ||
-        (effect.type === "togglePlayerVar" && effect.playerId === target.playerId) ||
-        (effect.type === "incPlayerVar" && effect.playerId === target.playerId) ||
-        (effect.type === "decPlayerVar" && effect.playerId === target.playerId) ||
-        (effect.type === "setPlacedPlayerVisible" && effect.playerId === target.playerId) ||
-        (effect.type === "setPlacedPlayerImage" && effect.playerId === target.playerId) ||
-        (effect.type === "showMessage" && effect.speakerKind === "player" && effect.speakerId === target.playerId)
-      );
-
-    case "playerImage":
-      return effect.type === "setPlacedPlayerImage" &&
-        effect.playerId === target.playerId &&
-        effect.imageId === target.imageId;
-
-    case "playerVar":
-      return (
-        (effect.type === "setPlayerVar" && effect.playerId === target.playerId && effect.varId === target.varId) ||
-        (effect.type === "togglePlayerVar" && effect.playerId === target.playerId && effect.varId === target.varId) ||
-        (effect.type === "incPlayerVar" && effect.playerId === target.playerId && effect.varId === target.varId) ||
-        (effect.type === "decPlayerVar" && effect.playerId === target.playerId && effect.varId === target.varId)
-      );
-
-    case "playerInventoryItem":
-      return effectReferencesItemInstance(effect, target.itemInstanceId);
-
-    case "npc":
-      return (
-        (effect.type === "setNpcVar" && effect.npcId === target.npcId) ||
-        (effect.type === "toggleNpcVar" && effect.npcId === target.npcId) ||
-        (effect.type === "incNpcVar" && effect.npcId === target.npcId) ||
-        (effect.type === "decNpcVar" && effect.npcId === target.npcId) ||
-        (effect.type === "setPlacedNpcVisible" && effect.npcId === target.npcId) ||
-        (effect.type === "setPlacedNpcReachable" && effect.npcId === target.npcId) ||
-        (effect.type === "giveItemToNpc" && effect.npcId === target.npcId) ||
-        (effect.type === "receiveItemFromNpc" && effect.npcId === target.npcId) ||
-        (effect.type === "showMessage" && effect.speakerKind === "npc" && effect.speakerId === target.npcId)
-      );
-
-    case "npcVar":
-      return (
-        (effect.type === "setNpcVar" && effect.npcId === target.npcId && effect.varId === target.varId) ||
-        (effect.type === "toggleNpcVar" && effect.npcId === target.npcId && effect.varId === target.varId) ||
-        (effect.type === "incNpcVar" && effect.npcId === target.npcId && effect.varId === target.varId) ||
-        (effect.type === "decNpcVar" && effect.npcId === target.npcId && effect.varId === target.varId)
-      );
-
-    case "npcInventoryItem":
-      return effectReferencesItemInstance(effect, target.itemInstanceId);
-
-    case "item":
-      return (
-        (effect.type === "transformItem" && effect.resultItemId === target.itemId) ||
-        (effect.type === "combineItems" && effect.resultItemId === target.itemId)
-      );
-
-    case "music":
-      return effect.type === "playMusic" && effect.trackId === target.trackId;
-
-    case "sfx":
-      return effect.type === "playSfx" && effect.sfxId === target.sfxId;
-
-    case "node":
-      return effect.type === "goToNode" && effect.targetNodeId === target.nodeId;
-
-    case "hotspot":
-      return (
-        (effect.type === "setHotspotVisible" && effect.hotspotId === target.hotspotId) ||
-        (effect.type === "setHotspotReachable" && effect.hotspotId === target.hotspotId) ||
-        (effect.type === "setHotspotVar" && effect.hotspotId === target.hotspotId) ||
-        (effect.type === "toggleHotspotVar" && effect.hotspotId === target.hotspotId) ||
-        (effect.type === "incHotspotVar" && effect.hotspotId === target.hotspotId) ||
-        (effect.type === "decHotspotVar" && effect.hotspotId === target.hotspotId)
-      );
-
-    case "hotspotVar":
-      return (
-        (effect.type === "setHotspotVar" && effect.hotspotId === target.hotspotId && effect.varId === target.varId) ||
-        (effect.type === "toggleHotspotVar" && effect.hotspotId === target.hotspotId && effect.varId === target.varId) ||
-        (effect.type === "incHotspotVar" && effect.hotspotId === target.hotspotId && effect.varId === target.varId) ||
-        (effect.type === "decHotspotVar" && effect.hotspotId === target.hotspotId && effect.varId === target.varId)
-      );
-
-    case "placedItem":
-      return (
-        (effect.type === "setPlacedItemVisible" && effect.itemInstanceId === target.placedItemId) ||
-        (effect.type === "setPlacedItemReachable" && effect.itemInstanceId === target.placedItemId) ||
-        effectReferencesItemInstance(effect, target.placedItemId)
-      );
-
-    case "placedNpc":
-      return (
-        (effect.type === "setPlacedNpcVisible" && effect.npcId === target.npcId) ||
-        (effect.type === "setPlacedNpcReachable" && effect.npcId === target.npcId)
-      );
-
-    case "placedPlayer":
-      return (
-        (effect.type === "setPlacedPlayerVisible" && effect.playerId === target.playerId) ||
-        (effect.type === "setPlacedPlayerImage" && effect.playerId === target.playerId)
-      );
-
-    case "map":
-      return effect.type === "setMapRegionAvailable" && effect.mapId === target.mapId;
-
-    case "mapRegion":
-      return effect.type === "setMapRegionAvailable" &&
-        effect.mapId === target.mapId &&
-        effect.regionId === target.regionId;
-
-    case "dialogue":
-      return effect.type === "startDialogue" && effect.nodeDialogueId === target.dialogueId;
-
-    default:
-      return false;
-  }
-}
-
-function effectReferencesItemInstance(effect: Effect, itemInstanceId: ID): boolean {
-  switch (effect.type) {
-    case "addItem":
-    case "removeItem":
-    case "giveItemToNpc":
-    case "receiveItemFromNpc":
-      return effect.itemInstanceId === itemInstanceId;
-
-    case "transformItem":
-      return effect.sourceItemInstanceId === itemInstanceId ||
-        effect.resultItemInstanceId === itemInstanceId;
-
-    case "combineItems":
-      return effect.sourceItemInstanceId === itemInstanceId ||
-        effect.targetItemInstanceId === itemInstanceId ||
-        effect.resultItemInstanceId === itemInstanceId;
-
-    default:
-      return false;
-  }
+function assertNever(value: never): never {
+  throw new Error(`DeleteTarget no contemplado: ${JSON.stringify(value)}`);
 }
 
 /* ---------- Walkers de condiciones y efectos ---------- */
-
-function walkCondition(
-  condition: Condition | undefined,
-  visit: (condition: Condition) => void,
-): void {
+function walkCondition(condition: Condition | undefined, visit: (condition: Condition) => void): void {
   if (!condition) return;
 
   visit(condition);
@@ -417,9 +756,10 @@ function analyzeWhen(
   when: Condition | undefined,
   target: DeleteTarget,
   ctx: Ctx,
+  options: AnalysisOptions = {},
 ): void {
   walkCondition(when, (condition) => {
-    if (!conditionMatchesTarget(condition, target)) return;
+    if (!conditionWillBeRemoved(condition, target, options)) return;
 
     addEntry(entries, {
       id: makeId("condition", [
@@ -445,12 +785,36 @@ function analyzeEffects(
   effects: Effect[] | undefined,
   target: DeleteTarget,
   ctx: Ctx,
+  options: AnalysisOptions = {},
 ): void {
   for (const effect of effects ?? []) {
-    if (!effectMatchesTarget(effect, target)) continue;
+    if (endGameMusicWillBeCleared(effect, target)) {
+      addEntry(entries, {
+        id: makeId("end-game-music", [
+          ctx.nodeId,
+          ctx.layerId,
+          ctx.ownerId,
+          ctx.ruleId,
+          effect.type,
+        ]),
+        severity: "logic-change",
+        action: "clear-field",
+        location: location(ctx, {
+          kind: "effect",
+          effectType: effect.type,
+        }),
+        message: "Se eliminará la música asociada a este final, pero se conservará el efecto de fin de juego.",
+      });
+
+      continue;
+    }
+
+    const removedBySceneSpeaker = effectSpeakerMatchesRemovedSceneSpeaker(effect, ctx, options);
+
+    if (!effectWillBeRemoved(effect, target, options) && !removedBySceneSpeaker) continue;
 
     const remainingEffects = (effects ?? []).filter((current) => current !== effect).length;
-    const leavesRuleEmpty = Boolean(ctx.ruleId) && remainingEffects === 0;
+    const leavesRuleWithoutEffects = Boolean(ctx.ruleId) && remainingEffects === 0;
 
     addEntry(entries, {
       id: makeId("effect", [
@@ -460,15 +824,17 @@ function analyzeEffects(
         ctx.ruleId,
         effect.type,
       ]),
-      severity: leavesRuleEmpty ? "blocking-risk" : "logic-change",
+      severity: "logic-change",
       action: "remove-effect",
       location: location(ctx, {
         kind: "effect",
         effectType: effect.type,
       }),
-      message: leavesRuleEmpty
-        ? `Se eliminará el único efecto de esta regla. La regla quedará sin efectos.`
-        : `Se eliminará un efecto de tipo "${effect.type}".`,
+      message: removedBySceneSpeaker
+        ? `Se eliminará un mensaje de tipo "${effect.type}" porque su emisor será eliminado de la escena.`
+        : leavesRuleWithoutEffects
+          ? `Se eliminará el único efecto de esta regla. La regla quedará sin efectos y deberá revisarse si conserva frase o condición.`
+          : `Se eliminará un efecto de tipo "${effect.type}".`,
     });
   }
 }
@@ -478,45 +844,51 @@ function analyzeRules(
   rules: InteractionRules | undefined,
   target: DeleteTarget,
   ctx: Ctx,
+  options: AnalysisOptions = {},
 ): void {
   for (const rule of rules?.onClick ?? []) {
     const ruleCtx = { ...ctx, ruleId: rule.id };
 
-    analyzeWhen(entries, rule.when, target, ruleCtx);
-    analyzeEffects(entries, rule.effects, target, ruleCtx);
+    analyzePhrase(entries, rule.phrase, target, ruleCtx, options);
+    analyzeWhen(entries, rule.when, target, ruleCtx, options);
+    analyzeEffects(entries, rule.effects, target, ruleCtx, options);
+    analyzeRuleRemovalIfEmptyAfterDelete(entries, rule, target, ruleCtx, options);
   }
 
   for (const rule of rules?.onUseItem ?? []) {
     const ruleCtx = { ...ctx, ruleId: rule.id };
 
     const ruleUsesDeletedItem =
-      (
-        (target.kind === "playerInventoryItem" || target.kind === "npcInventoryItem") &&
-        rule.itemInstanceId === target.itemInstanceId
-      ) ||
-      (
-        target.kind === "placedItem" &&
-        rule.itemInstanceId === target.placedItemId
-      );
+      ((target.kind === "playerInventoryItem" || target.kind === "npcInventoryItem") &&
+        rule.itemInstanceId === target.itemInstanceId) ||
+      (target.kind === "placedItem" && rule.itemInstanceId === target.placedItemId) ||
+      Boolean(options.removedItemInstanceIds?.has(rule.itemInstanceId));
 
     if (ruleUsesDeletedItem) {
       addEntry(entries, {
         id: makeId("use-item-rule", [ctx.nodeId, ctx.layerId, ctx.ownerId, rule.id]),
-        severity: "blocking-risk",
+        severity: "logic-change",
         action: "remove-rule",
         location: location(ruleCtx, { kind: "rule" }),
-        message: "Se eliminará una regla de uso de item porque dependía del item eliminado.",
+        message: "Se eliminará una regla de uso de item porque dependía de un item eliminado.",
       });
+
+      continue;
     }
 
-    analyzeWhen(entries, rule.when, target, ruleCtx);
-    analyzeEffects(entries, rule.effects, target, ruleCtx);
+    analyzePhrase(entries, rule.phrase, target, ruleCtx, options);
+    analyzeWhen(entries, rule.when, target, ruleCtx, options);
+    analyzeEffects(entries, rule.effects, target, ruleCtx, options);
+    analyzeRuleRemovalIfEmptyAfterDelete(entries, rule, target, ruleCtx, options);
   }
 }
 
 /* ---------- Análisis de entidades directas ---------- */
-
 function analyzeDirectNodeRefs(entries: DeleteImpactEntry[], project: Project, target: DeleteTarget): void {
+  if (target.kind === "item") {
+    analyzeDeletedGlobalItemRefs(entries, project, target.itemId);
+  }
+
   if (target.kind === "music") {
     for (const node of project.nodes) {
       if (node.musicTrackId === target.trackId) {
@@ -529,7 +901,7 @@ function analyzeDirectNodeRefs(entries: DeleteImpactEntry[], project: Project, t
             nodeId: node.id,
             label: `Escena ${label(node.title, node.id)}`,
           },
-          message: `Se eliminará la música asociada a la escena.`,
+          message: "Se eliminará la música asociada a la escena.",
         });
       }
 
@@ -545,14 +917,144 @@ function analyzeDirectNodeRefs(entries: DeleteImpactEntry[], project: Project, t
               layerId: layer.id,
               label: `${label(node.title, node.id)} > ${label(layer.label, layer.id)}`,
             },
-            message: `Se eliminará la música asociada a la variante.`,
+            message: "Se eliminará la música asociada a la variante.",
           });
         }
+      }
+    }
+
+    for (const map of project.maps) {
+      for (const region of map.regions) {
+        if (region.musicTrackId !== target.trackId) continue;
+
+        addEntry(entries, {
+          id: makeId("map-region-music", [map.id, region.id, target.trackId]),
+          severity: "info",
+          action: "clear-field",
+          location: {
+            kind: "map-region",
+            mapId: map.id,
+            regionId: region.id,
+            label: `${label(map.name, map.id)} > Región ${label(region.label, region.id)}`,
+          },
+          message: "Se eliminará la música asociada a la región del mapa.",
+        });
       }
     }
   }
 
   if (target.kind === "map") {
+    const map = project.maps.find((entry) => entry.id === target.mapId);
+
+    if (map?.visual.type === "singleImage") {
+      addEntry(entries, {
+        id: makeId("map-visual-image", [target.mapId, map.visual.imageAssetId]),
+        severity: "info",
+        action: "delete-target",
+        location: {
+          kind: "map",
+          mapId: target.mapId,
+          label: `Mapa ${label(map.name, target.mapId)}`,
+        },
+        message: "Se eliminará la imagen visual de este mapa si no la usa nadie más.",
+      });
+    }
+
+    if (map?.visual.type === "composed") {
+      addEntry(entries, {
+        id: makeId("map-visual-background", [target.mapId, map.visual.backgroundAssetId]),
+        severity: "info",
+        action: "delete-target",
+        location: {
+          kind: "map",
+          mapId: target.mapId,
+          label: `Mapa ${label(map.name, target.mapId)}`,
+        },
+        message: "Se eliminará la imagen de fondo de este mapa compuesto si no la usa nadie más.",
+      });
+    }
+
+    for (const currentMap of project.maps) {
+      if (currentMap.id === target.mapId) continue;
+
+      for (const region of currentMap.regions) {
+        if (region.subMapId !== target.mapId) continue;
+
+        addEntry(entries, {
+          id: makeId("external-map-region-submap", [currentMap.id, region.id, target.mapId]),
+          severity: "logic-change",
+          action: "clear-field",
+          location: {
+            kind: "map-region",
+            mapId: currentMap.id,
+            regionId: region.id,
+            label: `${label(currentMap.name, currentMap.id)} > Región ${label(region.label, region.id)}`,
+          },
+          message: "Se eliminará la referencia a este mapa como submapa de esta región.",
+        });
+      }
+    }
+
+    for (const region of map?.regions ?? []) {
+      addEntry(entries, {
+        id: makeId("map-region", [target.mapId, region.id]),
+        severity: "logic-change",
+        action: "delete-target",
+        location: {
+          kind: "map-region",
+          mapId: target.mapId,
+          regionId: region.id,
+          label: `${label(map?.name, target.mapId)} > Región ${label(region.label, region.id)}`,
+        },
+        message: "Se eliminará esta región porque pertenece al mapa eliminado.",
+      });
+
+      if (region.imageAssetId) {
+        addEntry(entries, {
+          id: makeId("map-region-image", [target.mapId, region.id, region.imageAssetId]),
+          severity: "info",
+          action: "delete-target",
+          location: {
+            kind: "map-region",
+            mapId: target.mapId,
+            regionId: region.id,
+            label: `${label(map?.name, target.mapId)} > Región ${label(region.label, region.id)}`,
+          },
+          message: "Se eliminará la imagen asociada a esta región.",
+        });
+      }
+
+      if (region.musicTrackId) {
+        addEntry(entries, {
+          id: makeId("map-region-music", [target.mapId, region.id, region.musicTrackId]),
+          severity: "info",
+          action: "clear-field",
+          location: {
+            kind: "map-region",
+            mapId: target.mapId,
+            regionId: region.id,
+            label: `${label(map?.name, target.mapId)} > Región ${label(region.label, region.id)}`,
+          },
+          message: "Se eliminará la música asociada a esta región.",
+        });
+      }
+
+      if (region.subMapId) {
+        addEntry(entries, {
+          id: makeId("map-region-submap", [target.mapId, region.id, region.subMapId]),
+          severity: "info",
+          action: "clear-field",
+          location: {
+            kind: "map-region",
+            mapId: target.mapId,
+            regionId: region.id,
+            label: `${label(map?.name, target.mapId)} > Región ${label(region.label, region.id)}`,
+          },
+          message: "Se eliminará el submapa asociado a esta región.",
+        });
+      }
+    }
+
     for (const node of project.nodes) {
       if (node.mapLocation?.mapId === target.mapId) {
         addEntry(entries, {
@@ -562,9 +1064,11 @@ function analyzeDirectNodeRefs(entries: DeleteImpactEntry[], project: Project, t
           location: {
             kind: "node",
             nodeId: node.id,
+            mapId: target.mapId,
+            regionId: node.mapLocation.regionId,
             label: `Escena ${label(node.title, node.id)}`,
           },
-          message: `Se eliminará el mapa asociado a la escena.`,
+          message: "La escena dejará de estar asociada al mapa eliminado.",
         });
       }
     }
@@ -625,6 +1129,21 @@ function analyzeDirectNodeRefs(entries: DeleteImpactEntry[], project: Project, t
     const map = project.maps.find((entry) => entry.id === target.mapId);
     const region = map?.regions.find((entry) => entry.id === target.regionId);
 
+    if (region) {
+      addEntry(entries, {
+        id: makeId("map-region", [target.mapId, target.regionId]),
+        severity: "logic-change",
+        action: "delete-target",
+        location: {
+          kind: "map-region",
+          mapId: target.mapId,
+          regionId: target.regionId,
+          label: `${label(map?.name, target.mapId)} > Región ${label(region.label, target.regionId)}`,
+        },
+        message: "Se eliminará esta región del mapa.",
+      });
+    }
+
     if (region?.imageAssetId) {
       addEntry(entries, {
         id: makeId("map-region-image", [target.mapId, target.regionId, region.imageAssetId]),
@@ -636,7 +1155,37 @@ function analyzeDirectNodeRefs(entries: DeleteImpactEntry[], project: Project, t
           regionId: target.regionId,
           label: `${label(map?.name, target.mapId)} > Región ${label(region.label, target.regionId)}`,
         },
-        message: "Se eliminará la imagen asociada a esta región.",
+        message: "Se eliminará la imagen asociada a esta región si no la usa nadie más.",
+      });
+    }
+
+    if (region?.musicTrackId) {
+      addEntry(entries, {
+        id: makeId("map-region-music", [target.mapId, target.regionId, region.musicTrackId]),
+        severity: "info",
+        action: "clear-field",
+        location: {
+          kind: "map-region",
+          mapId: target.mapId,
+          regionId: target.regionId,
+          label: `${label(map?.name, target.mapId)} > Región ${label(region.label, target.regionId)}`,
+        },
+        message: "Se eliminará la música asociada a esta región.",
+      });
+    }
+
+    if (region?.subMapId) {
+      addEntry(entries, {
+        id: makeId("map-region-submap", [target.mapId, target.regionId, region.subMapId]),
+        severity: "info",
+        action: "clear-field",
+        location: {
+          kind: "map-region",
+          mapId: target.mapId,
+          regionId: target.regionId,
+          label: `${label(map?.name, target.mapId)} > Región ${label(region.label, target.regionId)}`,
+        },
+        message: "Se eliminará el submapa asociado a esta región.",
       });
     }
 
@@ -652,10 +1201,98 @@ function analyzeDirectNodeRefs(entries: DeleteImpactEntry[], project: Project, t
           location: {
             kind: "node",
             nodeId: node.id,
+            mapId: target.mapId,
+            regionId: target.regionId,
             label: `Escena ${label(node.title, node.id)}`,
           },
           message: "La escena dejará de estar asociada a esta región del mapa.",
         });
+      }
+    }
+  }
+
+  if (target.kind === "placedNpc") {
+    const node = project.nodes.find((entry) => entry.id === target.nodeId);
+    const layer = node?.layers.find((entry) => entry.id === target.layerId);
+
+    const placedNpcExists = Boolean(
+      layer?.placedNpcs?.some((placedNpc) => placedNpc.npcId === target.npcId),
+    );
+
+    if (node && placedNpcExists) {
+      const npcStillPlacedInNodeAfterDelete = node.layers.some((currentLayer) =>
+        (currentLayer.placedNpcs ?? []).some((placedNpc) => {
+          if (
+            currentLayer.id === target.layerId &&
+            placedNpc.npcId === target.npcId
+          ) {
+            return false;
+          }
+
+          return placedNpc.npcId === target.npcId;
+        }),
+      );
+
+      if (!npcStillPlacedInNodeAfterDelete) {
+        for (const dialogue of node.dialogues ?? []) {
+          if (dialogue.npcId !== target.npcId) continue;
+
+          addEntry(entries, {
+            id: makeId("placed-npc-dialogue", [node.id, dialogue.id, target.npcId]),
+            severity: "logic-change",
+            action: "remove-dialogue",
+            location: {
+              kind: "dialogue",
+              nodeId: node.id,
+              dialogueId: dialogue.id,
+              label: `${label(node.title, node.id)} > Diálogo ${label(dialogue.title, dialogue.id)}`,
+            },
+            message: "Se eliminará este diálogo porque el NPC dejará de aparecer en la escena.",
+          });
+        }
+      }
+    }
+  }
+
+  if (target.kind === "placedPlayer") {
+    const node = project.nodes.find((entry) => entry.id === target.nodeId);
+    const layer = node?.layers.find((entry) => entry.id === target.layerId);
+
+    const placedPlayerExists = Boolean(
+      layer?.placedPlayers?.some((placedPlayer) => placedPlayer.playerId === target.playerId),
+    );
+
+    if (node && placedPlayerExists) {
+      const playerStillPlacedInNodeAfterDelete = node.layers.some((currentLayer) =>
+        (currentLayer.placedPlayers ?? []).some((placedPlayer) => {
+          if (
+            currentLayer.id === target.layerId &&
+            placedPlayer.playerId === target.playerId
+          ) {
+            return false;
+          }
+
+          return placedPlayer.playerId === target.playerId;
+        }),
+      );
+
+      if (!playerStillPlacedInNodeAfterDelete) {
+        for (const dialogue of node.dialogues ?? []) {
+          if (dialogue.playerId !== target.playerId) continue;
+
+          addEntry(entries, {
+            id: makeId("placed-player-dialogue", [node.id, dialogue.id, target.playerId]),
+            severity: "logic-change",
+            action: "remove-dialogue",
+            location: {
+              kind: "dialogue",
+              nodeId: node.id,
+              dialogueId: dialogue.id,
+              label: `${label(node.title, node.id)} > Diálogo ${label(dialogue.title, dialogue.id)}`,
+            },
+            message: "Se eliminará este diálogo porque el player dejará de aparecer en la escena.",
+          });
+        }
       }
     }
   }
@@ -664,9 +1301,64 @@ function analyzeDirectNodeRefs(entries: DeleteImpactEntry[], project: Project, t
 /* ---------- Recorrido principal ---------- */
 function analyzeDeletedNodeContents(
   entries: DeleteImpactEntry[],
+  project: Project,
   node: Project["nodes"][number],
   nodeLabel: string,
 ): void {
+  if (node.isStart) {
+    const replacement = project.nodes.find((entry) => entry.id !== node.id);
+
+    addEntry(entries, {
+      id: makeId("node-start", [node.id, replacement?.id]),
+      severity: "logic-change",
+      action: replacement ? "replace-reference" : "clear-field",
+      location: {
+        kind: "node",
+        nodeId: node.id,
+        label: `Escena ${nodeLabel}`,
+      },
+      message: replacement
+        ? `La escena era la escena inicial. "${label(replacement.title, replacement.id)}" pasará a ser la nueva escena inicial.`
+        : "La escena era la escena inicial. El proyecto quedará sin escena inicial.",
+    });
+  }
+
+  if (node.musicTrackId) {
+    addEntry(entries, {
+      id: makeId("node-music", [node.id, node.musicTrackId]),
+      severity: "info",
+      action: "clear-field",
+      location: {
+        kind: "node",
+        nodeId: node.id,
+        label: `Escena ${nodeLabel}`,
+      },
+      message: "Se eliminará la música asociada a esta escena.",
+    });
+  }
+
+  if (node.mapLocation) {
+    const loc = node.mapLocation;
+    const map = project.maps.find((entry) => entry.id === loc.mapId);
+    const region = map?.regions.find((entry) => entry.id === loc.regionId);
+
+    addEntry(entries, {
+      id: makeId("node-map-location", [node.id, loc.mapId, loc.regionId]),
+      severity: loc.isEntry ? "logic-change" : "info",
+      action: "clear-field",
+      location: {
+        kind: "node",
+        nodeId: node.id,
+        mapId: loc.mapId,
+        regionId: loc.regionId,
+        label: `Escena ${nodeLabel}`,
+      },
+      message: loc.isEntry
+        ? `La escena era entrada de la región "${label(region?.label, loc.regionId)}" del mapa "${label(map?.name, loc.mapId)}". Si existe otra escena en esa región, pasará a ser la nueva entrada.`
+        : `La escena dejará de estar asociada a la región "${label(region?.label, loc.regionId)}" del mapa "${label(map?.name, loc.mapId)}".`,
+    });
+  }
+
   for (const layer of node.layers ?? []) {
     const layerLabel = label(layer.label, layer.id);
 
@@ -682,6 +1374,36 @@ function analyzeDeletedNodeContents(
       },
       message: "Se eliminará esta variante de escena.",
     });
+
+    if (layer.assetId) {
+      addEntry(entries, {
+        id: makeId("node-layer-image", [node.id, layer.id, layer.assetId]),
+        severity: "info",
+        action: "delete-target",
+        location: {
+          kind: "layer",
+          nodeId: node.id,
+          layerId: layer.id,
+          label: `${nodeLabel} > ${layerLabel}`,
+        },
+        message: "Se eliminará la imagen de fondo de esta variante si no la usa nadie más.",
+      });
+    }
+
+    if (layer.musicTrackId) {
+      addEntry(entries, {
+        id: makeId("node-layer-music", [node.id, layer.id, layer.musicTrackId]),
+        severity: "info",
+        action: "clear-field",
+        location: {
+          kind: "layer",
+          nodeId: node.id,
+          layerId: layer.id,
+          label: `${nodeLabel} > ${layerLabel}`,
+        },
+        message: "Se eliminará la música asociada a esta variante.",
+      });
+    }
 
     for (const hotspot of layer.hotspots ?? []) {
       addEntry(entries, {
@@ -701,15 +1423,15 @@ function analyzeDeletedNodeContents(
 
     for (const placedItem of layer.placedItems ?? []) {
       addEntry(entries, {
-        id: makeId("node-placed-item", [node.id, layer.id, placedItem.id]),
+        id: makeId("node-placed-item", [node.id, layer.id, placedItem.itemInstanceId]),
         severity: "logic-change",
         action: "remove-placed-entity",
         location: {
           kind: "placed-item",
           nodeId: node.id,
           layerId: layer.id,
-          placedItemId: placedItem.id,
-          label: `${nodeLabel} > ${layerLabel} > Item ${label(placedItem.label, placedItem.id)}`,
+          placedItemId: placedItem.itemInstanceId,
+          label: `${nodeLabel} > ${layerLabel} > Item ${label(placedItem.label, placedItem.itemInstanceId)}`,
         },
         message: "Se eliminará este item colocado.",
       });
@@ -836,15 +1558,15 @@ function analyzeDeletedLayerContents(
 
   for (const placedItem of layer.placedItems ?? []) {
     addEntry(entries, {
-      id: makeId("layer-placed-item", [nodeId, layer.id, placedItem.id]),
+      id: makeId("layer-placed-item", [nodeId, layer.id, placedItem.itemInstanceId]),
       severity: "logic-change",
       action: "remove-placed-entity",
       location: {
         kind: "placed-item",
         nodeId,
         layerId: layer.id,
-        placedItemId: placedItem.id,
-        label: `${nodeLabel} > ${layerLabel} > Item ${label(placedItem.label, placedItem.id)}`,
+        placedItemId: placedItem.itemInstanceId,
+        label: `${nodeLabel} > ${layerLabel} > Item ${label(placedItem.label, placedItem.itemInstanceId)}`,
       },
       message: "Se eliminará este item colocado.",
     });
@@ -889,11 +1611,12 @@ function analyzeLayer(
   nodeId: ID,
   layer: SceneImageLayer,
   target: DeleteTarget,
+  options: AnalysisOptions = {},
 ): void {
   const layerLabel = label(layer.label, layer.id);
   const baseCtx: Ctx = { nodeId, nodeLabel, layerId: layer.id, layerLabel };
 
-  analyzeWhen(entries, layer.when, target, baseCtx);
+  analyzeWhen(entries, layer.when, target, baseCtx, options);
 
   for (const textEntry of layer.text) {
     analyzeWhen(entries, textEntry.when, target, {
@@ -901,23 +1624,23 @@ function analyzeLayer(
       ownerKind: "dialogueLine",
       ownerId: textEntry.id,
       ownerLabel: `Texto ${label(textEntry.label, textEntry.id)}`,
-    });
+    }, options);
   }
 
   for (const hotspot of layer.hotspots ?? []) {
-    analyzeHotspot(entries, hotspot, target, baseCtx);
+    analyzeHotspot(entries, hotspot, target, baseCtx, options);
   }
 
   for (const placedItem of layer.placedItems ?? []) {
-    analyzePlacedItem(entries, placedItem, target, baseCtx);
+    analyzePlacedItem(entries, placedItem, target, baseCtx, options);
   }
 
   for (const placedNpc of layer.placedNpcs ?? []) {
-    analyzePlacedNpc(entries, placedNpc, target, baseCtx);
+    analyzePlacedNpc(entries, placedNpc, target, baseCtx, options);
   }
 
   for (const placedPlayer of layer.placedPlayers ?? []) {
-    analyzePlacedPlayer(entries, placedPlayer, target, baseCtx);
+    analyzePlacedPlayer(entries, placedPlayer, target, baseCtx, options);
   }
 }
 
@@ -926,6 +1649,7 @@ function analyzeHotspot(
   hotspot: Hotspot,
   target: DeleteTarget,
   baseCtx: Ctx,
+  options: AnalysisOptions = {},
 ): void {
   if (target.kind === "hotspot" && hotspot.id === target.hotspotId) {
     addEntry(entries, {
@@ -937,7 +1661,7 @@ function analyzeHotspot(
         hotspotId: hotspot.id,
         label: `${baseCtx.nodeLabel} > ${baseCtx.layerLabel} > Hotspot ${label(hotspot.label, hotspot.id)}`,
       }),
-      message: "Se eliminará el hotspot completo y sus reglas.",
+      message: "Se eliminará el hotspot completo, sus variables y sus reglas.",
     });
 
     return;
@@ -948,24 +1672,25 @@ function analyzeHotspot(
     ownerKind: "hotspot",
     ownerId: hotspot.id,
     ownerLabel: `Hotspot ${label(hotspot.label, hotspot.id)}`,
-  });
+  }, options);
 }
 
 function analyzePlacedItem(
   entries: DeleteImpactEntry[],
-  placedItem: PlacedItem,
+  placedItem: ItemInstance,
   target: DeleteTarget,
   baseCtx: Ctx,
+  options: AnalysisOptions = {},
 ): void {
-  if (target.kind === "placedItem" && placedItem.id === target.placedItemId) {
+  if (target.kind === "placedItem" && placedItem.itemInstanceId === target.placedItemId) {
     addEntry(entries, {
-      id: makeId("placed-item", [baseCtx.nodeId, baseCtx.layerId, placedItem.id]),
+      id: makeId("placed-item", [baseCtx.nodeId, baseCtx.layerId, placedItem.itemInstanceId]),
       severity: "logic-change",
       action: "remove-placed-entity",
       location: location(baseCtx, {
         kind: "placed-item",
-        placedItemId: placedItem.id,
-        label: `${baseCtx.nodeLabel} > ${baseCtx.layerLabel} > Item colocado ${label(placedItem.label, placedItem.id)}`,
+        placedItemId: placedItem.itemInstanceId,
+        label: `${baseCtx.nodeLabel} > ${baseCtx.layerLabel} > Item colocado ${label(placedItem.label, placedItem.itemInstanceId)}`,
       }),
       message: "Se eliminará este item colocado.",
     });
@@ -975,13 +1700,13 @@ function analyzePlacedItem(
 
   if (target.kind === "item" && placedItem.itemId === target.itemId) {
     addEntry(entries, {
-      id: makeId("placed-item", [baseCtx.nodeId, baseCtx.layerId, placedItem.id]),
+      id: makeId("placed-item", [baseCtx.nodeId, baseCtx.layerId, placedItem.itemInstanceId]),
       severity: "logic-change",
       action: "remove-placed-entity",
       location: location(baseCtx, {
         kind: "placed-item",
-        placedItemId: placedItem.id,
-        label: `${baseCtx.nodeLabel} > ${baseCtx.layerLabel} > Item colocado ${label(placedItem.label, placedItem.id)}`,
+        placedItemId: placedItem.itemInstanceId,
+        label: `${baseCtx.nodeLabel} > ${baseCtx.layerLabel} > Item colocado ${label(placedItem.label, placedItem.itemInstanceId)}`,
       }),
       message: "Se eliminará este item colocado porque usa el item global eliminado.",
     });
@@ -992,9 +1717,9 @@ function analyzePlacedItem(
   analyzeRules(entries, placedItem.rules, target, {
     ...baseCtx,
     ownerKind: "placedItem",
-    ownerId: placedItem.id,
-    ownerLabel: `Item colocado ${label(placedItem.label, placedItem.id)}`,
-  });
+    ownerId: placedItem.itemInstanceId,
+    ownerLabel: `Item colocado ${label(placedItem.label, placedItem.itemInstanceId)}`,
+  }, options);
 }
 
 function analyzePlacedNpc(
@@ -1002,11 +1727,19 @@ function analyzePlacedNpc(
   placedNpc: PlacedNpc,
   target: DeleteTarget,
   baseCtx: Ctx,
+  options: AnalysisOptions = {},
 ): void {
-  if (
-    (target.kind === "placedNpc" && placedNpc.npcId === target.npcId) ||
-    (target.kind === "npc" && placedNpc.npcId === target.npcId)
-  ) {
+  const isTargetPlacedNpc =
+    target.kind === "placedNpc" &&
+    baseCtx.nodeId === target.nodeId &&
+    baseCtx.layerId === target.layerId &&
+    placedNpc.npcId === target.npcId;
+
+  const isGlobalNpcTarget =
+    target.kind === "npc" &&
+    placedNpc.npcId === target.npcId;
+
+  if (isTargetPlacedNpc || isGlobalNpcTarget) {
     addEntry(entries, {
       id: makeId("placed-npc", [baseCtx.nodeId, baseCtx.layerId, placedNpc.npcId]),
       severity: "logic-change",
@@ -1016,7 +1749,7 @@ function analyzePlacedNpc(
         npcId: placedNpc.npcId,
         label: `${baseCtx.nodeLabel} > ${baseCtx.layerLabel} > NPC colocado ${placedNpc.npcId}`,
       }),
-      message: target.kind === "npc"
+      message: isGlobalNpcTarget
         ? "Se eliminará este NPC colocado porque usa el NPC global eliminado."
         : "Se eliminará este NPC colocado.",
     });
@@ -1029,7 +1762,7 @@ function analyzePlacedNpc(
     ownerKind: "placedNpc",
     ownerId: placedNpc.npcId,
     ownerLabel: `NPC colocado ${placedNpc.npcId}`,
-  });
+  }, options);
 }
 
 function analyzePlacedPlayer(
@@ -1037,11 +1770,19 @@ function analyzePlacedPlayer(
   placedPlayer: PlacedPlayer,
   target: DeleteTarget,
   baseCtx: Ctx,
+  options: AnalysisOptions = {},
 ): void {
-  if (
-    (target.kind === "placedPlayer" && placedPlayer.playerId === target.playerId) ||
-    (target.kind === "player" && placedPlayer.playerId === target.playerId)
-  ) {
+  const isTargetPlacedPlayer =
+    target.kind === "placedPlayer" &&
+    baseCtx.nodeId === target.nodeId &&
+    baseCtx.layerId === target.layerId &&
+    placedPlayer.playerId === target.playerId;
+
+  const isGlobalPlayerTarget =
+    target.kind === "player" &&
+    placedPlayer.playerId === target.playerId;
+
+  if (isTargetPlacedPlayer || isGlobalPlayerTarget) {
     addEntry(entries, {
       id: makeId("placed-player", [baseCtx.nodeId, baseCtx.layerId, placedPlayer.playerId]),
       severity: "logic-change",
@@ -1051,12 +1792,40 @@ function analyzePlacedPlayer(
         playerId: placedPlayer.playerId,
         label: `${baseCtx.nodeLabel} > ${baseCtx.layerLabel} > Player colocado ${placedPlayer.playerId}`,
       }),
-      message: target.kind === "player"
+      message: isGlobalPlayerTarget
         ? "Se eliminará este player colocado porque usa el player global eliminado."
         : "Se eliminará este player colocado.",
     });
+
+    return;
+  }
+
+  if (
+    target.kind === "playerImage" &&
+    placedPlayer.playerId === target.playerId &&
+    placedPlayer.initialImageId === target.imageId &&
+    options.replacementPlayerImageId
+  ) {
+    addEntry(entries, {
+      id: makeId("placed-player-image-replacement", [
+        baseCtx.nodeId,
+        baseCtx.layerId,
+        placedPlayer.playerId,
+        target.imageId,
+        options.replacementPlayerImageId,
+      ]),
+      severity: "logic-change",
+      action: "replace-reference",
+      location: location(baseCtx, {
+        kind: "placed-player",
+        playerId: placedPlayer.playerId,
+        label: `${baseCtx.nodeLabel} > ${baseCtx.layerLabel} > Player colocado ${placedPlayer.playerId}`,
+      }),
+      message: "Este player colocado pasará a usar la nueva imagen por defecto del player.",
+    });
   }
 }
+
 
 function analyzeDialogue(
   entries: DeleteImpactEntry[],
@@ -1064,6 +1833,7 @@ function analyzeDialogue(
   nodeId: ID,
   nodeLabel: string,
   target: DeleteTarget,
+  options: AnalysisOptions = {},
 ): void {
   if (target.kind === "dialogue" && dialogue.id === target.dialogueId) {
     addEntry(entries, {
@@ -1078,6 +1848,7 @@ function analyzeDialogue(
       },
       message: "Se eliminará este diálogo.",
     });
+
 
     return;
   }
@@ -1100,6 +1871,13 @@ function analyzeDialogue(
     });
   }
 
+  if (
+    (target.kind === "player" && dialogue.playerId === target.playerId) ||
+    (target.kind === "npc" && dialogue.npcId === target.npcId)
+  ) {
+    return;
+  }
+
   analyzeWhen(entries, dialogue.when, target, {
     nodeId,
     nodeLabel,
@@ -1107,7 +1885,7 @@ function analyzeDialogue(
     ownerId: dialogue.id,
     ownerLabel: `Diálogo ${label(dialogue.title, dialogue.id)}`,
     dialogueId: dialogue.id,
-  });
+  }, options);
 
   for (const dialogueNode of dialogue.nodes) {
     if (dialogueNode.type !== "line") continue;
@@ -1122,8 +1900,8 @@ function analyzeDialogue(
       dialogueLineId: dialogueNode.id,
     };
 
-    analyzeWhen(entries, dialogueNode.when, target, ctx);
-    analyzeEffects(entries, dialogueNode.effects, target, ctx);
+    analyzeWhen(entries, dialogueNode.when, target, ctx, options);
+    analyzeEffects(entries, dialogueNode.effects, target, ctx, options);
   }
 }
 
@@ -1137,6 +1915,54 @@ export function analyzeDeleteImpact(project: Project | null, target: DeleteTarge
       entries,
     };
   }
+
+  const nodeDeleteContext = target.kind === "node"
+    ? collectNodeDeleteContext(project, target.nodeId)
+    : null;
+
+  const layerDeleteContext = target.kind === "layer"
+    ? collectLayerDeleteContext(project, target)
+    : null;
+
+  const placedNpcDeleteContext = target.kind === "placedNpc"
+    ? collectPlacedNpcDeleteContext(project, target)
+    : null;
+
+  const placedPlayerDeleteContext = target.kind === "placedPlayer"
+    ? collectPlacedPlayerDeleteContext(project, target)
+    : null;
+
+  const options: AnalysisOptions = {
+    removedItemInstanceIds:
+      nodeDeleteContext?.removedItemInstanceIds ??
+      layerDeleteContext?.removedItemInstanceIds ??
+      (
+        target.kind === "player"
+          ? collectPlayerInventoryItemInstanceIds(project, target.playerId)
+          : target.kind === "npc"
+            ? collectNpcInventoryItemInstanceIds(project, target.npcId)
+            : target.kind === "item"
+              ? collectGlobalItemInstanceIds(project, target.itemId)
+              : undefined
+      ),
+
+    removedHotspotIds:
+      nodeDeleteContext?.removedHotspotIds ??
+      layerDeleteContext?.removedHotspotIds,
+
+    removedDialogueIds:
+      nodeDeleteContext?.removedDialogueIds ??
+      placedNpcDeleteContext?.removedDialogueIds ??
+      placedPlayerDeleteContext?.removedDialogueIds,
+
+    removedSceneSpeaker:
+      placedNpcDeleteContext?.removedSceneSpeaker ??
+      placedPlayerDeleteContext?.removedSceneSpeaker,
+
+    replacementPlayerImageId: target.kind === "playerImage"
+      ? getReplacementPlayerImageId(project, target)
+      : undefined,
+  };
 
   analyzeDirectNodeRefs(entries, project, target);
 
@@ -1156,7 +1982,7 @@ export function analyzeDeleteImpact(project: Project | null, target: DeleteTarge
         message: "Se eliminará la escena completa.",
       });
 
-      analyzeDeletedNodeContents(entries, node, nodeLabel);
+      analyzeDeletedNodeContents(entries, project, node, nodeLabel);
       continue;
     }
 
@@ -1170,16 +1996,24 @@ export function analyzeDeleteImpact(project: Project | null, target: DeleteTarge
           layer,
         });
       }
-
-      continue;
     }
 
     for (const layer of node.layers) {
-      analyzeLayer(entries, nodeLabel, node.id, layer, target);
+      if (
+        target.kind === "layer" &&
+        node.id === target.nodeId &&
+        layer.id === target.layerId
+      ) {
+        continue;
+      }
+
+      analyzeLayer(entries, nodeLabel, node.id, layer, target, options);
     }
 
     for (const dialogue of node.dialogues ?? []) {
-      analyzeDialogue(entries, dialogue, node.id, nodeLabel, target);
+      if (options.removedDialogueIds?.has(dialogue.id)) continue;
+
+      analyzeDialogue(entries, dialogue, node.id, nodeLabel, target, options);
     }
   }
 

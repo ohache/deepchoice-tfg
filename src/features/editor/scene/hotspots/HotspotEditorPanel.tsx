@@ -2,15 +2,14 @@ import type { RefObject } from "react";
 import type { ID, ClickRule, UseItemRule, BaseInteractionRule, Project, RulePhrase } from "@/domain/types";
 import type { Condition } from "@/domain/conditions";
 import type { Effect } from "@/domain/effects";
+import type { EffectOwner } from "@/features/editor/scene/rules/effects/effectShared";
 import type { HotspotRuleChannel, HotspotDraft } from "@/features/editor/scene/hotspots/hotspotEditorTypes";
+import { InteractionRulesSection } from "@/features/editor/scene/interactiveComponents/InteractionRulesSection";
 import { VarRowCard } from "@/shared/vars/varRowCard";
 import type { VarRow, VarRowErrors } from "@/shared/vars/varRow";
-import type { EffectOwner } from "@/features/editor/scene/rules/effects/effectFactory";
 import { RegionStatusNotice } from "@/features/editor/scene/interactiveComponents/RegionStatusNotice";
 import { PlaceableStateSection } from "@/features/editor/scene/interactiveComponents/PlaceableStateSection";
-import { InteractionRulesSection } from "@/features/editor/scene/interactiveComponents/InteractionRulesSection";
 import { Pencil } from "lucide-react";
-
 
 type HotspotEditorPanelProps = {
   draft: HotspotDraft;
@@ -36,10 +35,8 @@ type HotspotEditorPanelProps = {
   onReachableChange: (checked: boolean) => void;
   onNotReachableTextChange: (value: string) => void;
 
-  hasAnyRules: boolean;
   panelError: string | null;
   varPanelError: string | null;
-  showRulesRequiredError: boolean;
   draftVarsUI: VarRow[];
   openVarId: string | null;
   varErrorsById: Record<string, VarRowErrors | undefined>;
@@ -81,19 +78,16 @@ type HotspotEditorPanelProps = {
 
 export function HotspotEditorPanel({ draft, isDrawing, hasShape, isExistingHotspot, dupLabelInLayer, hasCollisions, collisionSummary, collisionLock, disableAllEditorFields,
   disableReachable, disableNotReachableText, initialVisible, initialReachable, initialNotReachableText, labelInputRef, notReachableInputRef, onLabelChange, onStartRedrawShape,
-  onVisibleChange, onReachableChange, onNotReachableTextChange, hasAnyRules, panelError, varPanelError, showRulesRequiredError, draftVarsUI, openVarId,
+  onVisibleChange, onReachableChange, onNotReachableTextChange, panelError, varPanelError, draftVarsUI, openVarId,
   varErrorsById, onAddVar, onToggleVarOpen, onChangeVar, onSwitchVarType, onSaveVar, onDeleteVar, onBindVarNameInputRef, owner, useItemSourceOptions, activeChannel,
   setActiveChannel, clickRules, useItemRulesForSelected, ruleModalOpen, currentRuleValue, nodeId, project, onOpenAddClickRule, onOpenEditClickRule,
   onRemoveClickRule, onOpenAddUseItemRule, onOpenEditUseItemRule, onRemoveUseItemRule, onCloseRuleModal, onSaveRule, onDelete, onCancel, onCommit }: HotspotEditorPanelProps) {
-
-  const rulesRequiredErrorText = showRulesRequiredError ? "Debes añadir al menos una regla para guardar el hotspot." : null;
 
   const saveButtonTitle = isDrawing ? "Termina o cancela el dibujo actual antes de guardar" : !hasShape
     ? "Dibuja una región válida antes de guardar" : !(draft.label ?? "").trim()
       ? "La etiqueta es obligatoria" : dupLabelInLayer
         ? "Etiqueta duplicada" : hasCollisions
-          ? "Colisión con otro clicable" : !hasAnyRules
-            ? "Intenta guardar para ver el aviso y añade al menos una regla" : undefined;
+          ? "Colisión con otro clicable" : undefined;
 
   return (
     <div className="bg-slate-950/40 p-1 space-y-2">
@@ -109,7 +103,7 @@ export function HotspotEditorPanel({ draft, isDrawing, hasShape, isExistingHotsp
           collisionSummary={collisionSummary}
           collisionLock={collisionLock}
           drawingText="Dibuja una región en la imagen (arrastra con el ratón). Pulsa “Cancelar” para salir."
-          missingShapeText="Falta una región válida. Pulsa “+ Añadir hotspot” y dibuja un rectángulo dentro de la imagen."
+          missingShapeText="Falta una región válida. Dibuja un rectángulo dentro de la imagen para definir el hotspot."
         />
       )}
 
@@ -234,7 +228,6 @@ export function HotspotEditorPanel({ draft, isDrawing, hasShape, isExistingHotsp
         onRemoveUseItemRule={onRemoveUseItemRule}
         onCloseRuleModal={onCloseRuleModal}
         onSaveRule={onSaveRule}
-        requiredErrorText={rulesRequiredErrorText}
       />
 
       <div className="flex items-center justify-between gap-2 mt-4">
@@ -259,9 +252,10 @@ export function HotspotEditorPanel({ draft, isDrawing, hasShape, isExistingHotsp
 
           <button
             type="button"
-            className="btn btn-guardar text-[11px]"
+            className="btn btn-guardar text-[11px] disabled:opacity-40 disabled:cursor-not-allowed"
             onClick={onCommit}
             title={saveButtonTitle}
+            disabled={isDrawing}
           >
             Guardar
           </button>

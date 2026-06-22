@@ -1,10 +1,9 @@
 import type { ReactNode } from "react";
-import type {
-  SceneTestConditionSummary, SceneTestEffectSummary, SceneTestHotspotEntry, SceneTestInspectableEntry, SceneTestPlacedItemEntry, SceneTestPlacedNpcEntry,
-  SceneTestPlacedPlayerEntry, SceneTestRuleSummary, SceneTestRulesSummary, SceneTestVarEntry
-} from "@/features/editor/scene/test/sceneTestTypes";
+import type { SceneTestConditionSummary, SceneTestEffectSummary, SceneTestHotspotEntry, SceneTestInspectableEntry, SceneTestPlacedItemEntry, SceneTestPlacedNpcEntry,
+  SceneTestPlacedPlayerEntry, SceneTestRuleSummary, SceneTestRulesSummary, SceneTestVarEntry } from "@/features/editor/scene/test/sceneTestTypes";
+import { StarIcon } from "@heroicons/react/24/solid"
 
-interface SceneTestInfoCardProps {
+type SceneTestInfoCardProps = {
   target: SceneTestInspectableEntry | null;
   pinned?: boolean;
 }
@@ -43,6 +42,15 @@ function InlineFieldRow({ label, value }: { label: string; value: ReactNode }) {
 function EmptyBlock({ children }: { children: ReactNode }) {
   return (
     <div className="rounded-md border border-slate-700 bg-slate-950/70 px-3 py-2 text-[12px] text-slate-400">
+      {children}
+    </div>
+  );
+}
+
+function InfoSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="space-y-2">
+      <SectionTitle>{title}</SectionTitle>
       {children}
     </div>
   );
@@ -160,11 +168,8 @@ function InitialStateBlock({ state }: {
   const rows: Array<{ label: string; value: string }> = [];
 
   if ("visible" in state && typeof state.visible === "boolean") rows.push({ label: "Visible", value: state.visible ? "Sí" : "No" });
-
   if ("reachable" in state && typeof state.reachable === "boolean") rows.push({ label: "Alcanzable", value: state.reachable ? "Sí" : "No" });
-
   if ("notReachableText" in state && state.notReachableText) rows.push({ label: "Texto no alcanzable", value: state.notReachableText });
-
   if (rows.length === 0) return <EmptyBlock>No hay información de estado inicial.</EmptyBlock>;
 
   return (
@@ -183,20 +188,17 @@ function HotspotCard({ target }: { target: SceneTestHotspotEntry }) {
       <FieldRow label="Tipo" value="Hotspot" />
       <FieldRow label="Nombre" value={target.label} />
 
-      <div className="space-y-1">
-        <SectionTitle>Estado inicial</SectionTitle>
+      <InfoSection title="Estado inicial">
         <InitialStateBlock state={target.initialState} />
-      </div>
+      </InfoSection>
 
-      <div className="space-y-2">
-        <SectionTitle>Variables</SectionTitle>
+      <InfoSection title="Variables">
         <VarsBlock vars={target.vars} />
-      </div>
+      </InfoSection>
 
-      <div className="space-y-2">
-        <SectionTitle>Reglas</SectionTitle>
+      <InfoSection title="Reglas">
         <RulesBlock rules={target.rules} />
-      </div>
+      </InfoSection>
     </div>
   );
 }
@@ -208,15 +210,13 @@ function PlacedItemCard({ target }: { target: SceneTestPlacedItemEntry }) {
       <FieldRow label="Nombre" value={target.label} />
       <FieldRow label="Item referenciado" value={target.itemName} />
 
-      <div className="space-y-2">
-        <SectionTitle>Estado inicial</SectionTitle>
+      <InfoSection title="Estado inicial">
         <InitialStateBlock state={target.initialState} />
-      </div>
+      </InfoSection>
 
-      <div className="space-y-2">
-        <SectionTitle>Reglas</SectionTitle>
+      <InfoSection title="Reglas">
         <RulesBlock rules={target.rules} />
-      </div>
+      </InfoSection>
     </div>
   );
 }
@@ -227,20 +227,17 @@ function PlacedNpcCard({ target }: { target: SceneTestPlacedNpcEntry }) {
       <FieldRow label="Tipo" value="NPC colocado" />
       <FieldRow label="NPC" value={target.npcName} />
 
-      <div className="space-y-2">
-        <SectionTitle>Estado inicial</SectionTitle>
+      <InfoSection title="Estado inicial">
         <InitialStateBlock state={target.initialState} />
-      </div>
+      </InfoSection>
 
-      <div className="space-y-2">
-        <SectionTitle>Variables</SectionTitle>
+      <InfoSection title="Variables">
         <VarsBlock vars={target.vars} />
-      </div>
+      </InfoSection>
 
-      <div className="space-y-2">
-        <SectionTitle>Reglas</SectionTitle>
+      <InfoSection title="Reglas">
         <RulesBlock rules={target.rules} />
-      </div>
+      </InfoSection>
     </div>
   );
 }
@@ -252,17 +249,34 @@ function PlacedPlayerCard({ target }: { target: SceneTestPlacedPlayerEntry }) {
       <FieldRow label="Player" value={target.playerName} />
       <FieldRow label="Imagen inicial" value={target.initialImageName} />
 
-      <div className="space-y-2">
-        <SectionTitle>Estado inicial</SectionTitle>
+      <InfoSection title="Estado inicial">
         <InitialStateBlock state={target.initialState} />
-      </div>
+      </InfoSection>
 
-      <div className="space-y-2">
-        <SectionTitle>Variables</SectionTitle>
+      <InfoSection title="Variables">
         <VarsBlock vars={target.vars} />
-      </div>
+      </InfoSection>
     </div>
   );
+}
+
+function TargetDetails({ target }: { target: SceneTestInspectableEntry }) {
+  switch (target.type) {
+    case "hotspot":
+      return <HotspotCard target={target} />;
+
+    case "placedItem":
+      return <PlacedItemCard target={target} />;
+
+    case "placedNpc":
+      return <PlacedNpcCard target={target} />;
+
+    case "placedPlayer":
+      return <PlacedPlayerCard target={target} />;
+
+    default:
+      return null;
+  }
 }
 
 /* Componente principal */
@@ -270,15 +284,17 @@ export function SceneTestInfoCard({ target, pinned }: SceneTestInfoCardProps) {
   return (
     <aside className="rounded-xl border-2 border-slate-700 bg-slate-900 shadow-xl overflow-hidden">
       <div className="border-b border-slate-700 bg-slate-950/90 px-4 py-3">
-        <div className="text-center">
+        <div className="flex items-center justify-center gap-2">
           <div className="text-sm font-semibold text-slate-100">
             Detalles del componente
           </div>
 
           {pinned ? (
-            <div className="mt-1 text-[11px] text-amber-300">
-              Fijado
-            </div>
+            <StarIcon
+              className="h-4 w-4 text-amber-300"
+              aria-label="Fijado"
+              title="Fijado"
+            />
           ) : null}
         </div>
       </div>
@@ -288,12 +304,9 @@ export function SceneTestInfoCard({ target, pinned }: SceneTestInfoCardProps) {
           <EmptyBlock>
             Pasa el cursor por un elemento interactivo o haz click para fijar su información.
           </EmptyBlock>
-        ) : null}
-
-        {target?.type === "hotspot" && <HotspotCard target={target} />}
-        {target?.type === "placedItem" && <PlacedItemCard target={target} />}
-        {target?.type === "placedNpc" && <PlacedNpcCard target={target} />}
-        {target?.type === "placedPlayer" && <PlacedPlayerCard target={target} />}
+        ) : (
+          <TargetDetails target={target} />
+        )}
       </div>
     </aside>
   );

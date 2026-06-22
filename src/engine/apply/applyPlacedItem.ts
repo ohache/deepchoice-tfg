@@ -1,6 +1,7 @@
 import type { Effect } from "@/domain/effects";
-import type { ID, PlacedItem, PlaceableState, RulePhrase } from "@/domain/types";
-import { addInventoryInstance, applyEffect, applyEffects, type ApplyEffectCtx } from "@/engine/apply/applyEffect";
+import type { ID, ItemInstance, PlaceableState } from "@/domain/types";
+import { addInventoryInstance, applyEffects, type ApplyEffectCtx } from "@/engine/apply/applyEffect";
+import { applyBlockedPhrase, applyMessageEffect, canInteractWithPlaceable, findInventorySourceRules } from "@/engine/apply/applyHelpers";
 import { pickClickRule, pickUseItemRule } from "@/engine/rules";
 import type { GameState } from "@/engine/state/runtimeState";
 import { ensureNodeRuntime } from "@/engine/state/runtimeState";
@@ -8,25 +9,8 @@ import { ensureNodeRuntime } from "@/engine/state/runtimeState";
 const DEFAULT_NOT_REACHABLE_MESSAGE = "No puedes alcanzarlo.";
 const DEFAULT_CANNOT_USE_MESSAGE = "No puedes hacer eso.";
 
-function showMessage(state: GameState, text: string, ctx: ApplyEffectCtx): GameState {
-  return applyEffect(state, { type: "showMessage", text, speakerKind: "narrator" }, ctx);
-}
-
-function showBlockedPhrase(state: GameState, phrase: RulePhrase, ctx: ApplyEffectCtx): GameState {
-  return applyEffect(
-    state,
-    {
-      type: "showMessage",
-      text: phrase.text,
-      speakerKind: phrase.speaker?.kind ?? "narrator",
-      speakerId: phrase.speaker?.kind === "player" ? phrase.speaker.playerId : phrase.speaker?.kind === "npc" ? phrase.speaker.npcId : undefined,
-    },
-    ctx,
-  );
-}
-
-function isOwnAddItemEffect(placedItem: PlacedItem, effect: Effect): boolean {
-  return effect.type === "addItem" && effect.itemInstanceId === placedItem.id;
+function isOwnAddItemEffect(placedItem: ItemInstance, effect: Effect): effect is Extract<Effect, { type: "addItem" }> {
+  return effect.type === "addItem" && effect.itemInstanceId === placedItem.itemInstanceId;
 }
 
 function getPreparedPlacedItemState(state: GameState, nodeId: ID, placedItemId: ID): { state: GameState; runtimeState: PlaceableState | null } {
@@ -36,29 +20,13 @@ function getPreparedPlacedItemState(state: GameState, nodeId: ID, placedItemId: 
   return { state: preparedState, runtimeState };
 }
 
-function canInteractWithPlacedItem(state: GameState, runtimeState: PlaceableState | null, ctx: ApplyEffectCtx): { allowed: true; state: GameState } | { allowed: false; state: GameState } {
-  if (!runtimeState) return { allowed: false, state };
-
-  const visible = runtimeState.visible !== false;
-  const reachable = runtimeState.reachable !== false;
-
-  if (!visible) return { allowed: false, state };
-
-  if (!reachable) {
-    const message = runtimeState.notReachableText?.trim() || DEFAULT_NOT_REACHABLE_MESSAGE;
-    return { allowed: false, state: showMessage(state, message, ctx) };
-  }
-
-  return { allowed: true, state };
-}
-
-function pickUpPlacedItem(state: GameState, nodeId: ID, placedItem: PlacedItem, ctx: ApplyEffectCtx = {}): GameState {
-  const nextState = addInventoryInstance(state, placedItem.id, placedItem.itemId);
+function pickUpPlacedItem(state: GameState, nodeId: ID, placedItem: ItemInstance, playerId: ID, ctx: ApplyEffectCtx = {}): GameState {
+  const nextState = addInventoryInstance(state, playerId, placedItem.itemInstanceId, placedItem.itemId, placedItem.label);
 
   ctx.audio?.playSfxUrl("/sounds/add_item.wav");
 
   const nodeRuntime = nextState.nodes[nodeId];
-  const previous = nodeRuntime?.placedItems[placedItem.id];
+  const previous = nodeRuntime?.placedItems[placedItem.itemInstanceId];
 
   if (!nodeRuntime || !previous) return nextState;
 
@@ -70,7 +38,7 @@ function pickUpPlacedItem(state: GameState, nodeId: ID, placedItem: PlacedItem, 
         ...nodeRuntime,
         placedItems: {
           ...nodeRuntime.placedItems,
-          [placedItem.id]: {
+          [placedItem.itemInstanceId]: {
             ...previous,
             visible: false,
             reachable: false,
@@ -81,34 +49,13 @@ function pickUpPlacedItem(state: GameState, nodeId: ID, placedItem: PlacedItem, 
   };
 }
 
-function findInventorySourceRules(state: GameState, itemInstanceId: ID) {
-  for (const node of state.project.nodes ?? []) {
-    for (const layer of node.layers ?? []) {
-      const placedItem = (layer.placedItems ?? []).find((candidate) => candidate.id === itemInstanceId);
-      if (placedItem) return placedItem.rules ?? {};
-    }
-  }
-
-  for (const player of state.project.players ?? []) {
-    const inventoryItem = (player.initialInventory ?? []).find((candidate) => candidate.itemInstanceId === itemInstanceId);
-    if (inventoryItem) return inventoryItem.rules ?? {};
-  }
-
-  for (const npc of state.project.npcs ?? []) {
-    const inventoryItem = (npc.initialInventory ?? []).find((candidate) => candidate.itemInstanceId === itemInstanceId);
-    if (inventoryItem) return inventoryItem.rules ?? {};
-  }
-
-  return null;
-}
-
-export function applyPlacedItemInteraction(state: GameState, placedItem: PlacedItem, ctx: ApplyEffectCtx = {}): GameState {
+export function applyPlacedItemInteraction(state: GameState, placedItem: ItemInstance, ctx: ApplyEffectCtx = {}): GameState {
   if (state.gameEnded) return state;
   if (state.activeDialogue) return state;
 
   const nodeId = state.currentNodeId;
-  const prepared = getPreparedPlacedItemState(state, nodeId, placedItem.id);
-  const interaction = canInteractWithPlacedItem(prepared.state, prepared.runtimeState, ctx);
+  const prepared = getPreparedPlacedItemState(state, nodeId, placedItem.itemInstanceId);
+  const interaction = canInteractWithPlaceable(prepared.state, prepared.runtimeState, ctx, DEFAULT_NOT_REACHABLE_MESSAGE);
 
   if (!interaction.allowed) return interaction.state;
 
@@ -116,22 +63,22 @@ export function applyPlacedItemInteraction(state: GameState, placedItem: PlacedI
 
   if (result.kind === "none") return interaction.state;
 
-  if (result.kind === "blocked") return showBlockedPhrase(interaction.state, result.phrase, ctx);
+  if (result.kind === "blocked") return applyBlockedPhrase(interaction.state, result.phrase, ctx);
 
   return (result.rule.effects ?? []).reduce((currentState, effect) => {
-    if (isOwnAddItemEffect(placedItem, effect)) return pickUpPlacedItem(currentState, nodeId, placedItem, ctx);
+    if (isOwnAddItemEffect(placedItem, effect)) return pickUpPlacedItem(currentState, nodeId, placedItem, effect.playerId, ctx);
 
     return applyEffects(currentState, [effect], ctx);
   }, interaction.state);
 }
 
-export function applyPlacedItemUseItem(state: GameState, placedItem: PlacedItem, inventoryInstanceId: ID, ctx: ApplyEffectCtx = {}): GameState {
+export function applyPlacedItemUseItem(state: GameState, placedItem: ItemInstance, inventoryInstanceId: ID, ctx: ApplyEffectCtx = {}): GameState {
   if (state.gameEnded) return state;
   if (state.activeDialogue) return state;
 
   const nodeId = state.currentNodeId;
-  const prepared = getPreparedPlacedItemState(state, nodeId, placedItem.id);
-  const interaction = canInteractWithPlacedItem(prepared.state, prepared.runtimeState, ctx);
+  const prepared = getPreparedPlacedItemState(state, nodeId, placedItem.itemInstanceId);
+  const interaction = canInteractWithPlaceable(prepared.state, prepared.runtimeState, ctx, DEFAULT_NOT_REACHABLE_MESSAGE);
 
   if (!interaction.allowed) return interaction.state;
 
@@ -140,36 +87,29 @@ export function applyPlacedItemUseItem(state: GameState, placedItem: PlacedItem,
   if (targetResult.kind === "matched") {
     return applyEffects(interaction.state, targetResult.rule.effects ?? [], {
       ...ctx,
-      itemUsePair: {
-        sourceItemInstanceId: inventoryInstanceId,
-        targetItemInstanceId: placedItem.id,
-      },
+      itemUsePair: { sourceItemInstanceId: inventoryInstanceId, targetItemInstanceId: placedItem.itemInstanceId },
     });
   }
 
-  if (targetResult.kind === "blocked") {
-    return showBlockedPhrase(interaction.state, targetResult.phrase, ctx);
-  }
+  if (targetResult.kind === "blocked") return applyBlockedPhrase(interaction.state, targetResult.phrase, ctx);
 
   const sourceRules = findInventorySourceRules(interaction.state, inventoryInstanceId);
 
   if (sourceRules) {
-    const sourceResult = pickUseItemRule(interaction.state, sourceRules, placedItem.id);
+    const sourceResult = pickUseItemRule(interaction.state, sourceRules, placedItem.itemInstanceId);
 
     if (sourceResult.kind === "matched") {
       return applyEffects(interaction.state, sourceResult.rule.effects ?? [], {
         ...ctx,
         itemUsePair: {
           sourceItemInstanceId: inventoryInstanceId,
-          targetItemInstanceId: placedItem.id,
+          targetItemInstanceId: placedItem.itemInstanceId,
         },
       });
     }
 
-    if (sourceResult.kind === "blocked") {
-      return showBlockedPhrase(interaction.state, sourceResult.phrase, ctx);
-    }
+    if (sourceResult.kind === "blocked") return applyBlockedPhrase(interaction.state, sourceResult.phrase, ctx);
   }
 
-  return showMessage(interaction.state, DEFAULT_CANNOT_USE_MESSAGE, ctx);
+  return applyMessageEffect(interaction.state, DEFAULT_CANNOT_USE_MESSAGE, ctx);
 }

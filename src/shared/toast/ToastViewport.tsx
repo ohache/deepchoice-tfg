@@ -11,7 +11,7 @@ type ToastKindUi = {
 /* Configuración visual por tipo de toast */
 const TOAST_KIND_UI: Record<ToastKind, ToastKindUi> = {
   success: { ring: "ring-emerald-500/50", iconClass: "text-emerald-400", Icon: CheckCircleIcon },
-  info: { ring: "ring-sky-500/50", iconClass: "text-sky-400",Icon: InformationCircleIcon },
+  info: { ring: "ring-sky-500/50", iconClass: "text-sky-400", Icon: InformationCircleIcon },
   warning: { ring: "ring-amber-500/50", iconClass: "text-amber-400", Icon: ExclamationTriangleIcon },
   error: { ring: "ring-red-500/50", iconClass: "text-red-500", Icon: XCircleIcon },
 };
@@ -19,7 +19,7 @@ const TOAST_KIND_UI: Record<ToastKind, ToastKindUi> = {
 type ToastCardProps = {
   id: string;
   kind: ToastKind;
-  title?: string;
+  title: string;
   message: string;
   onDismiss: (id: string) => void;
 };
@@ -47,10 +47,7 @@ function ToastCard({ id, kind, title, message, onDismiss }: ToastCardProps) {
         <Icon className={`-mt-2 h-10 w-10 ${ui.iconClass}`} />
 
         <div className="min-w-0">
-          {title ? (
-            <p className="truncate text-sm font-semibold text-slate-100">{title}</p>
-          ) : null}
-
+          <p className="truncate text-sm font-semibold text-slate-100">{title}</p>
           <p className="text-[13px] text-slate-200 wrap-break-word">{message}</p>
         </div>
       </div>

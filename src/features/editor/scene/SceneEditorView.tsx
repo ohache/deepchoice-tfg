@@ -1,53 +1,20 @@
 import { useMemo, useEffect, useState, useCallback } from "react";
-import type { ID, Node } from "@/domain/types";
+import type { ID } from "@/domain/types";
 import { useEditorStore } from "@/store/editorStore";
-import { validateNodeDraft, type NodeFieldErrors } from "@/features/editor/scene/node/nodeValidator";
+import { validateNodeDraft } from "@/features/editor/scene/node/nodeValidator";
 import { SceneTitleField } from "@/features/editor/scene/fields/SceneTitleField";
 import { SceneLayersField } from "@/features/editor/scene/fields/SceneLayersField";
 import { SceneDialogueField } from "@/features/editor/scene/dialogues/SceneDialogueField";
 import { SceneMapField } from "@/features/editor/scene/maps/SceneMapField";
 import { SceneMusicField } from "@/features/editor/scene/music/SceneMusicField";
 import { SceneTypeField } from "@/features/editor/scene/fields/SceneTypeField";
+import { findStartConflict, getRegionInfo } from "@/features/editor/scene/node/NodeHelpers";
 import { commitActiveInteractiveDrafts } from "@/features/editor/scene/interactiveComponents/interactiveDraftGuards";
 import { SceneRenderPreview } from "@/features/editor/scene/preview/SceneRenderPreview";
-import { useSceneFieldState, useSceneNavigation } from "@/features/editor/scene/SceneCommon";
+import { useSceneFieldState, useSceneNavigation, type SceneToggleFieldId } from "@/features/editor/scene/SceneCommon";
 import { StartConflictModal } from "@/features/editor/modals/StartConflictModal";
 import { ConfirmDangerModal } from "@/features/editor/modals/ConfirmDangerModal";
 import { toast } from "@/shared/toast/toastStore";
-
-/* Busca conflicto si la escena actual quiere ser la escena inicial */
-function findStartConflict(args: { nodes: Node[]; wantsStart: boolean; excludeId?: ID | null }) {
-  const { nodes, wantsStart, excludeId = null } = args;
-
-  if (!wantsStart) return null;
-
-  const existing = (nodes ?? []).find((n) => Boolean(n.isStart) && (!excludeId || n.id !== excludeId)) ?? null;
-
-  if (!existing) return null;
-
-  const title = (existing.title ?? "").trim();
-  return { id: existing.id, title: title || String(existing.id) };
-}
-
-/* Obtiene información de la región de mapa asociada al borrador actual */
-function getRegionInfo(args: { nodes: Node[]; nodeDraft: Node | null; excludeId?: ID | null; currentNodeId?: ID | null }) {
-  const { nodes, nodeDraft, excludeId = null, currentNodeId = null } = args;
-
-  const mapId = nodeDraft?.mapLocation?.mapId ?? null;
-  const regionId = nodeDraft?.mapLocation?.regionId ?? null;
-  if (!mapId || !regionId) return null;
-
-  const regionNodes = (nodes ?? []).filter((node) => {
-    if (excludeId && node.id === excludeId) return false;
-
-    return node.mapLocation?.mapId === mapId && node.mapLocation?.regionId === regionId;
-  });
-
-  const currentEntry = regionNodes.find((node) => Boolean(node.mapLocation?.isEntry)) ?? null;
-  const hasAnyOtherScene = regionNodes.some((node) => node.id !== currentNodeId);
-
-  return { mapId, regionId, currentEntry, hasAnyOtherScene };
-}
 
 export function SceneEditorView() {
   const project = useEditorStore((s) => s.project);
@@ -77,11 +44,14 @@ export function SceneEditorView() {
   const commitPlacedNpcDraft = useEditorStore((s) => s.commitPlacedNpcDraft);
   const commitPlacedPlayerDraft = useEditorStore((s) => s.commitPlacedPlayerDraft);
 
+  const nodeErrors = useEditorStore((s) => s.nodeErrors);
+  const setNodeErrors = useEditorStore((s) => s.setNodeErrors);
+  const clearNodeErrors = useEditorStore((s) => s.clearNodeErrors);
+
   const isEditing = nodeMode === "editing" && Boolean(editingNodeId);
   const header = isEditing ? "Editar escena" : "Crear escena";
 
   const [textPreview, setTextPreview] = useState<string | null>(null);
-  const [errors, setErrors] = useState<NodeFieldErrors>({});
 
   const { activeField, setActiveField, titleInputRef } = useSceneFieldState();
   const { goToHistoriaVista } = useSceneNavigation();
@@ -91,7 +61,7 @@ export function SceneEditorView() {
   const isFinal = Boolean(nodeDraft?.isFinal);
 
   /* Primer error “global” que merece mostrarse arriba del formulario */
-  const rootIssue = useMemo(() => errors.title ?? errors.layers ?? errors.mapLocation ?? errors.musicTrackId ?? errors.meta, [errors]);
+  const rootIssue = nodeErrors.title ?? nodeErrors.layers ?? nodeErrors.mapLocation ?? nodeErrors.musicTrackId ?? nodeErrors.isFinal ?? nodeErrors.isStart ?? nodeErrors.meta;
 
   /* ID a excluir en validaciones/conflictos */
   const excludeId = useMemo<ID | null>(() => (isEditing && editingNodeId ? editingNodeId : null), [isEditing, editingNodeId]);
@@ -105,6 +75,8 @@ export function SceneEditorView() {
   const clearTextPreview = useCallback(() => setTextPreview(null), []);
   const navigateOut = useCallback(() => goToHistoriaVista(), [goToHistoriaVista]);
 
+  useEffect(() => clearNodeErrors(), [nodeDraft?.id, clearNodeErrors]);
+
   const closeStartModal = useCallback(() => {
     setStartModalOpen(false);
     setExistingStartTitle("");
@@ -116,7 +88,7 @@ export function SceneEditorView() {
   }, []);
 
   /* Intenta cerrar/guardar cualquier editor interactivo abierto dentro de capas antes de abandonar el panel o guardar la escena */
-const commitActiveInteractiveDraftsForScene = useCallback(() =>
+  const commitActiveInteractiveDraftsForScene = useCallback(() =>
     commitActiveInteractiveDrafts({
       hotspotEditorMode: hotspotEditor.mode,
       placedItemEditorMode: placedItemEditor.mode,
@@ -134,17 +106,17 @@ const commitActiveInteractiveDraftsForScene = useCallback(() =>
       commitPlacedPlayerDraft,
     }), [hotspotEditor.mode, hotspotEditor.draft, placedItemEditor.mode, placedItemEditor.draft, placedNpcEditor.mode, placedNpcEditor.draft,
     placedPlayerEditor.mode, placedPlayerEditor.draft, commitHotspotDraft, commitPlacedItemDraft, commitPlacedNpcDraft, commitPlacedPlayerDraft],
-);
+  );
 
   /* Decide si se puede salir del campo activo actual */
-const canLeaveSceneField = useCallback((): boolean => {
-  if (activeField !== "layers") return true;
-  return commitActiveInteractiveDraftsForScene();
-}, [activeField, commitActiveInteractiveDraftsForScene]);
+  const canLeaveSceneField = useCallback((): boolean => {
+    if (activeField !== "layers") return true;
+    return commitActiveInteractiveDraftsForScene();
+  }, [activeField, commitActiveInteractiveDraftsForScene]);
 
   /* Alterna la apertura/cierre de un bloque del editor */
   const handleToggleSceneField = useCallback(
-    (next: "title" | "layers" | "dialogues" | "map" | "music" | "type") => {
+    (next: SceneToggleFieldId) => {
       if (activeField === next) {
         if (!canLeaveSceneField()) return;
         setActiveField(null);
@@ -156,16 +128,20 @@ const canLeaveSceneField = useCallback((): boolean => {
     }, [activeField, canLeaveSceneField, setActiveField],
   );
 
-const openInteractiveFieldFromPreview = useCallback(
-  (field: "hotspots" | "placedItems" | "placedNpcs" | "placedPlayers") => {
+  const openInteractiveFieldFromPreview = useCallback((field: "hotspots" | "placedItems" | "placedNpcs" | "placedPlayers") => {
     if (!canLeaveSceneField()) return;
 
     if (activeField !== "layers") setActiveField("layers");
 
-    const { activeLayerField, setActiveLayerField } = useEditorStore.getState();
+    const { activeLayerId, activeLayerField, setActiveLayerField } = useEditorStore.getState();
+
+    if (!activeLayerId) {
+      toast.warning("No hay capa activa", "Selecciona una capa antes de editar elementos interactivos.");
+      return;
+    }
 
     if (activeLayerField !== field) setActiveLayerField(field);
-  }, [activeField, canLeaveSceneField, setActiveField]
+  }, [activeField, canLeaveSceneField, setActiveField],
 );
 
   /* En modo creación, si hay proyecto pero aún no hay borrador, entra automáticamente en creación de escena */
@@ -178,73 +154,74 @@ const openInteractiveFieldFromPreview = useCallback(
   }, [project, isEditing, nodeDraft, enterCreateNodeMode]);
 
   /* En creación abrimos por defecto el título. En edición dejamos todos cerrados inicialmente */
-  useEffect(() => {setActiveField(isEditing ? null : "title")}, [isEditing, setActiveField]);
+  useEffect(() => {
+  setActiveField(isEditing ? null : "title");
+  clearTextPreview();
+}, [nodeDraft?.id, isEditing, setActiveField, clearTextPreview]);
 
-/* Al cargar otra escena en el editor, activamos por defecto su capa base */
-useEffect(() => {
-  if (!nodeDraft) return;
+  /* Al cargar otra escena en el editor, activamos por defecto su capa base */
+  useEffect(() => {
+    if (!nodeDraft) return;
 
-  const baseId = nodeDraft.layers?.[0]?.id ?? null;
-  setActiveLayerId(baseId);
-}, [nodeDraft?.id, setActiveLayerId]);
+    const baseId = nodeDraft.layers?.[0]?.id ?? null;
+    setActiveLayerId(baseId);
+  }, [nodeDraft?.id, setActiveLayerId]);
 
   /* Commit final + feedback + salida del editor */
   const doCommitWithToastAndExit = useCallback(() => {
     const res = commitNode();
     if (!res) return;
 
-    setErrors({});
+    clearNodeErrors();
+
     const label = (res.title ?? "").trim() || "Escena";
 
     toast.success(res.mode === "creating" ? "Escena creada" : "Cambios guardados", `“${label}”`);
 
     cancelNodeDraft();
     navigateOut();
-  }, [commitNode, cancelNodeDraft, navigateOut]);
+  }, [commitNode, clearNodeErrors, cancelNodeDraft, navigateOut]);
 
   /* Commit específico cuando la escena pertenece a una región de mapa y puede ser o no la entrada de dicha región */
   const doCommitSceneWithMapEntry = useCallback(
     (forceIsEntry?: boolean) => {
-      if (!nodeDraft?.mapLocation) {
+      const latestDraft = useEditorStore.getState().nodeDraft;
+
+      if (!latestDraft?.mapLocation) {
         doCommitWithToastAndExit();
         return;
       }
 
-      const nextIsEntry = typeof forceIsEntry === "boolean" ? forceIsEntry : Boolean(nodeDraft.mapLocation.isEntry);
+      const nextIsEntry = typeof forceIsEntry === "boolean" ? forceIsEntry : Boolean(latestDraft.mapLocation.isEntry);
 
-      setNodeMapLocation({ mapId: nodeDraft.mapLocation.mapId, regionId: nodeDraft.mapLocation.regionId, isEntry: nextIsEntry });
+      setNodeMapLocation({ mapId: latestDraft.mapLocation.mapId, regionId: latestDraft.mapLocation.regionId, isEntry: nextIsEntry });
 
       doCommitWithToastAndExit();
-    }, [nodeDraft, setNodeMapLocation, doCommitWithToastAndExit],
+    }, [setNodeMapLocation, doCommitWithToastAndExit],
   );
 
   /* Acción principal: validar, detectar conflictos y guardar */
   const handlePrimary = useCallback(() => {
-    if (!nodeDraft || !project) return;
+    if (!project) return;
 
     if (!commitActiveInteractiveDraftsForScene()) return;
 
-    const res = validateNodeDraft(nodeDraft, {
-      projectNodes: (project.nodes ?? []).map((n) => ({ id: n.id, title: n.title })),
-      currentNodeId: excludeId,
-    });
+    const latestDraft = useEditorStore.getState().nodeDraft;
+    if (!latestDraft || !project) return;
 
-    setErrors(res.errors);
+    const res = validateNodeDraft(latestDraft, { project, currentNodeId: excludeId });
+
+    setNodeErrors(res.errors);
 
     if (!res.ok) {
-      const first =
-        res.errors.title ??
-        res.errors.layers ??
-        res.errors.mapLocation ??
-        res.errors.musicTrackId ??
-        res.errors.meta ??
-        "Revisa el formulario.";
+      const first = res.errors.title ?? res.errors.layers ?? res.errors.mapLocation ?? res.errors.musicTrackId ??
+        res.errors.isFinal ?? res.errors.isStart ?? res.errors.meta ?? "Revisa el formulario.";
 
       toast.error("No se pudo guardar", first);
       return;
     }
 
-    const startConflict = findStartConflict({ nodes: project.nodes ?? [], wantsStart: Boolean(nodeDraft.isStart), excludeId });
+    const startConflict = findStartConflict({ nodes: project.nodes ?? [], wantsStart: Boolean(latestDraft.isStart), excludeId });
 
     if (startConflict) {
       setExistingStartTitle(startConflict.title);
@@ -252,46 +229,45 @@ useEffect(() => {
       return;
     }
 
-    const regionInfo = getRegionInfo({ nodes: project.nodes ?? [], nodeDraft, excludeId, currentNodeId: editingNodeId ?? nodeDraft.id });
+    const regionInfo = getRegionInfo({ nodes: project.nodes ?? [], nodeDraft: latestDraft, excludeId, currentNodeId: editingNodeId ?? latestDraft.id });
 
     if (!regionInfo) {
       doCommitWithToastAndExit();
       return;
     }
 
-    const wantsEntry = Boolean(nodeDraft.mapLocation?.isEntry);
+    const wantsEntry = Boolean(latestDraft.mapLocation?.isEntry);
     const currentEntry = regionInfo.currentEntry;
 
-    // Si es la única escena de la región, debe ser entrada sí o sí.
     if (!regionInfo.hasAnyOtherScene) {
       doCommitSceneWithMapEntry(true);
       return;
     }
 
-    // Si quiere ser entrada y ya existe otra entrada distinta, preguntamos.
-    if (wantsEntry && currentEntry && currentEntry.id !== (editingNodeId ?? nodeDraft.id)) {
+    if (wantsEntry && currentEntry && currentEntry.id !== (editingNodeId ?? latestDraft.id)) {
       const entryTitle = (currentEntry.title ?? "").trim() || String(currentEntry.id);
+
       setExistingRegionEntryTitle(entryTitle);
       setMapEntryConflictModalOpen(true);
       return;
     }
 
     doCommitSceneWithMapEntry();
-  }, [nodeDraft, project, excludeId, editingNodeId, commitActiveInteractiveDraftsForScene, doCommitWithToastAndExit, doCommitSceneWithMapEntry]);
+  }, [project, excludeId, editingNodeId, commitActiveInteractiveDraftsForScene, setNodeErrors, doCommitWithToastAndExit, doCommitSceneWithMapEntry]);
 
   /* Cancelación del editor */
   const handleSecondary = useCallback(() => {
-    setErrors({});
+    clearNodeErrors();
     cancelNodeDraft();
     navigateOut();
-  }, [cancelNodeDraft, navigateOut]);
+  }, [clearNodeErrors, cancelNodeDraft, navigateOut]);
 
   /* Eliminación de escena ya existente */
-const handleDelete = useCallback(() => {
-  if (!editingNodeId) return;
+  const handleDelete = useCallback(() => {
+    if (!editingNodeId) return;
 
-  deleteNode(editingNodeId);
-}, [editingNodeId, deleteNode]);
+    deleteNode(editingNodeId);
+  }, [editingNodeId, deleteNode]);
 
   /* Confirmaciones/cancelaciones de modales */
   const confirmReplace = useCallback(() => {
@@ -432,8 +408,8 @@ const handleDelete = useCallback(() => {
         open={isMapEntryConflictModalOpen}
         title="Sustituir puerta de entrada"
         description={existingRegionEntryTitle
-            ? `La región ya tiene una escena de entrada: “${existingRegionEntryTitle}”. ¿Quieres sustituirla por la escena actual?`
-            : "La región ya tiene una escena de entrada. ¿Quieres sustituirla por la escena actual?"}
+          ? `La región ya tiene una escena de entrada: “${existingRegionEntryTitle}”. ¿Quieres sustituirla por la escena actual?`
+          : "La región ya tiene una escena de entrada. ¿Quieres sustituirla por la escena actual?"}
         confirmText="Sí, sustituir"
         cancelText="No, mantener actual"
         onCancel={cancelKeepExistingRegionEntry}

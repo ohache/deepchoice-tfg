@@ -1,19 +1,14 @@
-import type { Hotspot, ID, InteractionRules, Node, PlacedItem, PlacedNpc, PlacedPlayer, Project, SceneImageLayer, TextDock } from "@/domain/types";
-import type { Condition } from "@/domain/conditions";
-import type { Effect } from "@/domain/effects";
+import type { Hotspot, ID, ItemInstance, PlacedNpc, PlacedPlayer, TextDock } from "@/domain/types";
 
-/* Resumen legible de una condición */
-export interface SceneTestConditionSummary {
+export type SceneTestConditionSummary = {
   text: string;
 }
 
-/* Resumen legible de un efecto */
-export interface SceneTestEffectSummary {
+export type SceneTestEffectSummary = {
   text: string;
 }
 
-/* Resumen legible de una regla */
-export interface SceneTestRuleSummary {
+export type SceneTestRuleSummary = {
   id: ID;
   channel: "onClick" | "onUseItem";
   phrase?: string;
@@ -22,14 +17,12 @@ export interface SceneTestRuleSummary {
   itemLabel?: string;
 }
 
-/* Resumen legible de un bloque de reglas */
-export interface SceneTestRulesSummary {
+export type SceneTestRulesSummary = {
   onClick: SceneTestRuleSummary[];
   onUseItem: SceneTestRuleSummary[];
 }
 
-/* Entrada navegable de escena */
-export interface SceneTestSceneEntry {
+export type SceneTestSceneEntry = {
   id: ID;
   title: string;
   isStart: boolean;
@@ -40,13 +33,11 @@ export interface SceneTestSceneEntry {
   textVariantCount: number;
   dialogueCount: number;
   map?: SceneTestMapSummary;
-  music?: SceneTestResolvedMusicSummary;
   layers: SceneTestLayerEntry[];
   dialogues: SceneTestDialogueEntry[];
 }
 
-/* Entrada navegable de capa */
-export interface SceneTestLayerEntry {
+export type SceneTestLayerEntry = {
   id: ID;
   label: string;
   layerIndex: number;
@@ -60,10 +51,10 @@ export interface SceneTestLayerEntry {
   placedPlayers: SceneTestPlacedPlayerEntry[];
   musicTrackId?: ID;
   musicTrackName?: string;
+  resolvedMusic?: SceneTestResolvedMusicSummary;
 }
 
-/* Variante de texto navegable */
-export interface SceneTestTextVariantEntry {
+export type SceneTestTextVariantEntry = {
   id: ID;
   label: string;
   textIndex: number;
@@ -73,8 +64,7 @@ export interface SceneTestTextVariantEntry {
   when?: SceneTestConditionSummary;
 }
 
-/* Resumen de mapa de la escena */
-export interface SceneTestMapSummary {
+export type SceneTestMapSummary = {
   mapId: ID;
   mapName: string;
   regionId: ID;
@@ -82,15 +72,14 @@ export interface SceneTestMapSummary {
   isEntry: boolean;
 }
 
-/* Música resuelta de mayor prioridad */
-export interface SceneTestResolvedMusicSummary {
+export type SceneTestResolvedMusicSummary = {
   trackId: ID;
   trackName: string;
-  source: "variante" | "escena" | "mapa";
+  source: "capa" | "escena" | "región";
 }
 
 /* Resumen de diálogo de escena */
-export interface SceneTestDialogueEntry {
+export type SceneTestDialogueEntry = {
   id: ID;
   title: string;
   playerId: ID;
@@ -100,26 +89,22 @@ export interface SceneTestDialogueEntry {
   when?: SceneTestConditionSummary;
 }
 
-/* Unión de tipos de target que se pueden inspeccionar */
-export type SceneTestInspectableType = "hotspot" | "placedItem" | "placedNpc" | "placedPlayer";
+type SceneTestInspectableType = "hotspot" | "placedItem" | "placedNpc" | "placedPlayer";
 
-/* Estado inicial resumido y uniforme */
-export interface SceneTestInitialStateSummary {
+export type SceneTestInitialStateSummary = {
   visible?: boolean;
   reachable?: boolean;
   notReachableText?: string;
 }
 
-/* Variable resumida */
-export interface SceneTestVarEntry {
+export type SceneTestVarEntry = {
   id: ID;
   name: string;
   type: "number" | "boolean";
   initialText: string;
 }
 
-/* Hotspot inspeccionable */
-export interface SceneTestHotspotEntry {
+export type SceneTestHotspotEntry = {
   type: "hotspot";
   id: ID;
   label: string;
@@ -129,20 +114,18 @@ export interface SceneTestHotspotEntry {
   rules: SceneTestRulesSummary;
 }
 
-/* Item colocado inspeccionable */
-export interface SceneTestPlacedItemEntry {
+export type SceneTestPlacedItemEntry = {
   type: "placedItem";
   id: ID;
   label: string;
-  raw: PlacedItem;
+  raw: ItemInstance;
   itemId: ID;
   itemName: string;
   initialState: SceneTestInitialStateSummary;
   rules: SceneTestRulesSummary;
 }
 
-/* NPC colocado inspeccionable */
-export interface SceneTestPlacedNpcEntry {
+export type SceneTestPlacedNpcEntry = {
   type: "placedNpc";
   id: ID;
   raw: PlacedNpc;
@@ -153,8 +136,7 @@ export interface SceneTestPlacedNpcEntry {
   rules: SceneTestRulesSummary;
 }
 
-/* Player colocado inspeccionable */
-export interface SceneTestPlacedPlayerEntry {
+export type SceneTestPlacedPlayerEntry = {
   type: "placedPlayer";
   id: ID;
   raw: PlacedPlayer;
@@ -166,35 +148,22 @@ export interface SceneTestPlacedPlayerEntry {
   vars: SceneTestVarEntry[];
 }
 
-/* Estado inicial específico de player colocado */
-export interface SceneTestPlacedPlayerInitialStateSummary {
-  visible?: boolean;
-}
+type SceneTestPlacedPlayerInitialStateSummary = Pick<SceneTestInitialStateSummary, "visible">
 
-/* Unión de todos los elementos inspeccionables */
 export type SceneTestInspectableEntry = SceneTestHotspotEntry | SceneTestPlacedItemEntry | SceneTestPlacedNpcEntry | SceneTestPlacedPlayerEntry;
 
-/* Referencia ligera al target hovered/seleccionado */
-export interface SceneTestInspectableRef {
+export type SceneTestInspectableRef = {
   type: SceneTestInspectableType;
   id: ID;
 }
 
-/* Estado de tarjeta de información */
-export interface SceneTestInfoCardState {
-  hovered: SceneTestInspectableRef | null;
-  pinned: SceneTestInspectableRef | null;
-}
-
-/* Modelo completo del SceneTestView */
-export interface SceneTestViewModel {
+export type SceneTestViewModel = {
   projectId: ID;
   projectTitle: string;
   scenes: SceneTestSceneEntry[];
 }
 
-/* Contexto de resolución de nombres/referencias */
-export interface SceneTestBuildIndexes {
+export type SceneTestBuildIndexes = {
   itemNameById: Record<ID, string>;
   placedItemNamesById: Record<ID, string>;
   npcNameById: Record<ID, string>;
@@ -213,34 +182,4 @@ export interface SceneTestBuildIndexes {
   hotspotVarNamesByScopedId: Record<string, string>;
 }
 
-/* Payload base que luego consumirá el renderer del test */
-export interface SceneTestStageData {
-  imageAssetId?: ID;
-  imageSrcLabel?: string;
-  hotspots: SceneTestHotspotEntry[];
-  placedItems: SceneTestPlacedItemEntry[];
-  placedNpcs: SceneTestPlacedNpcEntry[];
-  placedPlayers: SceneTestPlacedPlayerEntry[];
-  activeTextVariant?: SceneTestTextVariantEntry;
-}
-
-/* Estructuras raw que pueden ser útiles para formatters */
-export interface SceneTestRawRuleInput {
-  rules?: InteractionRules;
-}
-
-export interface SceneTestRawConditionInput {
-  when?: Condition;
-}
-
-export interface SceneTestRawEffectsInput {
-  effects?: Effect[];
-}
-
-/* Estructura mínima común de capa raw */
-export interface SceneTestLayerBuildInput {
-  project: Project;
-  node: Node;
-  layer: SceneImageLayer;
-  layerIndex: number;
-}
+export type SceneTestFormatContext = Partial<SceneTestBuildIndexes>;

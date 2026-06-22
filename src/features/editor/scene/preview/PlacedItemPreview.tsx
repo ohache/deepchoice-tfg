@@ -1,46 +1,33 @@
-import { useMemo, type CSSProperties } from "react";
-import type { ID, PlacedItem, Project } from "@/domain/types";
+import { useMemo } from "react";
+import type { ID, ItemInstance, Project } from "@/domain/types";
 import { useResolvedAssetUrl } from "@/features/editor/hooks/useResolvedAssetUrl";
 import { rectStyleFromShape } from "@/features/editor/hooks/regionShape";
 import type { Rect } from "@/features/editor/hooks/useObjectContainRect";
+import { canRenderPreviewLabel, getCssRectSize, mergePreviewDraft } from "@/features/editor/scene/preview/previewRenderHelpers";
 
 type PlacedItemPreviewProps = {
-  placedItems: PlacedItem[];
+  placedItems: ItemInstance[];
   project: Project | null;
   contentRectInContainer: Rect | null;
-  draftItem?: PlacedItem | null;
+  draftItem?: ItemInstance | null;
 };
 
 type PlacedItemPreviewCardProps = {
-  item: PlacedItem;
+  item: ItemInstance;
   assetId: ID | null;
   contentRectInContainer: Rect | null;
 };
 
-function pxToNumber(value: CSSProperties["width"] | CSSProperties["height"]): number {
-  if (typeof value === "number") return value;
-  if (typeof value === "string") return Number(value.replace("px", "")) || 0;
-  return 0;
-}
-
-function canRenderLabel(label: string, width: number, height: number): boolean {
-  return Boolean(label) && width >= 50 && height >= 20;
-}
-
 function PlacedItemPreviewCard({ item, assetId, contentRectInContainer }: PlacedItemPreviewCardProps) {
   const imageUrl = useResolvedAssetUrl(assetId);
-  const style = rectStyleFromShape(item.shape ?? null, contentRectInContainer);
+  const style = rectStyleFromShape(item.placement?.shape ?? null, contentRectInContainer);
 
-  const sizeInfo = useMemo(() => {
-    if (!style) return { width: 0, height: 0 };
-
-    return { width: pxToNumber(style.width), height: pxToNumber(style.height) };
-  }, [style]);
+  const sizeInfo = useMemo(() => getCssRectSize(style), [style]);
 
   if (!style) return null;
 
   const label = (item.label ?? "").trim();
-  const showLabel = canRenderLabel(label, sizeInfo.width, sizeInfo.height);
+  const showLabel = canRenderPreviewLabel({ label, width: sizeInfo.width, height: sizeInfo.height });
 
   return (
     <div
@@ -51,7 +38,7 @@ function PlacedItemPreviewCard({ item, assetId, contentRectInContainer }: Placed
       {imageUrl ? (
         <img
           src={imageUrl}
-          alt={label || "Item"}
+          alt={label || "Objeto"}
           className="absolute inset-0 h-full w-full select-none object-fill pointer-events-none"
           draggable={false}
         />
@@ -71,23 +58,18 @@ function PlacedItemPreviewCard({ item, assetId, contentRectInContainer }: Placed
 }
 
 export function PlacedItemPreview({ placedItems, project, contentRectInContainer, draftItem = null }: PlacedItemPreviewProps) {
-  const assetIdByItemId = useMemo(() => {
+  const itemAssetIds = useMemo(() => {
     const assets = project?.assets ?? [];
-    const map = new Map<ID, ID>();
+    const ids  = new Set<ID>();
 
     for (const asset of assets) {
-      if (asset.kind !== "items") continue;
-      map.set(asset.id, asset.id);
+      if (asset.kind === "items") ids.add(asset.id);
     }
 
-    return map;
+    return ids;
   }, [project?.assets]);
 
-  const itemsToRender = useMemo(() => {
-    const baseItems = draftItem ? placedItems.filter((item) => item.id !== draftItem.id) : placedItems;
-
-    return draftItem ? [...baseItems, draftItem] : baseItems;
-  }, [placedItems, draftItem]);
+  const itemsToRender = useMemo(() => mergePreviewDraft(placedItems, draftItem, (item) => item.itemInstanceId), [placedItems, draftItem]);
 
   if (!itemsToRender.length) return null;
 
@@ -95,9 +77,9 @@ export function PlacedItemPreview({ placedItems, project, contentRectInContainer
     <>
       {itemsToRender.map((item) => (
         <PlacedItemPreviewCard
-          key={item.id}
+          key={item.itemInstanceId}
           item={item}
-          assetId={assetIdByItemId.get(item.itemId) ?? null}
+          assetId={itemAssetIds.has(item.itemId) ? item.itemId : null}
           contentRectInContainer={contentRectInContainer}
         />
       ))}

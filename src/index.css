@@ -3,6 +3,17 @@
 /* =========================
            BASE GLOBAL
    ========================= */
+html, body, #root {
+  min-height: 100%;
+  background: #020617;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
 
 body {
   font-family: "Merriweather", serif;
@@ -541,4 +552,57 @@ input[type="number"]::-webkit-outer-spin-button,
 input[type="number"]::-webkit-inner-spin-button {
   -webkit-appearance: none;
   margin: 0;
+}
+
+@keyframes bottomBarUp {
+  0% {
+    opacity: 0;
+    transform: translateY(32px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes inventoryDrop {
+  0% {
+    opacity: 0;
+    transform: translateY(-28px) scale(0.98);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes inventoryRise {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateY(-28px) scale(0.98);
+  }
+}
+
+@keyframes hotspotPulse {
+  0% {
+    transform: scale(0.985);
+    opacity: 0.7;
+  }
+
+  50% {
+    transform: scale(1.035);
+    opacity: 1;
+  }
+
+  100% {
+    transform: scale(0.985);
+    opacity: 0.7;
+  }
 }

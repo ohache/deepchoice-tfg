@@ -1,4 +1,4 @@
-import type { Hotspot, ID, InteractionRules, PlaceableState, PlacedItem, PlacedNpc, PlacedPlayer, PlacedPlayerState, RegionShape, RulePhrase } from "@/domain/types";
+import type { Hotspot, ID, InteractionRules, PlaceableState, ItemInstance, PlacedNpc, PlacedPlayer, RegionShape } from "@/domain/types";
 import type { HotspotDraft, HotspotEditorState, HotspotRuleChannel } from "@/features/editor/scene/hotspots/hotspotEditorTypes";
 import type { PlacedItemDraft, PlacedItemEditorState, PlacedItemRuleChannel } from "@/features/editor/scene/placedItems/placedItemEditorTypes";
 import type { PlacedNpcDraft, PlacedNpcEditorState, PlacedNpcRuleChannel } from "@/features/editor/scene/placedNpcs/placedNpcEditorTypes";
@@ -9,19 +9,15 @@ import { validatePlacedNpc } from "@/features/editor/scene/placedNpcs/placedNpcV
 import { validatePlacedPlayer } from "@/features/editor/scene/placedPlayers/placedPlayerValidator";
 import { generateId } from "@/utils/id";
 
-export function defaultInitialState(): PlaceableState {
+function defaultInitialState(): PlaceableState {
   return { visible: true, reachable: true };
 }
 
-export function defaultPlayerInitialState(): PlacedPlayerState {
-  return { visible: true };
-}
-
-export function defaultRules(): InteractionRules {
+function defaultRules(): InteractionRules {
   return {};
 }
 
-export function defaultChannel(): { type: "onClick" } {
+function defaultChannel(): { type: "onClick" } {
   return { type: "onClick" };
 }
 
@@ -30,53 +26,7 @@ export function buildContext(activeLayerId: ID | null): { layerId: ID } | null {
   return { layerId: activeLayerId };
 }
 
-/* Convierte el gesto de dibujo actual en un rectángulo normalizado */
-export function rectFromGesture(gesture: { startX: number; startY: number; currentX: number; currentY: number }): RegionShape {
-  const x = Math.min(gesture.startX, gesture.currentX);
-  const y = Math.min(gesture.startY, gesture.currentY);
-  const w = Math.abs(gesture.currentX - gesture.startX);
-  const h = Math.abs(gesture.currentY - gesture.startY);
-
-  return { type: "rect", x, y, w, h };
-}
-
-export function addRuleToRules(
-  rules: InteractionRules | undefined,
-  channel: { type: "onClick" } | { type: "onUseItem"; itemInstanceId: ID },
-  ruleId: ID,
-  phrase?: RulePhrase,
-): InteractionRules {
-  const nextPhraseText = phrase?.text.trim();
-
-  const baseRule = {
-    id: ruleId,
-    ...(phrase && nextPhraseText ? { phrase: { ...phrase, text: nextPhraseText } } : {}),
-    effects: [],
-  };
-
-  const currentRules = rules ?? {};
-
-  return channel.type === "onClick"
-    ? {
-        ...currentRules,
-        onClick: [...(currentRules.onClick ?? []), baseRule],
-      }
-    : {
-        ...currentRules,
-        onUseItem: [...(currentRules.onUseItem ?? []), { ...baseRule, itemInstanceId: channel.itemInstanceId }],
-      };
-}
-
-export function removeRuleFromRules(rules: InteractionRules | undefined, channel: { type: "onClick" } | { type: "onUseItem"; itemInstanceId: ID },
-  ruleId: ID): InteractionRules {
-  const currentRules = rules ?? {};
-
-  return channel.type === "onClick"
-    ? { ...currentRules, onClick: (currentRules.onClick ?? []).filter((rule) => rule.id !== ruleId)}
-    : { ...currentRules, onUseItem: (currentRules.onUseItem ?? []).filter((rule) => rule.id !== ruleId)};
-}
-
-export function isLabelUnique<T>(label: string, items: T[], getId: (item: T) => ID, getLabel: (item: T) => string, selfId?: ID): boolean {
+function isLabelUnique<T>(label: string, items: T[], getId: (item: T) => ID, getLabel: (item: T) => string, selfId?: ID): boolean {
   const nextLabel = label.trim().toLowerCase();
 
   return !items.some((item) => {
@@ -112,18 +62,18 @@ export function buildDraftFromHotspot(hotspot: Hotspot): HotspotDraft {
     shape: hotspot.shape,
     initialState: hotspot.initialState,
     vars: hotspot.vars ?? [],
-    rules: hotspot.rules ?? {},
+    rules: hotspot.rules ?? defaultRules(),
   };
 }
 
-export function buildHotspotCandidateFromDraft(draft: HotspotDraft & { shape: RegionShape }): Hotspot {
+function buildHotspotCandidateFromDraft(draft: HotspotDraft & { shape: RegionShape }): Hotspot {
   return {
     id: draft.id,
-    label: (draft.label ?? "").trim(),
+    label: draft.label.trim(),
     shape: draft.shape,
     initialState: draft.initialState,
     vars: draft.vars ?? [],
-    rules: draft.rules ?? {},
+    rules: draft.rules ?? defaultRules(),
   };
 }
 
@@ -137,12 +87,7 @@ export function validateHotspotDraftCandidate(draft: HotspotDraft | null) {
   const result = validateHotspot(candidate);
 
   if (!result.ok) {
-    const message =
-      result.errors.rules ??
-      result.errors.label ??
-      result.errors.shape ??
-      result.errors.initialState ??
-      "El hotspot no es válido.";
+    const message = result.errors.rules ?? result.errors.label ?? result.errors.shape ?? result.errors.initialState ?? "El hotspot no es válido.";
 
     return { ok: false as const, error: message };
   }
@@ -159,66 +104,57 @@ export const initialPlacedItemEditorState: PlacedItemEditorState = {
   drawing: null,
 };
 
-export function createDefaultPlacedItemRules(itemInstanceId: ID): InteractionRules {
-  return { onClick: [{ id: generateId.rule(), effects: [{ type: "addItem", itemInstanceId }] }]};
-}
-
 export function buildEmptyPlacedItemDraft(input: { itemId: ID; label?: string }): PlacedItemDraft {
-  const placedItemId = generateId.itemPlaced();
-
   return {
-    id: placedItemId,
+    itemInstanceId: generateId.itemInstance(),
     itemId: input.itemId,
-    label: input.label ?? "",
-    shape: null,
-    initialState: defaultInitialState(),
-    rules: createDefaultPlacedItemRules(placedItemId),
+    label: input.label?.trim() ?? "",
+    rules: defaultRules(),
+    placement: { shape: null, initialState: defaultInitialState() },
   };
 }
 
-export function buildDraftFromPlacedItem(placedItem: PlacedItem): PlacedItemDraft {
+export function buildDraftFromPlacedItem(placedItem: ItemInstance): PlacedItemDraft {
   return {
-    id: placedItem.id,
+    itemInstanceId: placedItem.itemInstanceId,
     itemId: placedItem.itemId,
     label: placedItem.label,
-    shape: placedItem.shape,
-    initialState: placedItem.initialState,
-    rules: placedItem.rules ?? {},
+    rules: placedItem.rules ?? defaultRules(),
+    placement: { shape: placedItem.placement?.shape ?? null, initialState: placedItem.placement?.initialState ?? defaultInitialState() },
   };
 }
 
-export function buildPlacedItemCandidateFromDraft(draft: PlacedItemDraft & { shape: RegionShape }): PlacedItem {
+type PlacedItemCandidate = Omit<ItemInstance, "placement"> & {
+  placement: { shape: RegionShape; initialState: PlaceableState };
+};
+
+function buildPlacedItemCandidateFromDraft(draft: PlacedItemDraft & { placement: { shape: RegionShape; initialState: PlaceableState }}): PlacedItemCandidate {
   return {
-    id: draft.id,
+    itemInstanceId: draft.itemInstanceId,
     itemId: draft.itemId,
     label: draft.label.trim(),
-    shape: draft.shape,
-    initialState: draft.initialState,
-    rules: draft.rules ?? {},
+    rules: draft.rules ?? defaultRules(),
+    placement: { shape: draft.placement.shape, initialState: draft.placement.initialState },
   };
 }
 
-export function validatePlacedItemDraftCandidate(draft: PlacedItemDraft | null, placedItems: PlacedItem[]) {
+export function validatePlacedItemDraftCandidate(draft: PlacedItemDraft | null, placedItems: ItemInstance[]) {
   if (!draft) return { ok: false as const, error: "No hay borrador de placedItem." };
 
-  if (!draft.shape) return { ok: false as const, error: "Debes dibujar un área válida antes de guardar el item." };
+  const shape = draft.placement.shape;
 
-  if (!isLabelUnique(draft.label, placedItems, (item) => item.id, (item) => item.label, draft.id)) {
+  if (!shape) return { ok: false as const, error: "Debes dibujar un área válida antes de guardar el item." };
+
+  if (!isLabelUnique(draft.label, placedItems, (item) => item.itemInstanceId, (item) => item.label, draft.itemInstanceId)) {
     return { ok: false as const, error: "El label del placedItem debe ser único en la capa activa." };
   }
 
-  const candidate = buildPlacedItemCandidateFromDraft({ ...draft, shape: draft.shape });
+  const candidate = buildPlacedItemCandidateFromDraft({ ...draft, placement: { ...draft.placement, shape }});
 
   const result = validatePlacedItem(candidate);
 
   if (!result.ok) {
-    const message =
-      result.errors.rules ??
-      result.errors.label ??
-      result.errors.itemId ??
-      result.errors.shape ??
-      result.errors.initialState ??
-      "El item colocado no es válido.";
+    const message = result.errors.rules ?? result.errors.label ?? result.errors.itemId ?? result.errors.itemInstanceId ?? result.errors.placement ?? "El item colocado no es válido.";
 
     return { ok: false as const, error: message };
   }
@@ -249,16 +185,16 @@ export function buildDraftFromPlacedNpc(placedNpc: PlacedNpc): PlacedNpcDraft {
     npcId: placedNpc.npcId,
     shape: placedNpc.shape,
     initialState: placedNpc.initialState,
-    rules: placedNpc.rules ?? {},
+    rules: placedNpc.rules ?? defaultRules(),
   };
 }
 
-export function buildPlacedNpcCandidateFromDraft(draft: PlacedNpcDraft & { shape: RegionShape }): PlacedNpc {
+function buildPlacedNpcCandidateFromDraft(draft: PlacedNpcDraft & { shape: RegionShape }): PlacedNpc {
   return {
     npcId: draft.npcId,
     shape: draft.shape,
     initialState: draft.initialState,
-    rules: draft.rules ?? {},
+    rules: draft.rules ?? defaultRules(),
   };
 }
 
@@ -272,12 +208,7 @@ export function validatePlacedNpcDraftCandidate(draft: PlacedNpcDraft | null) {
   const result = validatePlacedNpc(candidate);
 
   if (!result.ok) {
-    const message =
-      result.errors.rules ??
-      result.errors.npcId ??
-      result.errors.shape ??
-      result.errors.initialState ??
-      "El NPC colocado no es válido.";
+    const message = result.errors.rules ?? result.errors.npcId ?? result.errors.shape ?? result.errors.initialState ?? "El NPC colocado no es válido.";
 
     return { ok: false as const, error: message };
   }
@@ -299,7 +230,7 @@ export function buildEmptyPlacedPlayerDraft(input: { playerId: ID; initialImageI
     playerId: input.playerId,
     initialImageId: input.initialImageId,
     shape: null,
-    initialState: defaultPlayerInitialState(),
+    initialState: { visible: true },
   };
 }
 
@@ -312,7 +243,7 @@ export function buildDraftFromPlacedPlayer(placedPlayer: PlacedPlayer): PlacedPl
   };
 }
 
-export function buildPlacedPlayerCandidateFromDraft(draft: PlacedPlayerDraft & { shape: RegionShape }): PlacedPlayer {
+function buildPlacedPlayerCandidateFromDraft(draft: PlacedPlayerDraft & { shape: RegionShape }): PlacedPlayer {
   return {
     playerId: draft.playerId,
     initialImageId: draft.initialImageId,
@@ -331,12 +262,7 @@ export function validatePlacedPlayerDraftCandidate(draft: PlacedPlayerDraft | nu
   const result = validatePlacedPlayer(candidate);
 
   if (!result.ok) {
-    const message =
-      result.errors.initialImageId ??
-      result.errors.playerId ??
-      result.errors.shape ??
-      result.errors.initialState ??
-      "El player colocado no es válido.";
+    const message = result.errors.initialImageId ?? result.errors.playerId ?? result.errors.shape ?? result.errors.initialState ?? "El player colocado no es válido.";
 
     return { ok: false as const, error: message };
   }

@@ -1,17 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Project, ID } from "@/domain/types";
-import { generateId } from "@/utils/id";
 import { conditionSchema } from "@/validation/rulesSchemas";
 import { createProjectIndex } from "@/features/editor/scene/rules/conditions/conditionProjectIndex";
-import {
-  createDefaultLeaf, createSiblingLeafPreservingSelection, getConditionFamilies, leafFamily, leafLabel, getLeafValidationError, summarize,
-  type ConditionFamilyId, type EnabledLeafType, type EnabledLeafCondition
-} from "@/features/editor/scene/rules/conditions/conditionLeafRegistry";
-import {
-  ensureAtLeastOneGroup, makeAtom, moveAtomBetweenGroups, pruneEmptyGroups, uiDraftToCondition,
-  type UiDraft, type UiGroup
-} from "@/features/editor/scene/rules/conditions/conditionDraftMapper";
+import { createDefaultLeaf, createSiblingLeafPreservingSelection, getConditionFamilies, leafFamily, leafLabel, getLeafValidationError, summarize,
+  type ConditionFamilyId, type EnabledLeafType, type EnabledLeafCondition} from "@/features/editor/scene/rules/conditions/conditionLeafRegistry";
+import { ensureAtLeastOneGroup, makeAtom, moveAtomBetweenGroups, pruneEmptyGroups,
+  type UiDraft, type UiGroup} from "@/features/editor/scene/rules/conditions/conditionDraftMapper";
 import { ConditionLeafEditor } from "@/features/editor/scene/rules/conditions/ConditionLeafEditor";
+import { generateId } from "@/utils/id";
 import { Select, type Option } from "@/components/Select";
 import { Pencil, Trash2 } from "lucide-react";
 import { toast } from "@/shared/toast/toastStore";
@@ -47,12 +43,7 @@ function groupLabel(index: number): string {
 }
 
 /* Snapshot mínimo para detectar cambios reales en el composer cuando se está editando una condición existente */
-function buildComposerSnapshot(args: {
-  family: ConditionFamilyId | "";
-  cond: EnabledLeafCondition | null;
-  not: boolean;
-  groupId: ID | "new" | "";
-}): string {
+function buildComposerSnapshot(args: { family: ConditionFamilyId | ""; cond: EnabledLeafCondition | null; not: boolean; groupId: ID | "new" | "" }): string {
   const { family, cond, not, groupId } = args;
   if (!family || !cond) return "";
   return JSON.stringify({ family, cond, not, groupId: groupId || "" });
@@ -60,24 +51,13 @@ function buildComposerSnapshot(args: {
 
 /* Valida una condición leaf aislada montando un draft temporal mínimo */
 function validateComposerCondition(cond: EnabledLeafCondition, not: boolean): boolean {
-  const tmpGroupId: ID = "tmp";
-
-  const tmpDraft: UiDraft = {
-    groups: [{ id: tmpGroupId, atoms: [makeAtom(cond, not)] }],
-    lastGroupId: tmpGroupId,
-  };
-
-  const parsed = conditionSchema.safeParse(uiDraftToCondition(pruneEmptyGroups(tmpDraft)));
-
-  return parsed.success;
+  const condition = not ? { type: "not", cond } : cond;
+  return conditionSchema.safeParse(condition).success;
 }
 
 /* Crea las opciones del selector de grupos */
 function buildGroupSelectOptions(groups: UiGroup[]): Option<string>[] {
-  const existing = groups.map((group, index) => ({
-    id: group.id,
-    label: groupLabel(index),
-  }));
+  const existing = groups.map((group, index) => ({ id: group.id, label: groupLabel(index) }));
 
   return [...existing, { id: "new", label: "Crear grupo nuevo" }];
 }
@@ -120,20 +100,14 @@ export function ConditionGroups({ project, currentNodeId, value, onChange, onBus
   const hasAnyCondition = useMemo(() => groups.some((group) => (group.atoms?.length ?? 0) > 0), [groups]);
 
   const currentSnapshot = useMemo(() =>
-    buildComposerSnapshot({
-      family: composerFamily,
-      cond: composerCond,
-      not: composerNot,
-      groupId: targetGroup,
-    }), [composerFamily, composerCond, composerNot, targetGroup]
+    buildComposerSnapshot({ family: composerFamily, cond: composerCond, not: composerNot, groupId: targetGroup }),
+    [composerFamily, composerCond, composerNot, targetGroup]
   );
 
   const composerValidation = useMemo(() => {
     if (!composerFamily || !composerCond) return { ok: false };
 
-    return {
-      ok: validateComposerCondition(composerCond, composerNot),
-    };
+    return { ok: validateComposerCondition(composerCond, composerNot) };
   }, [composerFamily, composerCond, composerNot]);
 
   const canSave = useMemo(() => {
@@ -148,10 +122,7 @@ export function ConditionGroups({ project, currentNodeId, value, onChange, onBus
     if (!composerFamily) return [];
     const family = availableFamilies.find((item) => item.id === composerFamily);
 
-    return (family?.leafTypes ?? []).map((type) => ({
-      id: type,
-      label: leafLabel(type),
-    }));
+    return (family?.leafTypes ?? []).map((type) => ({ id: type, label: leafLabel(type) }));
   }, [availableFamilies, composerFamily]);
 
   useEffect(() => { onBusyChange?.(composerOpen || isEditing); }, [composerOpen, isEditing, onBusyChange]);
@@ -187,12 +158,7 @@ export function ConditionGroups({ project, currentNodeId, value, onChange, onBus
 
     const family = leafFamily(atom.cond.type);
 
-    const snapshot = buildComposerSnapshot({
-      family,
-      cond: atom.cond,
-      not: Boolean(atom.not),
-      groupId,
-    });
+    const snapshot = buildComposerSnapshot({ family, cond: atom.cond, not: Boolean(atom.not), groupId });
 
     setEditRef({ groupId, atomId });
     setComposerOpen(true);
@@ -203,24 +169,20 @@ export function ConditionGroups({ project, currentNodeId, value, onChange, onBus
     setInitialSnapshot(snapshot);
   };
 
-  const handleChangeFamily = (family: ConditionFamilyId | "") => {
-    setComposerFamily(family);
+const handleChangeFamily = (family: ConditionFamilyId | "") => {
+  setComposerFamily(family);
+  setComposerError(null);
 
-    if (!family) {
-      setComposerCond(null);
-      return;
-    }
+  if (!family) {
+    setComposerCond(null);
+    return;
+  }
 
-    if (family === "progress") {
-      setComposerCond(null);
-      return;
-    }
+  const familySpec = availableFamilies.find((item) => item.id === family);
+  const firstType = familySpec?.leafTypes[0];
 
-    const familySpec = availableFamilies.find((item) => item.id === family);
-    const firstType = familySpec?.leafTypes[0];
-
-    setComposerCond(firstType ? createDefaultLeaf(firstType) : null);
-  };
+  setComposerCond(firstType ? createDefaultLeaf(firstType) : null);
+};
 
   const handleChangeLeafType = (type: EnabledLeafType) => {
     setComposerCond((prev) => {
@@ -228,7 +190,6 @@ export function ConditionGroups({ project, currentNodeId, value, onChange, onBus
       return createSiblingLeafPreservingSelection(ctx, prev, type);
     });
   };
-
 
   const saveEditedAtomToNewGroup = (draft: UiDraft, fromGroupId: ID, atomId: ID, cond: EnabledLeafCondition, not: boolean) => {
     const fromGroup = draft.groups.find((group) => group.id === fromGroupId);
@@ -239,17 +200,12 @@ export function ConditionGroups({ project, currentNodeId, value, onChange, onBus
     const newAtom = { ...atom, not, cond };
 
     const nextGroups = draft.groups.map((group) =>
-      group.id === fromGroupId
-        ? { ...group, atoms: group.atoms.filter((item) => item.id !== atomId) }
-        : group
+      group.id === fromGroupId ? { ...group, atoms: group.atoms.filter((item) => item.id !== atomId) } : group
     ).concat([{ id: newGroupId, atoms: [newAtom] }]);
 
     const pruned = pruneEmptyGroups({ ...draft, groups: nextGroups });
 
-    onChange({
-      ...pruned,
-      lastGroupId: newGroupId,
-    });
+    onChange({ ...pruned, lastGroupId: newGroupId });
 
     toast.success("Condición guardada", "Actualizada y movida a un grupo nuevo.");
     closeComposer();
@@ -262,29 +218,18 @@ export function ConditionGroups({ project, currentNodeId, value, onChange, onBus
 
     const nextGroups = draft.groups.map((group) => {
       if (group.id === fromGroupId && fromGroupId !== toGroupId) {
-        return {
-          ...group,
-          atoms: group.atoms.filter((item) => item.id !== atomId),
-        };
+        return { ...group, atoms: group.atoms.filter((item) => item.id !== atomId) };
       }
 
       if (group.id === fromGroupId && fromGroupId === toGroupId) {
-        return {
-          ...group,
-          atoms: group.atoms.map((item) =>
-            item.id === atomId ? { ...item, not, cond } : item
-          ),
-        };
+        return { ...group, atoms: group.atoms.map((item) => item.id === atomId ? { ...item, not, cond } : item) };
       }
 
       if (group.id === toGroupId) {
         const withoutOriginal = group.atoms.filter((item) => item.id !== atomId);
         const updatedAtom = { ...atom, not, cond };
 
-        return {
-          ...group,
-          atoms: [...withoutOriginal, updatedAtom],
-        };
+        return { ...group, atoms: [...withoutOriginal, updatedAtom] };
       }
 
       return group;
@@ -292,50 +237,32 @@ export function ConditionGroups({ project, currentNodeId, value, onChange, onBus
 
     const pruned = pruneEmptyGroups({ ...draft, groups: nextGroups });
 
-    onChange({
-      ...pruned,
-      lastGroupId: toGroupId,
-    });
+    onChange({ ...pruned, lastGroupId: toGroupId });
 
     toast.success("Condición guardada", "Actualizada correctamente.");
     closeComposer();
   };
 
   const createAtomInNewGroup = (draft: UiDraft, atom: ReturnType<typeof makeAtom>) => {
-    const newGroup: UiGroup = {
-      id: generateId.conditionGroup(),
-      atoms: [atom],
-    };
+    const newGroup: UiGroup = { id: generateId.conditionGroup(), atoms: [atom] };
 
-    onChange({
-      ...draft,
-      groups: [...draft.groups, newGroup],
-      lastGroupId: newGroup.id,
-    });
+    onChange({ ...draft, groups: [...draft.groups, newGroup], lastGroupId: newGroup.id });
 
     toast.success("Condición creada", "Añadida como nuevo grupo.");
     closeComposer();
   };
 
   const createAtomInExistingGroup = (draft: UiDraft, atom: ReturnType<typeof makeAtom>, targetId: ID) => {
-    const nextGroups = draft.groups.map((group) =>
-      group.id === targetId
-        ? { ...group, atoms: [...group.atoms, atom] }
-        : group
-    );
+    const nextGroups = draft.groups.map((group) => group.id === targetId ? { ...group, atoms: [...group.atoms, atom] } : group);
 
-    onChange({
-      ...draft,
-      groups: nextGroups,
-      lastGroupId: targetId,
-    });
+    onChange({ ...draft, groups: nextGroups, lastGroupId: targetId });
 
     toast.success("Condición creada", "Añadida al grupo seleccionado.");
     closeComposer();
   };
 
   const saveFromComposer = () => {
-    if (!composerCond || !composerFamily) {
+    if (!composerCond) {
       toast.error("Falta tipo", "Selecciona el tipo de condición.");
       return;
     }
@@ -381,11 +308,7 @@ export function ConditionGroups({ project, currentNodeId, value, onChange, onBus
   };
 
   const deleteAtom = (groupId: ID, atomId: ID) => {
-    const nextGroups = groups.map((group) =>
-      group.id === groupId
-        ? { ...group, atoms: group.atoms.filter((atom) => atom.id !== atomId) }
-        : group
-    );
+    const nextGroups = groups.map((group) => group.id === groupId ? { ...group, atoms: group.atoms.filter((atom) => atom.id !== atomId) } : group);
 
     const pruned = pruneEmptyGroups({ ...value, groups: nextGroups });
     onChange(ensureAtLeastOneGroup(pruned));
@@ -395,17 +318,9 @@ export function ConditionGroups({ project, currentNodeId, value, onChange, onBus
 
   /*  Drag & drop */
   const reorderInGroup = (groupId: ID, from: number, to: number) => {
-    const nextGroups = groups.map((group) =>
-      group.id === groupId
-        ? { ...group, atoms: reorder(group.atoms, from, to) }
-        : group
-    );
+    const nextGroups = groups.map((group) => group.id === groupId ? { ...group, atoms: reorder(group.atoms, from, to) } : group);
 
-    onChange({
-      ...value,
-      groups: nextGroups,
-      lastGroupId: groupId,
-    });
+    onChange({ ...value, groups: nextGroups, lastGroupId: groupId });
   };
 
   const consumeDraggedAtom = (): DragRef | null => {
@@ -469,13 +384,14 @@ export function ConditionGroups({ project, currentNodeId, value, onChange, onBus
                     />
                   </div>
 
-                  <div
+                  <button
+                    type="button"
                     className={"btn " + (composerNot ? "btn-add-condition text-[11px]" : "btn-close-condition")}
                     onClick={() => setComposerNot((prev) => !prev)}
                     title="Negar esta condición"
                   >
                     NOT
-                  </div>
+                  </button>
                 </div>
               </div>
 
@@ -490,7 +406,6 @@ export function ConditionGroups({ project, currentNodeId, value, onChange, onBus
               </div>
             </div>
 
-            {/* Editor leaf */}
             <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
               <div className="md:col-span-12 ml-1.5">
                 <div className="bg-slate-950/25 p-2">
@@ -516,34 +431,41 @@ export function ConditionGroups({ project, currentNodeId, value, onChange, onBus
               </div>
             </div>
 
-            {/* Footer del composer */}
             <div className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center mt-4">
               <div className="md:col-span-6 flex items-center">
-                <div
-                  className={"btn btn-danger-condition " + (!isEditing ? "opacity-40 pointer-events-none" : "")}
+                <button
+                  type="button"
+                  className={"btn btn-danger-condition " + (!isEditing ? "opacity-40" : "")}
                   onClick={() => {
                     if (!editRef) return;
                     deleteAtom(editRef.groupId, editRef.atomId);
                     closeComposer();
                   }}
+                  disabled={!isEditing}
                   title={isEditing ? "Eliminar condición" : "Solo disponible al editar"}
                 >
                   Eliminar
-                </div>
+                </button>
               </div>
 
               <div className="md:col-span-6 flex items-center justify-end gap-2">
-                <div className="btn btn-close-condition" onClick={closeComposer}>
+                <button
+                  type="button"
+                  className="btn btn-close-condition"
+                  onClick={closeComposer}
+                >
                   Cerrar
-                </div>
+                </button>
 
-                <div
-                  className={"btn btn-create-condition " + (!canSave ? "opacity-40 pointer-events-none" : "")}
+                <button
+                  type="button"
+                  className={"btn btn-create-condition " + (!canSave ? "opacity-40" : "")}
                   onClick={saveFromComposer}
+                  disabled={!canSave}
                   title={!canSave ? "No hay cambios que guardar" : "Guardar"}
                 >
                   {isEditing ? "Guardar" : "Crear"}
-                </div>
+                </button>
               </div>
             </div>
           </div>
@@ -585,12 +507,7 @@ export function ConditionGroups({ project, currentNodeId, value, onChange, onBus
                                 onDragStart={() => onDragStartAtom(group.id, atomIndex)}
                                 onDragOver={(e) => e.preventDefault()}
                                 onDrop={() => onDropOnAtom(group.id, atomIndex)}
-                                className={
-                                  "rounded-md border-2 px-2 py-2 select-none " +
-                                  (atom.collapsed
-                                    ? "border-slate-700 bg-slate-950/60 hover:bg-fuchsia-950/30 hover:border-fuchsia-900"
-                                    : "border-fuchsia-500/60")
-                                }
+                                className="rounded-md border-2 px-2 py-2 select-none border-slate-700 bg-slate-950/60 hover:bg-fuchsia-950/30 hover:border-fuchsia-900"
                                 title="Arrastra para mover · Click para editar"
                                 onClick={() => openComposerForEdit(group.id, atom.id)}
                               >

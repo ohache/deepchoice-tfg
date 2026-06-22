@@ -1,5 +1,11 @@
 import type { ID, Project } from "@/domain/types";
-import type { EditorPrimaryMode, EditorSecondaryMode } from "@/features/editor/core/editorModes";
+import type { EditorPrimaryMode, EditorSecondaryMode } from "@/features/editor/core/editorNavigation";
+import type { MapRegionEditorState } from "@/features/editor/history/maps/mapRegionEditorTypes";
+import type { DialogueEditorState } from "@/features/editor/scene/dialogues/dialogueEditorTypes";
+import type { HotspotEditorState } from "@/features/editor/scene/hotspots/hotspotEditorTypes";
+import type { PlacedItemEditorState } from "@/features/editor/scene/placedItems/placedItemEditorTypes";
+import type { PlacedNpcEditorState } from "@/features/editor/scene/placedNpcs/placedNpcEditorTypes";
+import type { PlacedPlayerEditorState } from "@/features/editor/scene/placedPlayers/placedPlayerEditorTypes";
 import { generateId } from "@/utils/id";
 
 export const DEFAULT_ZOOM = 100;
@@ -8,8 +14,7 @@ export const MAX_ZOOM = 200;
 export const STEP_ZOOM = 25;
 
 /* Clamp numérico simple */
-export const clamp = (value: number, min: number, max: number) =>
-  Math.max(min, Math.min(max, value));
+export const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
 /* Proyecto vacío */
 export function createEmptyProject(title: string): Project {
@@ -28,86 +33,80 @@ export function createEmptyProject(title: string): Project {
 }
 
 /*  Helpers de estado base del editor */
-function createEmptyDrawingState() {
-  return null as null;
-}
-
-function createEmptyHotspotEditor() {
+function createEmptyHotspotEditor(): HotspotEditorState {
   return {
     context: null,
-    mode: { type: "idle" } as const,
+    mode: { type: "idle" },
     selection: {
-      hotspotId: null as ID | null,
+      hotspotId: null,
       selectedChannel: null,
-      selectedRuleId: null as ID | null,
+      selectedRuleId: null,
     },
     draft: null,
-    drawing: createEmptyDrawingState(),
+    drawing: null,
   };
 }
 
-function createEmptyPlacedItemEditor() {
+function createEmptyPlacedItemEditor(): PlacedItemEditorState {
   return {
     context: null,
-    mode: { type: "idle" } as const,
+    mode: { type: "idle" },
     selection: {
-      placedItemId: null as ID | null,
+      placedItemId: null,
       selectedChannel: null,
-      selectedRuleId: null as ID | null,
+      selectedRuleId: null,
     },
     draft: null,
-    drawing: createEmptyDrawingState(),
+    drawing: null,
   };
 }
 
-function createEmptyPlacedNpcEditor() {
+function createEmptyPlacedNpcEditor(): PlacedNpcEditorState {
   return {
     context: null,
-    mode: { type: "idle" } as const,
+    mode: { type: "idle" },
     selection: {
-      npcId: null as ID | null,
+      npcId: null,
       selectedChannel: null,
-      selectedRuleId: null as ID | null,
+      selectedRuleId: null,
     },
     draft: null,
-    drawing: createEmptyDrawingState(),
+    drawing: null,
   };
 }
 
-function createEmptyPlacedPlayerEditor() {
+function createEmptyPlacedPlayerEditor(): PlacedPlayerEditorState {
   return {
     context: null,
-    mode: { type: "idle" } as const,
+    mode: { type: "idle" },
     selection: {
-      playerId: null as ID | null,
+      playerId: null,
     },
     draft: null,
-    drawing: createEmptyDrawingState(),
+    drawing: null,
   };
 }
 
-function createEmptyDialogueEditor() {
+function createEmptyDialogueEditor(): DialogueEditorState {
   return {
     context: null,
-    mode: { type: "idle" } as const,
+    mode: { type: "idle" },
     selection: {
-      selectedDialogueId: null as ID | null,
-      selectedNodeId: null as ID | null,
+      selectedDialogueId: null,
+      selectedNodeId: null,
     },
     dialogueDraft: null,
     lineDraft: null,
   };
 }
 
-function createEmptyMapRegionEditor() {
+function createEmptyMapRegionEditor(): MapRegionEditorState {
   return {
-    context: null,
-    mode: { type: "idle" } as const,
-    selection: {
-      regionId: null as ID | null,
-    },
+    mapId: null,
+    mode: { type: "idle" },
+    selectedRegionId: null,
     draft: null,
-    drawing: createEmptyDrawingState(),
+    drawing: null,
   };
 }
 
@@ -150,6 +149,10 @@ export function buildBaseEditorState() {
 
     /* Editor de regiones de mapa */
     mapRegionEditor: createEmptyMapRegionEditor(),
+
+    /* Borrado */
+    pendingDeleteImpact: null,
+    pendingDeleteTarget: null,
   };
 }
 

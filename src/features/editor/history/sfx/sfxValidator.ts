@@ -1,12 +1,12 @@
 import type { z } from "zod";
 import type { Project, ID } from "@/domain/types";
-import { SfxDraftSchema  } from "@/features/editor/history/sfx/sfxSchemas";
+import { SfxDraftSchema } from "@/features/editor/history/sfx/sfxSchemas";
 import { validateAssetBackedDraft } from "@/validation/validateAssetBackedDraft";
 
 type SfxDraftInput = z.input<typeof SfxDraftSchema>;
 
 /* Valida el draft del formulario de SFX */
-export function validateSfxDraft( input: SfxDraftInput, opts: { mode: "new" | "edit"; project: Project; currentSfxId?: ID }) {
+export function validateSfxDraft(input: SfxDraftInput, opts: { mode: "new" | "edit"; project: Project; currentSfxId?: ID }) {
 
   return validateAssetBackedDraft({
     input: { name: input.name, file: input.file ?? undefined },

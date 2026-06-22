@@ -1,13 +1,9 @@
+import type { CSSProperties } from "react";
 import type { DialogueLineNode, ID } from "@/domain/types";
 import type { InteractionKind } from "@/features/player/components/interactionCursors";
 import { MessageCircle } from "lucide-react";
 
-type AnchorRect = {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-};
+type AnchorRect = { x: number; y: number; w: number; h: number };
 
 type DialogueChoicesPanelProps = {
   open: boolean;
@@ -19,20 +15,21 @@ type DialogueChoicesPanelProps = {
   onCursorLeave?: () => void;
 };
 
+function buildPanelAnchorStyle(anchorRect: AnchorRect | null): CSSProperties {
+  if (!anchorRect) {
+    return { left: 0, right: 0, bottom: 0, cursor: "none" };
+  }
+
+  return { left: anchorRect.x, width: anchorRect.w, bottom: `calc(100% - ${anchorRect.y + anchorRect.h}px)`, cursor: "none" };
+}
+
 export function DialogueChoicesPanel({ open, options, anchorRect, onSelectOption, onCursorMove, onCursorEnter, onCursorLeave }: DialogueChoicesPanelProps) {
   if (!open) return null;
 
   return (
     <div
-      className="absolute z-40 px-30 pb-0"
-      style={{
-        cursor: "none",
-        left: anchorRect?.x ?? 0,
-        width: anchorRect?.w ?? "100%",
-        bottom: anchorRect
-          ? `calc(100% - ${anchorRect.y + anchorRect.h}px)`
-          : 0,
-      }}
+      className="absolute z-40 px-4 sm:px-10 md:px-30 pb-0"
+      style={buildPanelAnchorStyle(anchorRect)}
       onMouseMove={(event) => onCursorMove?.(event, "dialogue")}
       onMouseEnter={(event) => onCursorEnter?.(event, "dialogue")}
       onMouseLeave={() => onCursorLeave?.()}

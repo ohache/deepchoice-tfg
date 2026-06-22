@@ -1,54 +1,35 @@
-import type { ID, InteractionRules, PlaceableState, PlacedItem, RegionShape, RulePhrase } from "@/domain/types";
-import type { PlacedItemEditorState, PlacedItemRuleChannel } from "@/features/editor/scene/placedItems/placedItemEditorTypes";
-import {
-  addRuleToRules, buildContext, buildDraftFromPlacedItem, buildEmptyPlacedItemDraft, defaultPlacedItemChannel, initialPlacedItemEditorState,
-  rectFromGesture, removeRuleFromRules, validatePlacedItemDraftCandidate
-} from "@/features/editor/scene/interactiveComponents/interactiveEditorHelpers";
-import { generateId } from "@/utils/id";
+import type { ID, InteractionRules, PlaceableState, ItemInstance, RegionShape } from "@/domain/types";
+import type { CommitPlacedItemDraftResult, PlacedItemEditorState } from "@/features/editor/scene/placedItems/placedItemEditorTypes";
+import { buildContext, buildDraftFromPlacedItem, buildEmptyPlacedItemDraft, defaultPlacedItemChannel, initialPlacedItemEditorState,
+  validatePlacedItemDraftCandidate } from "@/features/editor/scene/interactiveComponents/interactiveEditorHelpers";
 
-type Store = {
+type EditorStoreLike = {
   activeLayerId: ID | null;
   placedItemEditor: PlacedItemEditorState;
 
-  getActivePlacedItems: () => PlacedItem[];
-  addPlacedItem: (placedItem: PlacedItem) => void;
-  updatePlacedItem: (placedItemId: ID, patch: Partial<PlacedItem>) => void;
-
-  selectedInteractionKind: "hotspot" | "placedItem" | "placedNpc" | "placedPlayer" | null;
-  selectedInteractionId: ID | null;
+  getActivePlacedItems: () => ItemInstance[];
+  addPlacedItem: (placedItem: ItemInstance) => void;
+  updatePlacedItem: (placedItemId: ID, patch: Partial<ItemInstance>) => void;
 };
 
 export interface EditorPlacedItemsSlice {
   placedItemEditor: PlacedItemEditorState;
-
   setPlacedItemDraftItemId: (itemId: ID) => void;
-  setPlacedItemSelection: (input: { placedItemId: ID | null; selectedChannel?: PlacedItemRuleChannel | null; selectedRuleId?: ID | null }) => void;
-
-  clearPlacedItemEditor: () => void;
   startPlacingPlacedItem: (input: { itemId: ID; label?: string }) => void;
-
   setPlacedItemDraftShape: (shape: RegionShape | null) => void;
-  clearPlacedItemDraftShape: () => void;
-  updateDrawingPlacedItem: (pt: { x: number; y: number }) => void;
   finishDrawingPlacedItem: () => void;
   startRedrawPlacedItemShape: () => void;
-
   editPlacedItem: (placedItemId: ID) => void;
   cancelPlacedItemDraft: () => void;
-
   setPlacedItemDraftLabel: (label: string) => void;
   setPlacedItemDraftInitialState: (patch: Partial<PlaceableState>) => void;
   setPlacedItemDraftRules: (rules: InteractionRules) => void;
-
-  addRuleToSelectedChannel: (args?: { phrase?: RulePhrase }) => ID | null;
-  deleteRuleFromSelectedChannel: (ruleId: ID) => void;
-
-  validatePlacedItemDraft: () => { ok: boolean; error?: string };
-  commitPlacedItemDraft: () => { ok: boolean; error?: string; placedItemId?: ID };
+  commitPlacedItemDraft: () => CommitPlacedItemDraftResult;
 }
 
-export function createEditorPlacedItemsSlice(set: (partial: Partial<Store> | ((s: Store) => Partial<Store> | Store)) => void,
-  get: () => Store): EditorPlacedItemsSlice {
+export function createEditorPlacedItemsSlice(
+  set: (partial: Partial<EditorStoreLike> | ((s: EditorStoreLike) => Partial<EditorStoreLike> | EditorStoreLike)) => void,
+  get: () => EditorStoreLike): EditorPlacedItemsSlice {
   return {
     placedItemEditor: initialPlacedItemEditorState,
 
@@ -67,25 +48,6 @@ export function createEditorPlacedItemsSlice(set: (partial: Partial<Store> | ((s
         };
       }),
 
-    setPlacedItemSelection: (input) =>
-      set((state) => ({
-        ...state,
-        placedItemEditor: {
-          ...state.placedItemEditor,
-          selection: {
-            placedItemId: input.placedItemId,
-            selectedChannel: input.selectedChannel ?? state.placedItemEditor.selection.selectedChannel,
-            selectedRuleId: input.selectedRuleId ?? state.placedItemEditor.selection.selectedRuleId,
-          },
-        },
-      })),
-
-    clearPlacedItemEditor: () =>
-      set((state) => ({
-        ...state,
-        placedItemEditor: initialPlacedItemEditorState,
-      })),
-
     startPlacingPlacedItem: (input) =>
       set((state) => {
         if (!state.activeLayerId) return state;
@@ -98,7 +60,7 @@ export function createEditorPlacedItemsSlice(set: (partial: Partial<Store> | ((s
             context: buildContext(state.activeLayerId),
             mode: { type: "drawing" },
             selection: {
-              placedItemId: draft.id,
+              placedItemId: draft.itemInstanceId,
               selectedChannel: defaultPlacedItemChannel(),
               selectedRuleId: null,
             },
@@ -117,43 +79,13 @@ export function createEditorPlacedItemsSlice(set: (partial: Partial<Store> | ((s
           ...state,
           placedItemEditor: {
             ...state.placedItemEditor,
-            draft: { ...draft, shape },
-          },
-        };
-      }),
-
-    clearPlacedItemDraftShape: () =>
-      set((state) => {
-        const draft = state.placedItemEditor.draft;
-        if (!draft) return state;
-
-        return {
-          ...state,
-          placedItemEditor: {
-            ...state.placedItemEditor,
-            draft: { ...draft, shape: null },
-          },
-        };
-      }),
-
-    updateDrawingPlacedItem: (pt) =>
-      set((state) => {
-        const editor = state.placedItemEditor;
-        if (editor.mode.type !== "drawing" || !editor.draft) return state;
-
-        const currentDrawing = editor.drawing;
-        const nextDrawing = currentDrawing
-          ? { ...currentDrawing, currentX: pt.x, currentY: pt.y }
-          : { startX: pt.x, startY: pt.y, currentX: pt.x, currentY: pt.y };
-
-        const shape = rectFromGesture(nextDrawing);
-
-        return {
-          ...state,
-          placedItemEditor: {
-            ...editor,
-            drawing: nextDrawing,
-            draft: { ...editor.draft, shape },
+            draft: {
+              ...draft,
+              placement: {
+                ...draft.placement,
+                shape,
+              },
+            },
           },
         };
       }),
@@ -167,7 +99,7 @@ export function createEditorPlacedItemsSlice(set: (partial: Partial<Store> | ((s
           ...state,
           placedItemEditor: {
             ...editor,
-            mode: { type: "editing", placedItemId: editor.draft.id },
+            mode: { type: "editing", placedItemId: editor.draft.itemInstanceId },
             drawing: null,
           },
         };
@@ -184,10 +116,16 @@ export function createEditorPlacedItemsSlice(set: (partial: Partial<Store> | ((s
             ...editor,
             mode: { type: "drawing" },
             drawing: null,
-            draft: { ...editor.draft, shape: null },
+            draft: {
+              ...editor.draft,
+              placement: {
+                ...editor.draft.placement,
+                shape: null,
+              },
+            },
             selection: {
               ...editor.selection,
-              placedItemId: editor.draft.id,
+              placedItemId: editor.draft.itemInstanceId,
               selectedRuleId: null,
             },
           },
@@ -198,7 +136,10 @@ export function createEditorPlacedItemsSlice(set: (partial: Partial<Store> | ((s
       set((state) => {
         if (!state.activeLayerId) return state;
 
-        const placedItem = (state.getActivePlacedItems() ?? []).find((item) => item.id === placedItemId);
+        const placedItem = (state.getActivePlacedItems() ?? []).find(
+          (item) => item.itemInstanceId === placedItemId,
+        );
+
         if (!placedItem) return state;
 
         return {
@@ -248,7 +189,13 @@ export function createEditorPlacedItemsSlice(set: (partial: Partial<Store> | ((s
             ...state.placedItemEditor,
             draft: {
               ...draft,
-              initialState: { ...draft.initialState, ...patch },
+              placement: {
+                ...draft.placement,
+                initialState: {
+                  ...draft.placement.initialState,
+                  ...patch,
+                },
+              },
             },
           },
         };
@@ -268,80 +215,21 @@ export function createEditorPlacedItemsSlice(set: (partial: Partial<Store> | ((s
         };
       }),
 
-    addRuleToSelectedChannel: (args) => {
-      const state = get();
-      const draft = state.placedItemEditor.draft;
-      if (!draft) return null;
-
-      const channel = state.placedItemEditor.selection.selectedChannel ?? defaultPlacedItemChannel();
-      const ruleId = generateId.rule();
-
-      const nextRules = addRuleToRules(draft.rules, channel, ruleId, args?.phrase);
-
-      set((storeState) => ({
-        ...storeState,
-        placedItemEditor: {
-          ...storeState.placedItemEditor,
-          draft: storeState.placedItemEditor.draft ? { ...storeState.placedItemEditor.draft, rules: nextRules } : null,
-          selection: {
-            ...storeState.placedItemEditor.selection,
-            selectedChannel: channel,
-            selectedRuleId: ruleId,
-          },
-        },
-      }));
-
-      return ruleId;
-    },
-
-    deleteRuleFromSelectedChannel: (ruleId) =>
-      set((state) => {
-        const draft = state.placedItemEditor.draft;
-        if (!draft) return state;
-
-        const channel = state.placedItemEditor.selection.selectedChannel ?? defaultPlacedItemChannel();
-        const nextRules = removeRuleFromRules(draft.rules, channel, ruleId);
-        const shouldClearSelected = state.placedItemEditor.selection.selectedRuleId === ruleId;
-
-        return {
-          ...state,
-          placedItemEditor: {
-            ...state.placedItemEditor,
-            draft: { ...draft, rules: nextRules },
-            selection: {
-              ...state.placedItemEditor.selection,
-              selectedRuleId: shouldClearSelected ? null : state.placedItemEditor.selection.selectedRuleId,
-            },
-          },
-        };
-      }),
-
-    validatePlacedItemDraft: () => {
-      const state = get();
-      const result = validatePlacedItemDraftCandidate(
-        state.placedItemEditor.draft,
-        state.getActivePlacedItems(),
-      );
-
-      if (!result.ok) return { ok: false, error: result.error };
-
-      return { ok: true };
-    },
-
     commitPlacedItemDraft: () => {
       const state = get();
       const draft = state.placedItemEditor.draft;
 
-      if (!draft) return { ok: false, code: "missing_draft", error: "No hay borrador de PlacedItem." } as const;
+      if (!draft) return { ok: false, code: "missing_draft", error: "No hay borrador de placedItem." };
 
       const result = validatePlacedItemDraftCandidate(draft, state.getActivePlacedItems());
 
-      if (!result.ok) return { ok: false, code: "invalid_draft", error: result.error } as const;
+      if (!result.ok) return { ok: false, code: "invalid_draft", error: result.error };
 
       const candidate = result.candidate;
-      const exists = (state.getActivePlacedItems() ?? []).some((item) => item.id === candidate.id);
 
-      if (exists) state.updatePlacedItem(candidate.id, candidate);
+      const exists = state.getActivePlacedItems().some((item) => item.itemInstanceId === candidate.itemInstanceId);
+
+      if (exists) state.updatePlacedItem(candidate.itemInstanceId, candidate);
       else state.addPlacedItem(candidate);
 
       set((storeState) => ({
@@ -349,7 +237,7 @@ export function createEditorPlacedItemsSlice(set: (partial: Partial<Store> | ((s
         placedItemEditor: initialPlacedItemEditorState,
       }));
 
-      return { ok: true, placedItemId: candidate.id } as const;
+      return { ok: true, placedItemId: candidate.itemInstanceId };
     },
   };
 }

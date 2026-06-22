@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import type { ID, Dialogue, DialogueLineNode } from "@/domain/types";
 import { DialogueTreeNodeContent } from "@/features/editor/scene/dialogues/DialogueTreeNodeContent";
-import { buildDialogueIndex, findDialogueLineNodeInIndex, findDialogueNodeInIndex } from "@/features/editor/scene/dialogues/dialogueHelpersSlice";
+import { getDialogueChildLines, type DialogueIndex } from "@/features/editor/scene/dialogues/dialogueHelpers";
 
 type DialogueTreeNodeCardProps = {
   dialogue: Dialogue;
+  dialogueIndex: DialogueIndex;
   playerName: string;
   npcName: string;
   line: DialogueLineNode;
@@ -50,10 +51,8 @@ function parseSiblingReorderPayload(raw: string): { parentId: ID; fromIndex: num
   }
 }
 
-export function DialogueTreeNodeCard({ dialogue, playerName, npcName, line, parentId, depth, selectedLineId, editingLineDraft, onSelectLine, onAddChild,
+export function DialogueTreeNodeCard({ dialogue, dialogueIndex, playerName, npcName, line, parentId, depth, selectedLineId, editingLineDraft, onSelectLine, onAddChild,
   onDeleteLine, onUpdateLine, onSaveLine, onOpenLineRule, onReorderSiblings }: DialogueTreeNodeCardProps) {
-  const dialogueIndex = useMemo(() => buildDialogueIndex(dialogue), [dialogue]);
-
   const selected = selectedLineId === line.id;
 
   const renderedLine: DialogueLineNode = selected && editingLineDraft?.id === line.id ? editingLineDraft : line;
@@ -64,22 +63,10 @@ export function DialogueTreeNodeCard({ dialogue, playerName, npcName, line, pare
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
-  const children = useMemo<DialogueLineNode[]>(() => (line.childrenIds ?? [])
-    .map((childId) => findDialogueLineNodeInIndex(dialogueIndex, childId))
-    .filter((child): child is DialogueLineNode => Boolean(child)),
-    [line.childrenIds, dialogueIndex]
-  );
-
+  const children = useMemo(() => getDialogueChildLines(dialogueIndex, line.id), [dialogueIndex, line.id]);
   const hasChildren = children.length > 0;
 
-  const siblingLines = useMemo<DialogueLineNode[]>(() => {
-    const parentNode = findDialogueNodeInIndex(dialogueIndex, parentId);
-    const siblingIds = parentNode?.childrenIds ?? [];
-
-    return siblingIds.map((childId) => findDialogueLineNodeInIndex(dialogueIndex, childId))
-      .filter((child): child is DialogueLineNode => Boolean(child));
-  }, [dialogueIndex, parentId]);
-
+  const siblingLines = useMemo(() => getDialogueChildLines(dialogueIndex, parentId), [dialogueIndex, parentId]);
   const currentSiblingIndex = siblingLines.findIndex((sibling) => sibling.id === line.id);
 
   const nextSpeaker: DialogueLineNode["speaker"] = line.speaker === "player" ? "npc" : "player";
@@ -90,8 +77,7 @@ export function DialogueTreeNodeCard({ dialogue, playerName, npcName, line, pare
 
   const isDraggable = currentSiblingIndex >= 0;
 
-  const cardClassName =
-    "rounded-lg border px-3 py-3 select-none transition-colors " +
+  const cardClassName = "rounded-lg border px-3 py-3 select-none transition-colors " +
     (selected ? "" : "cursor-pointer ") +
     speakerTone(renderedLine.speaker, selected) + " " +
     (isDraggingSelf ? "opacity-50 " : "") +
@@ -103,11 +89,7 @@ export function DialogueTreeNodeCard({ dialogue, playerName, npcName, line, pare
     event.stopPropagation();
     if (!isDraggable) return;
 
-    const payload = JSON.stringify({
-      parentId,
-      fromIndex: currentSiblingIndex,
-      lineId: line.id,
-    });
+    const payload = JSON.stringify({ parentId, fromIndex: currentSiblingIndex, lineId: line.id });
 
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("text/plain", payload);
@@ -143,9 +125,7 @@ export function DialogueTreeNodeCard({ dialogue, playerName, npcName, line, pare
 
     if (!isDraggable) return;
 
-    const raw =
-      event.dataTransfer.getData("application/x-dialogue-sibling-reorder") ||
-      event.dataTransfer.getData("text/plain");
+    const raw = event.dataTransfer.getData("application/x-dialogue-sibling-reorder") || event.dataTransfer.getData("text/plain");
 
     if (!raw) return;
 
@@ -213,6 +193,7 @@ export function DialogueTreeNodeCard({ dialogue, playerName, npcName, line, pare
           <DialogueTreeNodeCard
             key={child.id}
             dialogue={dialogue}
+            dialogueIndex={dialogueIndex}
             playerName={playerName}
             npcName={npcName}
             line={child}

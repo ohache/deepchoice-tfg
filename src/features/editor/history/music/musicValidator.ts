@@ -5,7 +5,7 @@ import { validateAssetBackedDraft } from "@/validation/validateAssetBackedDraft"
 
 type MusicDraftInput = z.input<typeof MusicDraftSchema>;
 
-/* Valida el draft del formulario de Music */
+/* Valida el draft del formulario de música */
 export function validateMusicDraft( input: MusicDraftInput, opts: { mode: "new" | "edit"; project: Project; currentTrackId?: ID }) {
 
   return validateAssetBackedDraft({

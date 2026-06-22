@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { VarRow, VarRowErrors } from "@/shared/vars/varRow";
 import { Checkbox } from "@/components/Checkbox";
 import { Select, type Option } from "@/components/Select";
@@ -29,7 +30,7 @@ export type VarRowCardProps = {
 /* Estilos base reutilizables */
 const INPUT_BASE_CLASS = "w-full rounded-md bg-slate-950 border px-2 py-1.5 text-[12px] focus:outline-none focus:border-transparent focus:ring-2 focus:ring-fuchsia-500";
 const INPUT_OK_CLASS = "border-2 border-slate-700";
-const INPUT_ERROR_CLASS = "border-rose-500/80 ring-rose-500/20";
+const INPUT_ERROR_CLASS = "border-2 border-rose-500/80 ring-rose-500/20";
 
 /* Devuelve la clase del input según tenga error o no */
 function getInputClass(hasError: boolean, extraClassName = ""): string {
@@ -42,7 +43,7 @@ function getRowTitle(row: VarRow, index: number): string {
 }
 
 /* Bloque visual de error */
-function FieldError({ children }: { children: React.ReactNode }) {
+function FieldError({ children }: { children: ReactNode }) {
   if (!children) return null;
   return <div className="mt-1 text-[11px] text-rose-200 text-center">{children}</div>;
 }
@@ -69,9 +70,7 @@ function NumberField(props: { label: string; value: number | string; disabled: b
 }
 
 function getToneClasses(tone: "default" | "hotspot") {
-  if (tone === "hotspot") {
-    return { card: "border-cyan-900 bg-slate-950/40", headerClosed: "hover:bg-cyan-500/10", headerOpen: "bg-slate-950/60" };
-  }
+  if (tone === "hotspot") return { card: "border-cyan-900 bg-slate-950/40", headerClosed: "hover:bg-cyan-500/10", headerOpen: "bg-slate-950/60" };
 
   return { card: "border-slate-700 bg-slate-950/40", headerClosed: "hover:bg-slate-900/60", headerOpen: "bg-slate-950/60" };
 }
@@ -143,8 +142,10 @@ export function VarRowCard(props: VarRowCardProps) {
                 options={varTypeOptions}
                 disabled={disabled}
                 className="w-full"
-                buttonClassName={getInputClass(false)}
+                buttonClassName={getInputClass(Boolean(errors?.type))}
               />
+
+              {errors?.type ? <FieldError>{errors.type}</FieldError> : null}
             </div>
           </div>
 
@@ -203,7 +204,8 @@ export function VarRowCard(props: VarRowCardProps) {
             <div className="flex gap-2 shrink-0">
               <button
                 type="button"
-                className={`btn btn-save ${variantClass} bg-lime-950 hover:bg-lime-900/80 border-lime-700 h-7.5 w-7.5 p-0 inline-flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed`}
+                className={`btn btn-save ${variantClass} bg-lime-950 hover:bg-lime-900/80 border-lime-700 h-7.5 w-7.5 p-0 inline-flex items-center justify-center 
+                  disabled:opacity-40 disabled:cursor-not-allowed`}
                 onClick={onSave}
                 disabled={disabled}
                 title={saveTitle ?? "Guardar"}
@@ -214,7 +216,8 @@ export function VarRowCard(props: VarRowCardProps) {
 
               <button
                 type="button"
-                className="btn btn-danger bg-red-950 hover:bg-red-900/80 h-7.5 w-7.5 p-0 inline-flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed"
+                className="btn btn-danger bg-red-950 hover:bg-red-900/80 h-7.5 w-7.5 p-0 inline-flex items-center justify-center disabled:opacity-40
+                  disabled:cursor-not-allowed"
                 onClick={onDelete}
                 disabled={disabled}
                 title={deleteTitle ?? "Eliminar"}

@@ -1,17 +1,7 @@
-import type {
-    Dialogue,
-    ID,
-    InteractionRules,
-    Project,
-    SceneImageLayer,
-} from "@/domain/types";
+import type { Dialogue, ID, InteractionRules, Project, RulePhrase, SceneImageLayer } from "@/domain/types";
 import type { Condition } from "@/domain/conditions";
 import type { Effect } from "@/domain/effects";
-import type {
-    DeleteLocation,
-    DiagnosticIssue,
-    ProjectDiagnostics,
-} from "./deleteTypes";
+import type { DeleteLocation, DiagnosticIssue, ProjectDiagnostics } from "@/features/editor/delete/deleteTypes";
 
 function label(value?: string | null, fallback = "—"): string {
     const trimmed = value?.trim();
@@ -22,10 +12,7 @@ function makeId(prefix: string, parts: Array<string | undefined>): string {
     return [prefix, ...parts.filter(Boolean)].join("::");
 }
 
-function pushIssue(
-    issues: DiagnosticIssue[],
-    input: Omit<DiagnosticIssue, "id"> & { idParts: Array<string | undefined> },
-): void {
+function pushIssue(issues: DiagnosticIssue[], input: Omit<DiagnosticIssue, "id"> & { idParts: Array<string | undefined> }): void {
     issues.push({
         id: makeId(input.code, input.idParts),
         severity: input.severity,
@@ -43,12 +30,7 @@ function nodeLocation(nodeId: ID, nodeLabel: string): DeleteLocation {
     };
 }
 
-function layerLocation(input: {
-    nodeId: ID;
-    nodeLabel: string;
-    layerId: ID;
-    layerLabel: string;
-}): DeleteLocation {
+function layerLocation(input: { nodeId: ID; nodeLabel: string; layerId: ID; layerLabel: string }): DeleteLocation {
     return {
         kind: "layer",
         nodeId: input.nodeId,
@@ -126,6 +108,7 @@ function buildIndexes(project: Project) {
     const musicIds = new Set(project.musicTracks.map((track) => track.id));
     const sfxIds = new Set(project.soundEffects.map((sfx) => sfx.id));
     const mapIds = new Set(project.maps.map((map) => map.id));
+    const assetIds = new Set(project.assets.map((asset) => asset.id));
 
     const playerImageIdsByPlayerId = new Map<ID, Set<ID>>();
     const playerVarIdsByPlayerId = new Map<ID, Set<ID>>();
@@ -151,7 +134,7 @@ function buildIndexes(project: Project) {
     }
 
     const gameItemInstanceIds = new Set<ID>();
-    const placedItemIds = new Set<ID>();
+    const placedItemInstanceIds = new Set<ID>();
     const placedNpcKeys = new Set<string>();
     const placedPlayerKeys = new Set<string>();
     const hotspotIds = new Set<ID>();
@@ -183,8 +166,8 @@ function buildIndexes(project: Project) {
 
         for (const layer of node.layers) {
             for (const placedItem of layer.placedItems ?? []) {
-                placedItemIds.add(placedItem.id);
-                gameItemInstanceIds.add(placedItem.id);
+                placedItemInstanceIds.add(placedItem.itemInstanceId);
+                gameItemInstanceIds.add(placedItem.itemInstanceId);
             }
 
             for (const hotspot of layer.hotspots ?? []) {
@@ -222,11 +205,12 @@ function buildIndexes(project: Project) {
         musicIds,
         sfxIds,
         mapIds,
+        assetIds,
         playerImageIdsByPlayerId,
         playerVarIdsByPlayerId,
         npcVarIdsByNpcId,
         gameItemInstanceIds,
-        placedItemIds,
+        placedItemInstanceIds,
         placedNpcKeys,
         placedPlayerKeys,
         hotspotIds,
@@ -367,11 +351,11 @@ function diagnoseCondition(
 
             case "placedItemVisible":
             case "placedItemReachable":
-                if (!indexes.placedItemIds.has(current.placedItemId)) {
+                if (!indexes.placedItemInstanceIds.has(current.itemInstanceId)) {
                     pushIssue(issues, {
                         severity: "error",
                         code: "BROKEN_CONDITION_REFERENCE",
-                        idParts: [location.label, current.type, current.placedItemId],
+                        idParts: [location.label, current.type, current.itemInstanceId],
                         location: { ...location, kind: "condition", conditionType: current.type },
                         message: `La condición referencia un item colocado inexistente.`,
                     });
@@ -440,6 +424,19 @@ function diagnoseCondition(
                 break;
             }
 
+            case "musicPlaying":
+                if (!indexes.musicIds.has(current.trackId)) {
+                    pushIssue(issues, {
+                        severity: "error",
+                        code: "BROKEN_CONDITION_REFERENCE",
+                        idParts: [location.label, current.type, current.trackId],
+                        location: { ...location, kind: "condition", conditionType: current.type },
+                        message: `La condición referencia una música inexistente.`,
+                    });
+                }
+                break;
+
+
             case "mapRegionVisited":
                 if (
                     !indexes.mapIds.has(current.mapId) ||
@@ -464,20 +461,18 @@ function effectReferencesMissingItem(indexes: Indexes, effect: Effect): boolean 
     switch (effect.type) {
         case "addItem":
         case "removeItem":
-        case "giveItemToNpc":
-        case "receiveItemFromNpc":
             return !indexes.gameItemInstanceIds.has(effect.itemInstanceId);
 
         case "transformItem":
             return (
-                !indexes.gameItemInstanceIds.has(effect.sourceItemInstanceId) ||
+                !indexes.gameItemInstanceIds.has(effect.itemInstanceId) ||
                 !indexes.itemIds.has(effect.resultItemId)
             );
 
         case "combineItems":
             return (
-                !indexes.gameItemInstanceIds.has(effect.sourceItemInstanceId) ||
-                !indexes.gameItemInstanceIds.has(effect.targetItemInstanceId) ||
+                !indexes.gameItemInstanceIds.has(effect.itemAInstanceId) ||
+                !indexes.gameItemInstanceIds.has(effect.itemBInstanceId) ||
                 !indexes.itemIds.has(effect.resultItemId)
             );
 
@@ -544,6 +539,7 @@ function diagnoseEffect(
             break;
 
         case "playMusic":
+        case "stopMusic":
             if (!indexes.musicIds.has(effect.trackId)) {
                 pushIssue(issues, {
                     severity: "error",
@@ -572,7 +568,7 @@ function diagnoseEffect(
 
         case "setPlacedItemVisible":
         case "setPlacedItemReachable":
-            if (!indexes.placedItemIds.has(effect.itemInstanceId)) {
+            if (!indexes.placedItemInstanceIds.has(effect.itemInstanceId)) {
                 pushIssue(issues, {
                     severity: "error",
                     code: "BROKEN_EFFECT_REFERENCE",
@@ -725,21 +721,89 @@ function diagnoseEffect(
             }
             break;
 
-        case "showMessage":
+        case "showMessage": {
+            const speaker = effect.speaker;
+
             if (
-                (effect.speakerKind === "player" && (!effect.speakerId || !indexes.playerIds.has(effect.speakerId))) ||
-                (effect.speakerKind === "npc" && (!effect.speakerId || !indexes.npcIds.has(effect.speakerId)))
+                speaker?.kind === "player" &&
+                !indexes.playerIds.has(speaker.playerId)
             ) {
                 pushIssue(issues, {
                     severity: "error",
                     code: "BROKEN_EFFECT_REFERENCE",
-                    idParts: [location.label, effect.type, effect.speakerKind, effect.speakerId],
+                    idParts: [location.label, effect.type, "player", speaker.playerId],
                     location: effectLocation,
-                    message: `El mensaje referencia un emisor inexistente.`,
+                    message: `El mensaje referencia un player inexistente.`,
                 });
             }
+
+            if (
+                speaker?.kind === "npc" &&
+                !indexes.npcIds.has(speaker.npcId)
+            ) {
+                pushIssue(issues, {
+                    severity: "error",
+                    code: "BROKEN_EFFECT_REFERENCE",
+                    idParts: [location.label, effect.type, "npc", speaker.npcId],
+                    location: effectLocation,
+                    message: `El mensaje referencia un NPC inexistente.`,
+                });
+            }
+
             break;
+
+
+        }
+
+        case "endGame": {
+            const ending = effect.ending;
+
+            if (ending?.musicTrackId && !indexes.musicIds.has(ending.musicTrackId)) {
+                pushIssue(issues, {
+                    severity: "error",
+                    code: "BROKEN_EFFECT_REFERENCE",
+                    idParts: [location.label, effect.type, "music", ending.musicTrackId],
+                    location: effectLocation,
+                    message: `El final referencia una música inexistente.`,
+                });
+            }
+
+            for (const line of ending?.lines ?? []) {
+                const speaker = line.speaker;
+
+                if (
+                    speaker?.kind === "player" &&
+                    !indexes.playerIds.has(speaker.playerId)
+                ) {
+                    pushIssue(issues, {
+                        severity: "error",
+                        code: "BROKEN_EFFECT_REFERENCE",
+                        idParts: [location.label, effect.type, line.id, "player", speaker.playerId],
+                        location: effectLocation,
+                        message: `Una línea del final referencia un player inexistente.`,
+                    });
+                }
+
+                if (
+                    speaker?.kind === "npc" &&
+                    !indexes.npcIds.has(speaker.npcId)
+                ) {
+                    pushIssue(issues, {
+                        severity: "error",
+                        code: "BROKEN_EFFECT_REFERENCE",
+                        idParts: [location.label, effect.type, line.id, "npc", speaker.npcId],
+                        location: effectLocation,
+                        message: `Una línea del final referencia un NPC inexistente.`,
+                    });
+                }
+            }
+
+            break;
+        }
+
     }
+
+
 
     if (effectReferencesMissingItem(indexes, effect)) {
         pushIssue(issues, {
@@ -752,8 +816,97 @@ function diagnoseEffect(
     }
 }
 
-/* ---------- Rules ---------- */
+/* ---------- Rule phrases ---------- */
 
+function hasMeaningfulPhrase(phrase: RulePhrase | undefined): boolean {
+    return Boolean(phrase?.text.trim());
+}
+
+function diagnosePhrase(
+    issues: DiagnosticIssue[],
+    indexes: Indexes,
+    phrase: RulePhrase | undefined,
+    location: DeleteLocation,
+): void {
+    const speaker = phrase?.speaker;
+    if (!speaker) return;
+
+    if (speaker.kind === "player" && !indexes.playerIds.has(speaker.playerId)) {
+        pushIssue(issues, {
+            severity: "error",
+            code: "BROKEN_EFFECT_REFERENCE",
+            idParts: [location.label, "phrase", "player", speaker.playerId],
+            location: { ...location, kind: "rule" },
+            message: `La frase de la regla referencia un player inexistente.`,
+        });
+    }
+
+    if (speaker.kind === "npc" && !indexes.npcIds.has(speaker.npcId)) {
+        pushIssue(issues, {
+            severity: "error",
+            code: "BROKEN_EFFECT_REFERENCE",
+            idParts: [location.label, "phrase", "npc", speaker.npcId],
+            location: { ...location, kind: "rule" },
+            message: `La frase de la regla referencia un NPC inexistente.`,
+        });
+    }
+}
+
+function diagnoseRuleStructure(
+    issues: DiagnosticIssue[],
+    rule: { when?: Condition; phrase?: RulePhrase; effects: Effect[] },
+    location: DeleteLocation,
+    idParts: Array<string | undefined>,
+): void {
+    const hasCondition = Boolean(rule.when);
+    const hasPhrase = hasMeaningfulPhrase(rule.phrase);
+    const hasEffects = rule.effects.length > 0;
+
+    if (hasEffects) return;
+
+    if (!hasCondition && !hasPhrase) {
+        pushIssue(issues, {
+            severity: "warning",
+            code: "RULE_WITHOUT_EFFECTS",
+            idParts: [...idParts, "empty"],
+            location,
+            message: `La regla está vacía y debería eliminarse.`,
+        });
+        return;
+    }
+
+    if (hasPhrase && !hasCondition) {
+        pushIssue(issues, {
+            severity: "warning",
+            code: "RULE_WITHOUT_EFFECTS",
+            idParts: [...idParts, "phrase-only"],
+            location,
+            message: `La regla solo muestra una frase y no tiene efectos.`,
+        });
+        return;
+    }
+
+    if (hasCondition && !hasPhrase) {
+        pushIssue(issues, {
+            severity: "warning",
+            code: "RULE_WITHOUT_EFFECTS",
+            idParts: [...idParts, "condition-only"],
+            location,
+            message: `La regla solo tiene condición y no tiene efectos.`,
+        });
+        return;
+    }
+
+    pushIssue(issues, {
+        severity: "warning",
+        code: "RULE_WITHOUT_EFFECTS",
+        idParts: [...idParts, "phrase-and-condition"],
+        location,
+        message: `La regla tiene frase y condición, pero no tiene efectos.`,
+    });
+}
+
+/* ---------- Rules ---------- */
 function diagnoseRules(
     issues: DiagnosticIssue[],
     indexes: Indexes,
@@ -778,15 +931,14 @@ function diagnoseRules(
                 ruleId: rule.id,
             });
 
-            if (rule.effects.length === 0) {
-                pushIssue(issues, {
-                    severity: "error",
-                    code: "RULE_WITHOUT_EFFECTS",
-                    idParts: [input.nodeId, input.layerId, input.ownerId, rule.id],
-                    location: loc,
-                    message: `La regla no tiene efectos.`,
-                });
-            }
+            diagnoseRuleStructure(
+                issues,
+                rule,
+                loc,
+                [input.nodeId, input.layerId, input.ownerId, rule.id],
+            );
+
+            diagnosePhrase(issues, indexes, rule.phrase, loc);
 
             if (kind === "onUseItem") {
                 const itemInstanceId = "itemInstanceId" in rule && typeof rule.itemInstanceId === "string"
@@ -870,13 +1022,13 @@ function diagnoseLayer(
             pushIssue(issues, {
                 severity: "error",
                 code: "BROKEN_ITEM_REFERENCE",
-                idParts: [input.nodeId, layer.id, placedItem.id, placedItem.itemId],
+                idParts: [input.nodeId, layer.id, placedItem.itemInstanceId, placedItem.itemId],
                 location: {
                     kind: "placed-item",
                     nodeId: input.nodeId,
                     layerId: layer.id,
-                    placedItemId: placedItem.id,
-                    label: `${input.nodeLabel} > ${layerLabel} > Item ${label(placedItem.label, placedItem.id)}`,
+                    placedItemId: placedItem.itemInstanceId,
+                    label: `${input.nodeLabel} > ${layerLabel} > Item ${label(placedItem.label, placedItem.itemInstanceId)}`,
                 },
                 message: `El item colocado referencia un item global inexistente.`,
             });
@@ -888,8 +1040,8 @@ function diagnoseLayer(
             layerId: layer.id,
             layerLabel,
             ownerKind: "placed-item",
-            ownerId: placedItem.id,
-            ownerLabel: `Item ${label(placedItem.label, placedItem.id)}`,
+            ownerId: placedItem.itemInstanceId,
+            ownerLabel: `Item ${label(placedItem.label, placedItem.itemInstanceId)}`,
         });
     }
 
@@ -1077,6 +1229,40 @@ export function diagnoseProject(project: Project | null): ProjectDiagnostics {
                 message: `El player no tiene ninguna imagen.`,
             });
         }
+
+        for (const itemInstance of player.initialInventory ?? []) {
+            if (!indexes.itemIds.has(itemInstance.itemId)) {
+                pushIssue(issues, {
+                    severity: "error",
+                    code: "BROKEN_ITEM_REFERENCE",
+                    idParts: [player.id, itemInstance.itemInstanceId, itemInstance.itemId],
+                    location: {
+                        kind: "player",
+                        playerId: player.id,
+                        label: `Player ${label(player.name, player.id)}`,
+                    },
+                    message: `El inventario inicial del player referencia un item global inexistente.`,
+                });
+            }
+        }
+    }
+
+    for (const npc of project.npcs) {
+        for (const itemInstance of npc.initialInventory ?? []) {
+            if (!indexes.itemIds.has(itemInstance.itemId)) {
+                pushIssue(issues, {
+                    severity: "error",
+                    code: "BROKEN_ITEM_REFERENCE",
+                    idParts: [npc.id, itemInstance.itemInstanceId, itemInstance.itemId],
+                    location: {
+                        kind: "npc",
+                        npcId: npc.id,
+                        label: `NPC ${label(npc.name, npc.id)}`,
+                    },
+                    message: `El inventario inicial del NPC referencia un item global inexistente.`,
+                });
+            }
+        }
     }
 
     for (const node of project.nodes) {
@@ -1132,13 +1318,54 @@ export function diagnoseProject(project: Project | null): ProjectDiagnostics {
     }
 
     for (const map of project.maps) {
-        for (const region of map.regions) {
+        if (map.visual.type === "singleImage" && !indexes.assetIds.has(map.visual.imageAssetId)) {
+            pushIssue(issues, {
+                severity: "error",
+                code: "BROKEN_MAP_REFERENCE",
+                idParts: [map.id, map.visual.imageAssetId, "map-image"],
+                location: {
+                    kind: "map",
+                    mapId: map.id,
+                    label: `Mapa ${label(map.name, map.id)}`,
+                },
+                message: `El mapa referencia una imagen inexistente.`,
+            });
+        }
 
+        if (map.visual.type === "composed" && !indexes.assetIds.has(map.visual.backgroundAssetId)) {
+            pushIssue(issues, {
+                severity: "error",
+                code: "BROKEN_MAP_REFERENCE",
+                idParts: [map.id, map.visual.backgroundAssetId, "map-background"],
+                location: {
+                    kind: "map",
+                    mapId: map.id,
+                    label: `Mapa ${label(map.name, map.id)}`,
+                },
+                message: `El mapa compuesto referencia una imagen de fondo inexistente.`,
+            });
+        }
+        for (const region of map.regions) {
             const regionNodes = project.nodes.filter(
                 (node) =>
                     node.mapLocation?.mapId === map.id &&
                     node.mapLocation.regionId === region.id,
             );
+
+            if (region.imageAssetId && !indexes.assetIds.has(region.imageAssetId)) {
+                pushIssue(issues, {
+                    severity: "error",
+                    code: "BROKEN_MAP_REFERENCE",
+                    idParts: [map.id, region.id, region.imageAssetId, "region-image"],
+                    location: {
+                        kind: "map-region",
+                        mapId: map.id,
+                        regionId: region.id,
+                        label: `Mapa ${label(map.name, map.id)} > Región ${label(region.label, region.id)}`,
+                    },
+                    message: `La región referencia una imagen inexistente.`,
+                });
+            }
 
             const entryNodes = regionNodes.filter((node) => Boolean(node.mapLocation?.isEntry));
 
@@ -1186,6 +1413,7 @@ export function diagnoseProject(project: Project | null): ProjectDiagnostics {
                     message: `La región tiene escenas asociadas, pero ninguna escena de entrada.`,
                 });
             }
+
             if (region.musicTrackId && !indexes.musicIds.has(region.musicTrackId)) {
                 pushIssue(issues, {
                     severity: "error",

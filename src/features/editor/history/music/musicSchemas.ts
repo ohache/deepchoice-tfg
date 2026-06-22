@@ -12,6 +12,3 @@ export const MusicDraftSchema = z.object({
   name: z.string().trim().min(1, "El nombre de la pista es obligatorio").max(60, "El nombre no puede superar 60 caracteres"),
   file: MusicFileSchema.optional(),
 });
-
-export type MusicDraftInput = z.input<typeof MusicDraftSchema>;
-export type MusicDraftOutput = z.output<typeof MusicDraftSchema>;

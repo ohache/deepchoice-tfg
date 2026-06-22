@@ -1,10 +1,10 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import type { ID } from "@/domain/types";
 import { useEditorStore } from "@/store/editorStore";
 import { buildSceneListEntries, type SceneListLayerEntry, type SceneListLayerGroup, type SceneListLeafItem,
-  type SceneListSceneEntry} from "@/features/editor/scene/list/sceneListViewModel";
+  type SceneListSceneEntry } from "@/features/editor/scene/list/sceneListViewModel";
 
-function Badge({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+function Badge({ children, className = "" }: { children: ReactNode; className?: string }) {
   return (
     <span className={"inline-flex items-center rounded-md border px-2 py-0.5 text-[12px] " + className}>
       {children}
@@ -45,13 +45,8 @@ function LeafItemRow({ item }: { item: SceneListLeafItem }) {
   );
 }
 
-function LayerGroupBlock({ nodeId, layerId, group, expandedGroupKeys, toggleGroup }: {
-  nodeId: ID;
-  layerId: ID;
-  group: SceneListLayerGroup;
-  expandedGroupKeys: Set<string>;
-  toggleGroup: (key: string) => void;
-}) {
+function LayerGroupBlock({ nodeId, layerId, group, expandedGroupKeys, toggleGroup }:
+  { nodeId: ID; layerId: ID; group: SceneListLayerGroup; expandedGroupKeys: Set<string>; toggleGroup: (key: string) => void }) {
   if (group.kind === "single") {
     return (
       <div className="px-3 py-2">
@@ -89,14 +84,8 @@ function LayerGroupBlock({ nodeId, layerId, group, expandedGroupKeys, toggleGrou
   );
 }
 
-function LayerBlock({ nodeId, layer, expandedLayerKeys, expandedGroupKeys, toggleLayer, toggleGroup }: {
-  nodeId: ID;
-  layer: SceneListLayerEntry;
-  expandedLayerKeys: Set<string>;
-  expandedGroupKeys: Set<string>;
-  toggleLayer: (key: string) => void;
-  toggleGroup: (key: string) => void;
-}) {
+function LayerBlock({ nodeId, layer, expandedLayerKeys, expandedGroupKeys, toggleLayer, toggleGroup }:
+  { nodeId: ID; layer: SceneListLayerEntry; expandedLayerKeys: Set<string>; expandedGroupKeys: Set<string>; toggleLayer: (key: string) => void; toggleGroup: (key: string) => void }) {
   const layerKey = `${nodeId}:${layer.id}`;
   const isExpanded = expandedLayerKeys.has(layerKey);
 
@@ -114,16 +103,22 @@ function LayerBlock({ nodeId, layer, expandedLayerKeys, expandedGroupKeys, toggl
 
       {isExpanded && (
         <div className="border-t border-slate-800/80">
-          {layer.groups.map((group) => (
-            <LayerGroupBlock
-              key={group.key}
-              nodeId={nodeId}
-              layerId={layer.id}
-              group={group}
-              expandedGroupKeys={expandedGroupKeys}
-              toggleGroup={toggleGroup}
-            />
-          ))}
+          {layer.groups.length > 0 ? (
+            layer.groups.map((group) => (
+              <LayerGroupBlock
+                key={group.key}
+                nodeId={nodeId}
+                layerId={layer.id}
+                group={group}
+                expandedGroupKeys={expandedGroupKeys}
+                toggleGroup={toggleGroup}
+              />
+            ))
+          ) : (
+            <div className="px-3 py-3 text-center text-xs text-slate-500">
+              Esta capa no tiene componentes.
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -137,7 +132,7 @@ export function SceneListView() {
   const enterEditNodeMode = useEditorStore((s) => s.enterEditNodeMode);
 
   const [search, setSearch] = useState("");
-  const [expandedSceneIds, setExpandedSceneIds] = useState<Set<ID>>(new Set());
+  const [expandedSceneId, setExpandedSceneId] = useState<ID | null>(null);
   const [expandedLayerKeys, setExpandedLayerKeys] = useState<Set<string>>(new Set());
   const [expandedGroupKeys, setExpandedGroupKeys] = useState<Set<string>>(new Set());
 
@@ -147,7 +142,7 @@ export function SceneListView() {
     const query = search.trim().toLowerCase();
     if (!query) return sceneEntries;
 
-    return sceneEntries.filter((scene) => scene.title.toLowerCase().includes(query));
+    return sceneEntries.filter((scene) => scene.searchText.includes(query));
   }, [sceneEntries, search]);
 
   if (!project || project.nodes.length === 0) {
@@ -167,25 +162,20 @@ export function SceneListView() {
   };
 
   const toggleScene = (id: ID) => {
-    const isCurrentlyExpanded = expandedSceneIds.has(id);
-
-    setExpandedSceneIds(isCurrentlyExpanded ? new Set() : new Set([id]));
+    const isCurrentlyExpanded = expandedSceneId === id;
 
     if (isCurrentlyExpanded) {
+      setExpandedSceneId(null);
       setExpandedLayerKeys(new Set());
       setExpandedGroupKeys(new Set());
       return;
     }
 
-    const nextLayerKeys = new Set(
-      Array.from(expandedLayerKeys).filter((key) => key.startsWith(`${id}:`)),
-    );
-    const nextGroupKeys = new Set(
-      Array.from(expandedGroupKeys).filter((key) => key.startsWith(`${id}:`)),
-    );
+    setExpandedSceneId(id);
 
-    setExpandedLayerKeys(nextLayerKeys);
-    setExpandedGroupKeys(nextGroupKeys);
+    setExpandedLayerKeys(new Set(Array.from(expandedLayerKeys).filter((key) => key.startsWith(`${id}:`))));
+
+    setExpandedGroupKeys(new Set(Array.from(expandedGroupKeys).filter((key) => key.startsWith(`${id}:`))));
   };
 
   const toggleLayer = (key: string) => {
@@ -209,7 +199,7 @@ export function SceneListView() {
   return (
     <div className="max-w-[700px] mx-auto rounded-xl border-3 border-slate-700 bg-slate-900 p-4 space-y-3 mt-4">
       <div className="space-y-4">
-        <h2 className="text-base font-semibold text-white text-center">
+        <h2 className="text-[20px] font-semibold text-white text-center">
           {project.title}
         </h2>
 
@@ -218,7 +208,7 @@ export function SceneListView() {
           type="search"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Buscar escena..."
+          placeholder="Buscar escena, componente, diálogo, mapa..."
           className="w-full rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-sm text-slate-100
             focus:outline-none focus:border-transparent focus:ring-2 focus:ring-fuchsia-600"
         />
@@ -230,7 +220,7 @@ export function SceneListView() {
             </li>
           ) : (
             filteredScenes.map((scene: SceneListSceneEntry) => {
-              const isExpanded = expandedSceneIds.has(scene.id);
+              const isExpanded = expandedSceneId === scene.id;
 
               return (
                 <li key={scene.id}>
@@ -258,20 +248,20 @@ export function SceneListView() {
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2 ml-1">
-                              <Badge className="border-slate-600 bg-slate-90 text-slate-200">
+                              <Badge className="border-slate-600 bg-slate-900 text-slate-200">
                                 {scene.layerCount} {scene.layerCount === 1 ? "capa" : "capas"}
                               </Badge>
 
                               {scene.dialogueCount > 0 && (
-                                <Badge className="border-slate-600 bg-slate-90 text-slate-200">
+                                <Badge className="border-slate-600 bg-slate-900 text-slate-200">
                                   {scene.dialogueCount} {scene.dialogueCount === 1 ? "diálogo" : "diálogos"}
                                 </Badge>
                               )}
 
                               {scene.map && (
                                 <Badge className={scene.map.isEntry
-                                  ? "border-amber-500/60 bg-amber-500/10 text-slate-20"
-                                  : "border-slate-600 bg-slate-90 text-slate-200"}
+                                  ? "border-amber-500/60 bg-amber-500/10 text-slate-200"
+                                  : "border-slate-600 bg-slate-900 text-slate-200"}
                                 >
                                   Mapa: {scene.map.mapName} · {scene.map.regionName}
                                 </Badge>

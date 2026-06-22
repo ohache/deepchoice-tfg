@@ -1,5 +1,12 @@
-import type { ZodError } from "zod";
-import { VarDraftSchema, type VarDraftInput, type VarDraftOutput } from "@/validation/varSchemas";
+import type { z, ZodError } from "zod";
+import { VarDraftSchema } from "@/validation/varSchemas";
+
+const VAR_FIELDS = ["name", "type", "min", "max", "initial"] as const;
+
+export type VarDraftInput = z.input<typeof VarDraftSchema>;
+export type VarDraftOutput = z.output<typeof VarDraftSchema>;
+
+type VarField = typeof VAR_FIELDS[number];
 
 /* Errores por fila */
 export type VarFieldErrors = {
@@ -15,124 +22,115 @@ export type VarsErrorBag = {
   varByIndex?: Record<number, VarFieldErrors>;
 };
 
-function ensureVarErr(errors: VarsErrorBag, idx: number): VarFieldErrors {
+type ValidateVarDraftRowsOptions = {
+  existingNamesLower?: Set<string>;
+  duplicateVarName?: string;
+};
+
+function ensureVarErr(errors: VarsErrorBag, index: number): VarFieldErrors {
   errors.varByIndex ??= {};
-  errors.varByIndex[idx] ??= {};
-  return errors.varByIndex[idx]!;
+  errors.varByIndex[index] ??= {};
+  return errors.varByIndex[index]!;
+}
+
+function isVarField(value: unknown): value is VarField {
+  return typeof value === "string" && VAR_FIELDS.includes(value as VarField);
+}
+
+function setVarFieldError(errors: VarsErrorBag, index: number, field: VarField, message: string): void {
+  const rowErrors = ensureVarErr(errors, index);
+
+  switch (field) {
+    case "name":
+      rowErrors.name = message;
+      break;
+    case "type":
+      rowErrors.type = message;
+      break;
+    case "min":
+      rowErrors.min = message;
+      break;
+    case "max":
+      rowErrors.max = message;
+      break;
+    case "initial":
+      rowErrors.initial = message;
+      break;
+  }
 }
 
 /* Mapea un issue de Zod dentro de vars[] a un error por índice */
-export function applyVarZodIssue(args: { errors: VarsErrorBag; issuePath: readonly PropertyKey[]; issueMessage: string }) {
+function applyVarZodIssue(args: { errors: VarsErrorBag; issuePath: readonly PropertyKey[]; issueMessage: string }): void {
   const { errors, issuePath, issueMessage } = args;
 
-  const idxKey = issuePath[1];
-  const fieldKey = issuePath[2];
+  const index = issuePath[1];
+  const field = issuePath[2];
 
-  if (typeof idxKey !== "number") {
-    errors.vars = errors.vars ?? issueMessage;
+  if (typeof index !== "number") {
+    errors.vars ??= issueMessage;
     return;
   }
 
-  if (typeof fieldKey !== "string") {
-    errors.vars = errors.vars ?? "Hay errores en las variables.";
+  if (!isVarField(field)) {
+    errors.vars ??= "Hay errores en las variables.";
     return;
   }
 
-  const vErr = ensureVarErr(errors, idxKey);
+  setVarFieldError(errors, index, field, issueMessage);
+}
 
-  switch (fieldKey) {
-    case "name":
-      vErr.name = issueMessage;
-      break;
-    case "type":
-      vErr.type = issueMessage;
-      break;
-    case "min":
-      vErr.min = issueMessage;
-      break;
-    case "max":
-      vErr.max = issueMessage;
-      break;
-    case "initial":
-      vErr.initial = issueMessage;
-      break;
-    default:
-      errors.vars = errors.vars ?? "Hay errores en las variables.";
-      break;
+/* Añade al error bag los errores Zod correspondientes a vars[] */
+function collectVarZodErrors(errors: VarsErrorBag, zodError?: ZodError): void {
+  if (!zodError) return;
+
+  for (const issue of zodError.issues) {
+    if (issue.path[0] !== "vars") continue;
+
+    applyVarZodIssue({ errors, issuePath: issue.path, issueMessage: issue.message });
   }
 }
 
-export type ValidateVarDraftRowsOptions = {
-  existingNamesLower?: Set<string>;
-  messages?: { duplicateVarName?: string; minGreaterThanMax?: string; initialOutOfRange?: string; };
-};
-
-/** Reglas extra para filas draft */
-export function validateVarDraftRows(args: { errors: VarsErrorBag; vars?: VarDraftInput[] | undefined; opts?: ValidateVarDraftRowsOptions; }) {
-  const { errors } = args;
+/* Valida nombres duplicados dentro del conjunto de variables */
+function validateDuplicatedVarNames(args: { errors: VarsErrorBag; vars?: VarDraftInput[]; opts?: ValidateVarDraftRowsOptions }): void {
   const vars = args.vars ?? [];
-  if (vars.length === 0) return;
+  if (!vars.length) return;
 
-  const messages = {
-    duplicateVarName: "Nombre de variable duplicado.",
-    minGreaterThanMax: "Min no puede ser mayor que Max ni Max menor que Min.",
-    initialOutOfRange: "Inicial debe estar entre Min y Max.",
-    ...(args.opts?.messages ?? {}),
-  };
+  const duplicateMessage = args.opts?.duplicateVarName ?? "Nombre de variable duplicado.";
 
   const seen = new Set<string>();
   const existing = args.opts?.existingNamesLower;
 
-  vars.forEach((v, idx) => {
-    const name = (v.name ?? "").trim();
-    if (!name) return;
+  for (let index = 0; index < vars.length; index++) {
+    const name = vars[index]?.name?.trim();
+    if (!name) continue;
 
     const key = name.toLowerCase();
 
-    if (seen.has(key)) ensureVarErr(errors, idx).name = messages.duplicateVarName;
-    else seen.add(key);
-
-    if (existing?.has(key)) ensureVarErr(errors, idx).name = messages.duplicateVarName;
-
-    if (v.type === "number") {
-      const min = Number(v.min);
-      const max = Number(v.max);
-      const initial = Number(v.initial);
-
-      if (Number.isFinite(min) && Number.isFinite(max) && min > max) {
-        const e = ensureVarErr(errors, idx);
-        e.max = messages.minGreaterThanMax;
-      }
-
-      if (Number.isFinite(min) && Number.isFinite(max) && Number.isFinite(initial) && (initial < min || initial > max)) {
-        ensureVarErr(errors, idx).initial = messages.initialOutOfRange;
-      }
+    if (seen.has(key) || existing?.has(key)) {
+      setVarFieldError(args.errors, index, "name", duplicateMessage);
+      continue;
     }
-  });
+
+    seen.add(key);
+  }
 }
 
 /* Valida un row suelto */
 export function parseVarDraftRow(row: unknown): { ok: true; value: VarDraftOutput } | { ok: false; issues: ZodError["issues"] } {
   const result = VarDraftSchema.safeParse(row);
+
   if (!result.success) return { ok: false, issues: result.error.issues };
+
   return { ok: true, value: result.data };
 }
 
-/* Valida el draft completo */
-export function validateVarsDraft(args: { vars: VarDraftInput[] | undefined; zodError?: ZodError; opts?: ValidateVarDraftRowsOptions; }): VarsErrorBag {
-  const { vars, zodError, opts } = args;
-
+/* Valida el draft completo de variables */
+export function validateVarsDraft(args: { vars: VarDraftInput[] | undefined; zodError?: ZodError; opts?: ValidateVarDraftRowsOptions }): VarsErrorBag {
   const errors: VarsErrorBag = {};
 
-  if (zodError) {
-    for (const issue of zodError.issues) {
-      if (issue.path[0] !== "vars") continue;
+  collectVarZodErrors(errors, args.zodError);
 
-      applyVarZodIssue({ errors, issuePath: issue.path, issueMessage: issue.message });
-    }
-  }
-
-  validateVarDraftRows({ errors, vars, opts });
+  validateDuplicatedVarNames({ errors, vars: args.vars, opts: args.opts });
 
   return errors;
 }

@@ -1,7 +1,13 @@
+import { useMemo } from "react";
 import type { ID, NodeLayout } from "@/domain/types";
 import type { SceneEdgeVM } from "@/features/editor/history/view/historyViewTypes";
 
-interface Props {
+const EXIT_PAD_PX = 2;
+const SLOT_STEP_PX = 10;
+const CORNER_MARGIN_PX = 10;
+const HANDLE_PUSH_PX = 22;
+
+type Props = {
   edges: SceneEdgeVM[];
   nodePos: Map<ID, NodeLayout>;
   scale: number;
@@ -33,7 +39,7 @@ type EndpointOffset = {
   offsetPx: number;
 };
 
-function clamp(n: number, min: number, max: number) {
+function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
 }
 
@@ -54,11 +60,11 @@ function normalize(v: NodeLayout): NodeLayout {
   return { x: v.x / len, y: v.y / len };
 }
 
-function farPointFrom(center: NodeLayout, dir: NodeLayout) {
+function farPointFrom(center: NodeLayout, dir: NodeLayout): NodeLayout {
   return add(center, mul(dir, 10_000));
 }
 
-function isInsideCenteredRect(p: NodeLayout, center: NodeLayout, w: number, h: number) {
+function isInsideCenteredRect(p: NodeLayout, center: NodeLayout, w: number, h: number): boolean {
   const halfW = w / 2;
   const halfH = h / 2;
   return Math.abs(p.x - center.x) < halfW && Math.abs(p.y - center.y) < halfH;
@@ -171,20 +177,13 @@ function getCenterScreen(args: { nodeId: ID; nodePos: Map<ID, NodeLayout>; scale
 
   const topLeft = { x: pWorld.x * scale, y: pWorld.y * scale };
 
-  return {
-    x: topLeft.x + (nodeWidth * scale) / 2,
-    y: topLeft.y + (nodeHeight * scale) / 2,
-  };
+  return { x: topLeft.x + (nodeWidth * scale) / 2, y: topLeft.y + (nodeHeight * scale) / 2 };
 }
 
-function assignSlots(list: Endpoint[], mode: ApproachMode, slotStepPx: number, endpointOffsetByKey: Map<EndpointKey, EndpointOffset>) {
+function assignSlots(list: Endpoint[], mode: ApproachMode, slotStepPx: number, endpointOffsetByKey: Map<EndpointKey, EndpointOffset>): void {
   if (list.length <= 1) {
-    for (const ep of list) {
-      endpointOffsetByKey.set(ep.key, {
-        axis: mode === "lr" ? "y" : "x",
-        offsetPx: 0,
-      });
-    }
+    for (const ep of list) endpointOffsetByKey.set(ep.key, { axis: mode === "lr" ? "y" : "x", offsetPx: 0 });
+
     return;
   }
 
@@ -194,14 +193,12 @@ function assignSlots(list: Endpoint[], mode: ApproachMode, slotStepPx: number, e
 
   for (let i = 0; i < sorted.length; i++) {
     const slot = i - mid;
-    endpointOffsetByKey.set(sorted[i].key, {
-      axis: mode === "lr" ? "y" : "x",
-      offsetPx: slot * slotStepPx,
-    });
+    endpointOffsetByKey.set(sorted[i].key, { axis: mode === "lr" ? "y" : "x", offsetPx: slot * slotStepPx });
   }
 }
 
-function buildEndpointOffsets(args: { edges: SceneEdgeVM[]; nodePos: Map<ID, NodeLayout>; scale: number; nodeWidth: number; nodeHeight: number; slotStepPx: number }) {
+function buildEndpointOffsets(args: { edges: SceneEdgeVM[]; nodePos: Map<ID, NodeLayout>; scale: number; nodeWidth: number; nodeHeight: number; slotStepPx: number }):
+  Map<EndpointKey, EndpointOffset> {
   const { edges, nodePos, scale, nodeWidth, nodeHeight, slotStepPx } = args;
 
   const endpointOffsetByKey = new Map<EndpointKey, EndpointOffset>();
@@ -253,9 +250,7 @@ function resolveEdgeShape(args: { edge: SceneEdgeVM; nodePos: Map<ID, NodeLayout
   const endSlot = endpointOffsetByKey.get(`${edge.id}:end`);
   if (endSlot) {
     const before = p2;
-
     p2 = slideOnBorderAndReproject({ center: bC, pOnBorder: p2, w: wExit, h: hExit, axis: endSlot.axis, offsetPx: endSlot.offsetPx, cornerMarginPx });
-
     c2 = add(c2, sub(p2, before));
   }
 
@@ -263,9 +258,7 @@ function resolveEdgeShape(args: { edge: SceneEdgeVM; nodePos: Map<ID, NodeLayout
     const startSlot = endpointOffsetByKey.get(`${edge.id}:start`);
     if (startSlot) {
       const before = p1;
-
       p1 = slideOnBorderAndReproject({ center: aC, pOnBorder: p1, w: wExit, h: hExit, axis: startSlot.axis, offsetPx: startSlot.offsetPx, cornerMarginPx });
-
       c1 = add(c1, sub(p1, before));
     }
   }
@@ -284,15 +277,13 @@ function resolveEdgeShape(args: { edge: SceneEdgeVM; nodePos: Map<ID, NodeLayout
 }
 
 export function EdgesLayer({ edges, nodePos, scale, nodeWidth, nodeHeight }: Props) {
-  const EXIT_PAD_PX = 2;
-  const SLOT_STEP_PX = 10;
-  const CORNER_MARGIN_PX = 10;
-  const HANDLE_PUSH_PX = 22;
-
   const strokeW = 2 * scale;
   const endDotR = 5 * scale;
 
-  const endpointOffsetByKey = buildEndpointOffsets({ edges, nodePos, scale, nodeWidth, nodeHeight, slotStepPx: SLOT_STEP_PX });
+  const endpointOffsetByKey = useMemo(() =>
+    buildEndpointOffsets({ edges, nodePos, scale, nodeWidth, nodeHeight, slotStepPx: SLOT_STEP_PX }),
+  [edges, nodePos, scale, nodeWidth, nodeHeight]
+);
 
   return (
     <g>

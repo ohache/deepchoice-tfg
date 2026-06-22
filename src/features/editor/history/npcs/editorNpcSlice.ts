@@ -1,71 +1,33 @@
-import type { ID, InventoryItemInstance, NpcDef, Project, VarDef } from "@/domain/types";
+import type { ID, ItemInstance, NpcDef, Project, VarDef } from "@/domain/types";
 import type { DeleteTarget } from "@/features/editor/delete/deleteTypes";
-import { conditionReferences } from "@/domain/conditionRefs";
-import { effectReferencesNpc } from "@/domain/effectRefs";
 import { hasDuplicateName } from "@/validation/genericValidator";
-import { buildAssetPath } from "@/store/assets/assetPath";
+import { safeTrim, sameVarDef, upsertAsset, upsertAssetFile } from "@/features/editor/core/editorDataUtils";
+import { findAssetByIdAndKind, findEntityById, isNameChanged, normalizeOptionalFile,
+  normalizeOptionalName, replaceById } from "@/features/editor/history/shared/assetBackedEntityHelpers";
+  import { buildAssetPath } from "@/store/assets/assetPath";
 import { generateId } from "@/utils/id";
-import { removeAssetFile, safeTrim, sameVarDef, upsertAsset, upsertAssetFile } from "@/features/editor/core/editorGenericSlice";
-import {
-  collectDialogueIds,
-  effectIsStartDialogueForAnyOf,
-  isEntityReferenced,
-  someDialogue,
-  somePlacedNpc,
-} from "@/features/editor/core/editorProjectWalkers";
-import { findAssetByIdAndKind, findEntityById, replaceById } from "@/features/editor/history/shared/assetBackedEntityHelpers";
-import { nextSelectedAfterRemoval } from "@/features/editor/history/shared/genericHelpers";
-import { applyDeleteWithCleanup } from "@/features/editor/delete/deleteReferenceCleaner";
-import type { DeleteApplyFn } from "@/features/editor/delete/editorDeleteSlice";
 
 /* Contrato mínimo del store que necesita este slice */
 type EditorStoreLike = {
   project: Project | null;
   assetFiles: Record<ID, File>;
   selectedNpcId: ID | null;
-  requestDelete: (input: {
-    target: DeleteTarget;
-    apply: DeleteApplyFn;
-  }) => void;
+  requestDelete: (target: DeleteTarget) => void;
 };
 
 export interface EditorNpcSlice {
   selectedNpcId: ID | null;
   setSelectedNpcId: (id: ID | null) => void;
-  addNpc: (input: { name: string; description?: string; file: File; vars?: VarDef[], initialInventory?: InventoryItemInstance[]; }) => ID | null;
+  addNpc: (input: { name: string; description?: string; file: File; vars?: VarDef[]; initialInventory?: ItemInstance[] }) => ID | null;
   updateNpc: (id: ID, changes: { name?: string; description?: string; file?: File | null }) => void;
   addNpcVar: (npcId: ID, variable: VarDef) => void;
   updateNpcVar: (npcId: ID, variable: VarDef) => void;
   removeNpcVar: (npcId: ID, varId: ID) => void;
-  addNpcInventoryItem: (npcId: ID, item: InventoryItemInstance) => void;
-  updateNpcInventoryItem: (npcId: ID, item: InventoryItemInstance) => void;
+  addNpcInventoryItem: (npcId: ID, item: ItemInstance) => void;
+  updateNpcInventoryItem: (npcId: ID, item: ItemInstance) => void;
   removeNpcInventoryItem: (npcId: ID, itemInstanceId: ID) => void;
   removeNpc: (id: ID) => void;
-  isNpcReferenced: (id: ID) => boolean;
 }
-
-const applyNpcDeleteTarget = (
-  target: DeleteTarget,
-): DeleteApplyFn => (state) => {
-  if (!state.project) return state;
-
-  const nextProject = applyDeleteWithCleanup(state.project, target);
-
-  let nextAssetFiles = state.assetFiles;
-  let nextSelectedNpcId = state.selectedNpcId;
-
-  if (target.kind === "npc") {
-    nextAssetFiles = removeAssetFile(nextAssetFiles, target.npcId).assetFiles;
-    nextSelectedNpcId = nextSelectedAfterRemoval(state.selectedNpcId, target.npcId);
-  }
-
-  return {
-    ...state,
-    project: nextProject,
-    assetFiles: nextAssetFiles,
-    selectedNpcId: nextSelectedNpcId,
-  };
-};
 
 export function createEditorNpcSlice(set: (partial: | Partial<EditorStoreLike> | ((state: EditorStoreLike) => Partial<EditorStoreLike> | EditorStoreLike)) => void,
   get: () => EditorStoreLike): EditorNpcSlice {
@@ -79,9 +41,9 @@ export function createEditorNpcSlice(set: (partial: | Partial<EditorStoreLike> |
       const { project, assetFiles } = get();
       if (!project) return null;
 
-      const nextName = safeTrim(input?.name);
-      const nextDescription = safeTrim(input?.description);
-      const file = input?.file;
+      const nextName = normalizeOptionalName(input.name);
+      const nextDescription = safeTrim(input.description);
+      const file = input.file;
 
       if (!nextName) return null;
       if (!(file instanceof File)) return null;
@@ -125,16 +87,18 @@ export function createEditorNpcSlice(set: (partial: | Partial<EditorStoreLike> |
         const prevNpc = findEntityById(project.npcs, id);
         if (!prevNpc) return state;
 
-        const nextName = typeof changes.name === "string" ? safeTrim(changes.name) : "";
-        const nameChanged = Boolean(nextName) && nextName !== prevNpc.name;
+        const nextName = normalizeOptionalName(changes.name);
+        const nameChanged = isNameChanged(prevNpc.name, nextName);
 
         if (nameChanged && hasDuplicateName({ list: project.npcs, incomingName: nextName, ignoreId: id })) return state;
-
+        
         const nextDescription = typeof changes.description === "string" ? safeTrim(changes.description) : "";
+
         const prevDescription = safeTrim(prevNpc.description);
+
         const descriptionChanged = typeof changes.description === "string" && nextDescription !== prevDescription;
 
-        const nextFile = changes.file instanceof File ? changes.file : null;
+        const nextFile = normalizeOptionalFile(changes.file);
         const fileChanged = Boolean(nextFile);
 
         if (!nameChanged && !descriptionChanged && !fileChanged) return state;
@@ -152,6 +116,7 @@ export function createEditorNpcSlice(set: (partial: | Partial<EditorStoreLike> |
 
         if (nameChanged && existingAsset) {
           const assetResult = upsertAsset(nextAssets, { id, kind: "npcs", name: nextNpc.name, file: safeTrim(existingAsset.file) });
+
           nextAssets = assetResult.assets;
         }
 
@@ -159,6 +124,7 @@ export function createEditorNpcSlice(set: (partial: | Partial<EditorStoreLike> |
           const filePath = buildAssetPath("npcs", nextFile.name);
 
           const assetResult = upsertAsset(nextAssets, { id, kind: "npcs", name: nextNpc.name, file: filePath });
+
           nextAssets = assetResult.assets;
 
           const fileResult = upsertAssetFile(nextAssetFiles, id, nextFile);
@@ -186,7 +152,6 @@ export function createEditorNpcSlice(set: (partial: | Partial<EditorStoreLike> |
         if (!prevNpc) return state;
 
         const prevVars = prevNpc.vars ?? [];
-
         if (prevVars.some((existingVar) => existingVar.id === variable.id)) return state;
 
         const nextNpc: NpcDef = {
@@ -236,8 +201,7 @@ export function createEditorNpcSlice(set: (partial: | Partial<EditorStoreLike> |
         };
       }),
 
-    /* Elimina una variable del NPC */
-    /* Elimina una variable del NPC */
+    /* Solicita la eliminación de una variable del NPC */
     removeNpcVar: (npcId, varId) => {
       const { project, requestDelete } = get();
       if (!project) return;
@@ -248,12 +212,10 @@ export function createEditorNpcSlice(set: (partial: | Partial<EditorStoreLike> |
       const vars = npc.vars ?? [];
       if (!vars.some((variable) => variable.id === varId)) return;
 
-      requestDelete({
-        target: { kind: "npcVar", npcId, varId },
-        apply: applyNpcDeleteTarget({ kind: "npcVar", npcId, varId }),
-      });
+      requestDelete({ kind: "npcVar", npcId, varId });
     },
 
+    /* Añade un item al inventario inicial del NPC */
     addNpcInventoryItem: (npcId, item) =>
       set((state) => {
         if (!state.project) return state;
@@ -278,6 +240,7 @@ export function createEditorNpcSlice(set: (partial: | Partial<EditorStoreLike> |
         };
       }),
 
+    /* Actualiza un item del inventario inicial del NPC */
     updateNpcInventoryItem: (npcId, item) =>
       set((state) => {
         if (!state.project) return state;
@@ -304,6 +267,7 @@ export function createEditorNpcSlice(set: (partial: | Partial<EditorStoreLike> |
         };
       }),
 
+    /* Solicita la eliminación de un item del inventario inicial del NPC */
     removeNpcInventoryItem: (npcId, itemInstanceId) => {
       const { project, requestDelete } = get();
       if (!project) return;
@@ -314,14 +278,10 @@ export function createEditorNpcSlice(set: (partial: | Partial<EditorStoreLike> |
       const inventory = npc.initialInventory ?? [];
       if (!inventory.some((item) => item.itemInstanceId === itemInstanceId)) return;
 
-      requestDelete({
-        target: { kind: "npcInventoryItem", npcId, itemInstanceId },
-        apply: applyNpcDeleteTarget({ kind: "npcInventoryItem", npcId, itemInstanceId }),
-      });
+      requestDelete({ kind: "npcInventoryItem", npcId, itemInstanceId });
     },
 
-    /* Elimina un NPC global */
-    /* Elimina un NPC global */
+    /* Solicita la eliminación de un NPC global */
     removeNpc: (npcId) => {
       const { project, requestDelete } = get();
       if (!project) return;
@@ -329,30 +289,7 @@ export function createEditorNpcSlice(set: (partial: | Partial<EditorStoreLike> |
       const npc = findEntityById(project.npcs, npcId);
       if (!npc) return;
 
-      requestDelete({
-        target: { kind: "npc", npcId },
-        apply: applyNpcDeleteTarget({ kind: "npc", npcId }),
-      });
-    },
-
-    /* Comprueba si un NPC está referenciado */
-    isNpcReferenced: (npcId: ID) => {
-      const { project } = get();
-      if (!project) return false;
-
-      const dialogueIds = collectDialogueIds(project, (dialogue) => dialogue.npcId === npcId);
-      const npcVars = findEntityById(project.npcs, npcId)?.vars ?? [];
-
-      return isEntityReferenced(project, {
-        someSceneRef: (currentProject) =>
-          somePlacedNpc(currentProject, (placedNpc) => placedNpc.npcId === npcId) ||
-          someDialogue(currentProject, (dialogue) => dialogue.npcId === npcId),
-
-        someWhenRef: (when) => conditionReferences.npc(when, npcId) ||
-          npcVars.some((variable) => conditionReferences.npcVar(when, { npcId, varId: variable.id })),
-
-        someEffectRef: (effect) => effectReferencesNpc(effect, npcId) || effectIsStartDialogueForAnyOf(effect, dialogueIds)
-      });
+      requestDelete({ kind: "npc", npcId });
     },
   };
 }

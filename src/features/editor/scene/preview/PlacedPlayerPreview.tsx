@@ -1,8 +1,9 @@
-import { useMemo, type CSSProperties } from "react";
+import { useMemo } from "react";
 import type { ID, PlacedPlayer, Project } from "@/domain/types";
 import { useResolvedAssetUrl } from "@/features/editor/hooks/useResolvedAssetUrl";
 import { rectStyleFromShape } from "@/features/editor/hooks/regionShape";
 import type { Rect } from "@/features/editor/hooks/useObjectContainRect";
+import { canRenderPreviewLabel, getCssRectSize, mergePreviewDraft, getPlayerName } from "@/features/editor/scene/preview/previewRenderHelpers";
 
 type PlacedPlayerPreviewProps = {
   placedPlayers: PlacedPlayer[];
@@ -14,43 +15,32 @@ type PlacedPlayerPreviewProps = {
 type PlacedPlayerPreviewCardProps = {
   player: PlacedPlayer;
   assetId: ID | null;
+  playerName: string;
   contentRectInContainer: Rect | null;
 };
 
-function pxToNumber(value: CSSProperties["width"] | CSSProperties["height"]): number {
-  if (typeof value === "number") return value;
-  if (typeof value === "string") return Number(value.replace("px", "")) || 0;
-  return 0;
-}
-
-function canRenderFallbackLabel(width: number, height: number): boolean {
-  return width >= 50 && height >= 20;
-}
-
-function PlacedPlayerPreviewCard({ player, assetId, contentRectInContainer }: PlacedPlayerPreviewCardProps) {
+function PlacedPlayerPreviewCard({ player, assetId, playerName, contentRectInContainer }: PlacedPlayerPreviewCardProps) {
   const imageUrl = useResolvedAssetUrl(assetId);
   const style = rectStyleFromShape(player.shape ?? null, contentRectInContainer);
 
-  const sizeInfo = useMemo(() => {
-    if (!style) return { width: 0, height: 0 };
-
-    return { width: pxToNumber(style.width), height: pxToNumber(style.height) };
-  }, [style]);
+  const sizeInfo = useMemo(() => getCssRectSize(style), [style]);
 
   if (!style) return null;
 
-  const showFallbackLabel = !imageUrl && canRenderFallbackLabel(sizeInfo.width, sizeInfo.height);
+  const label = playerName.trim() || "Player";
+
+  const showLabel = canRenderPreviewLabel({ label, width: sizeInfo.width, height: sizeInfo.height });
 
   return (
     <div
       style={style}
       className="absolute overflow-hidden rounded-sm border-2 border-emerald-400/60 bg-emerald-500/10"
-      title="Player"
+      title={label}
     >
       {imageUrl ? (
         <img
           src={imageUrl}
-          alt="Player"
+          alt={label}
           className="absolute inset-0 h-full w-full select-none object-fill pointer-events-none"
           draggable={false}
         />
@@ -58,10 +48,10 @@ function PlacedPlayerPreviewCard({ player, assetId, contentRectInContainer }: Pl
 
       <div className="absolute inset-0 bg-emerald-500/10 pointer-events-none" />
 
-      {showFallbackLabel ? (
+      {showLabel ? (
         <div className="absolute inset-x-1 bottom-1 flex justify-center pointer-events-none">
           <div className="max-w-[90%] truncate rounded-md border border-emerald-600 bg-slate-950/60 px-2 py-0.5 text-center text-[11px] leading-none text-slate-100">
-            Player
+            {label}
           </div>
         </div>
       ) : null}
@@ -70,23 +60,18 @@ function PlacedPlayerPreviewCard({ player, assetId, contentRectInContainer }: Pl
 }
 
 export function PlacedPlayerPreview({ placedPlayers, project, contentRectInContainer, draftPlayer = null }: PlacedPlayerPreviewProps) {
-  const assetIdByPlayerImageId = useMemo(() => {
+  const playerAssetIds = useMemo(() => {
     const assets = project?.assets ?? [];
-    const map = new Map<ID, ID>();
+    const ids = new Set<ID>();
 
     for (const asset of assets) {
-      if (asset.kind !== "players") continue;
-      map.set(asset.id, asset.id);
+      if (asset.kind === "players") ids.add(asset.id);
     }
 
-    return map;
+    return ids;
   }, [project?.assets]);
 
-  const playersToRender = useMemo(() => {
-    const basePlayers = draftPlayer ? placedPlayers.filter((player) => player.playerId !== draftPlayer.playerId) : placedPlayers;
-
-    return draftPlayer ? [...basePlayers, draftPlayer] : basePlayers;
-  }, [placedPlayers, draftPlayer]);
+  const playersToRender = useMemo(() => mergePreviewDraft(placedPlayers, draftPlayer, (player) => player.playerId), [placedPlayers, draftPlayer]);
 
   if (!playersToRender.length) return null;
 
@@ -96,7 +81,8 @@ export function PlacedPlayerPreview({ placedPlayers, project, contentRectInConta
         <PlacedPlayerPreviewCard
           key={player.playerId}
           player={player}
-          assetId={assetIdByPlayerImageId.get(player.initialImageId) ?? null}
+          playerName={getPlayerName(project, player.playerId)}
+          assetId={playerAssetIds.has(player.initialImageId) ? player.initialImageId : null}
           contentRectInContainer={contentRectInContainer}
         />
       ))}

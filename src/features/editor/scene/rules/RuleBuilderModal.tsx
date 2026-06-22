@@ -1,36 +1,31 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { z } from "zod";
+import type { z } from "zod";
 import { buildInlineErrorMapByPath } from "@/shared/zodIssues";
-import type { ID, Project, RulePhrase, RulePhraseSpeaker } from "@/domain/types";
+import type { ID, Project, RulePhrase, Speaker } from "@/domain/types";
 import type { Condition } from "@/domain/conditions";
 import type { Effect } from "@/domain/effects";
-import { IdSchema } from "@/validation/genericSchemas";
-import { conditionSchema, effectSchema, rulePhraseSchema } from "@/validation/rulesSchemas";
+import { baseInteractionRuleSchema, conditionSchema } from "@/validation/rulesSchemas";
 import { conditionToUiDraft, createDefaultRootCondition, pruneEmptyGroups, uiDraftToCondition, type UiDraft } from "@/features/editor/scene/rules/conditions/conditionDraftMapper";
 import { ConditionGroups } from "@/features/editor/scene/rules/conditions/ConditionGroups";
-import { type EffectCtx, type EffectOwner, type FactoryCtx, createProjectIndex, isEnabledEffect, type EnabledEffect } from "@/features/editor/scene/rules/effects/effectFactory";
+import { createProjectIndex } from "@/features/editor/scene/rules/effects/effectProjectIndex";
+import type { EffectCtx, EffectOwner, FactoryCtx } from "@/features/editor/scene/rules/effects/effectShared";
+import { isEnabledEffect, type EnabledEffect } from "@/features/editor/scene/rules/effects/effectFactory";
 import { EffectPanel } from "@/features/editor/scene/rules/effects/EffectPanel";
 import { ConfirmExitModal } from "@/features/editor/modals/ConfirmExitModal";
 import { ConfirmDangerModal } from "@/features/editor/modals/ConfirmDangerModal";
 import { toast } from "@/shared/toast/toastStore";
 import { Select } from "@/components/Select";
 
-/* Schema */
-const RuleSchema = z.object({
-  id: IdSchema,
-  when: conditionSchema.optional(),
-  phrase: rulePhraseSchema.optional(),
-  effects: z.array(effectSchema).default([]),
-});
+type BaseRuleFromSchema = z.infer<typeof baseInteractionRuleSchema>;
 
-type PhraseSpeakerOption = {
-  id: string;
-  label: string;
-  speaker?: RulePhraseSpeaker;
+type RulePayload = {
+  id: ID;
+  when?: Condition;
+  phrase?: RulePhrase;
+  effects: Effect[];
 };
 
-type RuleDraft = {
-  id: ID;
+type RuleDraft = Omit<BaseRuleFromSchema, "when" | "phrase" | "effects"> & {
   when: Condition | null;
   phrase: RulePhrase;
   effects: EnabledEffect[];
@@ -46,21 +41,14 @@ type Props = {
   value?: { id: ID; when?: Condition | null; phrase?: RulePhrase; effects?: unknown[] } | null;
   onClose: () => void;
   onSave: (rule: { id: ID; when?: Condition; phrase?: RulePhrase; effects: Effect[] }) => void;
-  onApply?: (rule: { id: ID; when?: Condition; phrase?: RulePhrase; effects: Effect[] }) => void;
 };
-
-type ValidateRuleResult =
-  | { ok: false }
-  | { ok: true; data: { id: ID; when?: Condition; phrase?: RulePhrase; effects: EnabledEffect[] } };
 
 /* Firma estable del estado de la regla */
 function signatureOfRule(draft: RuleDraft, condDraft: UiDraft): string {
   const cleaned = pruneEmptyGroups(condDraft);
 
   const minimalCond = {
-    groups: (cleaned.groups ?? []).map((group) => ({
-      atoms: (group.atoms ?? []).map((atom) => ({ not: Boolean(atom.not), cond: atom.cond })),
-    })),
+    groups: (cleaned.groups ?? []).map((group) => ({ atoms: (group.atoms ?? []).map((atom) => ({ not: Boolean(atom.not), cond: atom.cond })) })),
   };
 
   return JSON.stringify({ cond: minimalCond, phrase: draft.phrase, effects: draft.effects ?? [] });
@@ -69,66 +57,39 @@ function signatureOfRule(draft: RuleDraft, condDraft: UiDraft): string {
 /*Normaliza el valor inicial recibido desde fuera para trabajar siempre con un draft consistente en UI */
 function makeInitialDraft(value: Props["value"]): RuleDraft {
   const rawEffects = value?.effects ?? [];
+
   const effects = rawEffects.filter((effect): effect is EnabledEffect => isEnabledEffect(effect as Effect));
 
-  return {
-    id: value?.id ?? "",
-    when: value?.when ?? null,
-    phrase: value?.phrase ?? { text: "", speaker: { kind: "narrator" } },
-    effects,
-  };
+  return { id: value?.id ?? (crypto.randomUUID() as ID), when: value?.when ?? null, phrase: normalizePhrase(value?.phrase), effects };
 }
 
-function speakerOptionId(speaker?: RulePhraseSpeaker): string {
-  if (!speaker || speaker.kind === "narrator") return "narrator";
-  if (speaker.kind === "player") return `player:${speaker.playerId}`;
-  return `npc:${speaker.npcId}`;
+function normalizePhrase(phrase?: RulePhrase): RulePhrase {
+  return { text: phrase?.text ?? "", speaker: phrase?.speaker ?? { kind: "narrator" } };
 }
 
 function getOwnerLayerId(owner: EffectOwner): ID | null {
-  if ("layerId" in owner && typeof owner.layerId === "string") return owner.layerId;
-  return null;
+  return "layerId" in owner && typeof owner.layerId === "string" ? owner.layerId : null;
 }
 
-function buildPhraseSpeakerOptions(project: Project | null, nodeId: ID, owner: EffectOwner): PhraseSpeakerOption[] {
-  const node = project?.nodes.find((candidate) => candidate.id === nodeId);
-  const layerId = getOwnerLayerId(owner);
-  const layer = layerId ? node?.layers.find((candidate) => candidate.id === layerId) : null;
+function speakerToOptionId(factory: FactoryCtx, speaker?: Speaker): string {
+  if (!speaker || speaker.kind === "narrator") return factory.idx.formatMessageSpeakerOption({ speakerKind: "narrator" });
 
-  const options: PhraseSpeakerOption[] = [
-    {
-      id: "narrator",
-      label: "Narrador",
-      speaker: { kind: "narrator" },
-    },
-  ];
+  if (speaker.kind === "player") return factory.idx.formatMessageSpeakerOption({ speakerKind: "player", speakerId: speaker.playerId });
 
-  if (!project || !node || !layer) return options;
-
-  for (const placedPlayer of layer.placedPlayers ?? []) {
-    const player = project.players.find((candidate) => candidate.id === placedPlayer.playerId);
-
-    options.push({
-      id: `player:${placedPlayer.playerId}`,
-      label: player?.name?.trim() || placedPlayer.playerId,
-      speaker: { kind: "player", playerId: placedPlayer.playerId },
-    });
-  }
-
-  for (const placedNpc of layer.placedNpcs ?? []) {
-    const npc = project.npcs.find((candidate) => candidate.id === placedNpc.npcId);
-
-    options.push({
-      id: `npc:${placedNpc.npcId}`,
-      label: npc?.name?.trim() || placedNpc.npcId,
-      speaker: { kind: "npc", npcId: placedNpc.npcId },
-    });
-  }
-
-  return options;
+  return factory.idx.formatMessageSpeakerOption({ speakerKind: "npc", speakerId: speaker.npcId });
 }
 
-export function RuleBuilderModal({ open, project, nodeId, owner, interactionKind, value, onClose, onSave, onApply }: Props) {
+function speakerFromOptionId(factory: FactoryCtx, value: string): Speaker {
+  const parsed = factory.idx.parseMessageSpeakerOption(value as never);
+
+  if (parsed.speakerKind === "player") return { kind: "player", playerId: parsed.speakerId ?? "" };
+
+  if (parsed.speakerKind === "npc") return { kind: "npc", npcId: parsed.speakerId ?? "" };
+
+  return { kind: "narrator" };
+}
+
+export function RuleBuilderModal({ open, project, nodeId, owner, interactionKind, value, onClose, onSave }: Props) {
   const idx = useMemo(() => createProjectIndex(project), [project]);
 
   const factory = useMemo<FactoryCtx>(() => ({ idx, ctx: { project, nodeId, owner } satisfies EffectCtx }), [idx, project, nodeId, owner]);
@@ -162,12 +123,11 @@ export function RuleBuilderModal({ open, project, nodeId, owner, interactionKind
 
   const phraseEnabled = interactionKind === "onUseItem" || hasCond;
 
-  const phraseSpeakerOptions = useMemo(
-    () => buildPhraseSpeakerOptions(project, nodeId, owner),
-    [project, nodeId],
-  );
+  const ownerLayerId = useMemo(() => getOwnerLayerId(owner), [owner]);
 
-  const selectedPhraseSpeakerId = speakerOptionId(draft.phrase.speaker);
+  const phraseSpeakerOptions = useMemo(() => factory.idx.getMessageSpeakerOptions({ nodeId, layerId: ownerLayerId }), [factory.idx, nodeId, ownerLayerId]);
+
+  const selectedPhraseSpeakerId = useMemo(() => speakerToOptionId(factory, draft.phrase.speaker), [factory, draft.phrase.speaker]);
 
   const hasSomethingToClear = hasCond || Boolean(draft.phrase.text.trim()) || (draft.effects?.length ?? 0) > 0;
 
@@ -185,9 +145,7 @@ export function RuleBuilderModal({ open, project, nodeId, owner, interactionKind
 
   /*En onClick, la phrase solo tiene sentido si hay condición */
   useEffect(() => {
-    if (interactionKind === "onClick" && !hasCond && draft.phrase.text) {
-      setDraft((prev) => ({ ...prev, phrase: { text: "", speaker: { kind: "narrator" } } }));
-    }
+    if (interactionKind === "onClick" && !hasCond && draft.phrase.text) setDraft((prev) => ({ ...prev, phrase: { text: "", speaker: { kind: "narrator" } } }));
   }, [interactionKind, hasCond, draft.phrase.text]);
 
   /* Actions */
@@ -200,13 +158,14 @@ export function RuleBuilderModal({ open, project, nodeId, owner, interactionKind
     onClose();
   }, [confirmClearOpen, isDirty, onClose]);
 
-  const validateAndBuild = useCallback((): ValidateRuleResult => {
+  const validateAndBuild = useCallback((): RulePayload | null => {
     if (condBusy) {
       toast.warning("Condición en edición", "Termina de editar la condición antes de guardar.");
-      return { ok: false };
+      return null;
     }
 
     const cleanedCond = pruneEmptyGroups(condDraft);
+
     const hasCondValue = (cleanedCond.groups ?? []).some((group) => (group.atoms ?? []).some((atom) => atom.cond != null));
 
     let whenForPayload: Condition | undefined;
@@ -216,12 +175,10 @@ export function RuleBuilderModal({ open, project, nodeId, owner, interactionKind
       const parsedCond = conditionSchema.safeParse(cond);
 
       if (!parsedCond.success) {
-        setInlineErrorsByPath((prev) => ({
-          ...prev,
-          when: "Condición inválida. Revisa los campos.",
-        }));
+        setInlineErrorsByPath((prev) => ({ ...prev, when: "Condición inválida. Revisa los campos." }));
+
         toast.error("Condición inválida", "Revisa los campos. Hay valores vacíos o no válidos.");
-        return { ok: false };
+        return null;
       }
 
       whenForPayload = parsedCond.data;
@@ -229,67 +186,43 @@ export function RuleBuilderModal({ open, project, nodeId, owner, interactionKind
 
     const trimmedPhrase = draft.phrase.text.trim();
 
-    const payload = {
-      id: draft.id || ("rule" as ID),
-      when: whenForPayload,
-      phrase: trimmedPhrase
-        ? {
-          text: trimmedPhrase,
-          speaker: draft.phrase.speaker ?? { kind: "narrator" },
-        }
-        : undefined,
-      effects: draft.effects ?? [],
+    const payload: RulePayload = { id: draft.id, when: whenForPayload,
+      phrase: trimmedPhrase ? { text: trimmedPhrase, speaker: draft.phrase.speaker ?? { kind: "narrator" }} : undefined, effects: draft.effects ?? [],
     };
 
-    const parsed = RuleSchema.safeParse(payload);
+    const parsed = baseInteractionRuleSchema.safeParse(payload);
 
     if (!parsed.success) {
       setInlineErrorsByPath(buildInlineErrorMapByPath(parsed.error.issues));
-      return { ok: false };
+      return null;
     }
 
     if (effectsRequired && (parsed.data.effects?.length ?? 0) === 0) {
-      setInlineErrorsByPath((prev) => ({
-        ...prev,
-        effects: "Añade al menos un efecto.",
-      }));
-      return { ok: false };
+      setInlineErrorsByPath((prev) => ({ ...prev, effects: "Añade al menos un efecto." }));
+
+      return null;
     }
 
     setInlineErrorsByPath({});
-    return {
-      ok: true,
-      data: {
-        id: parsed.data.id,
-        when: parsed.data.when,
-        phrase: parsed.data.phrase,
-        effects: parsed.data.effects as EnabledEffect[],
-      },
-    };
+
+    return { id: parsed.data.id, when: parsed.data.when as Condition | undefined, phrase: parsed.data.phrase as RulePhrase | undefined, effects: parsed.data.effects as Effect[] };
   }, [condBusy, condDraft, draft.id, draft.phrase, draft.effects, effectsRequired]);
 
   const handleSave = useCallback((): boolean => {
     const result = validateAndBuild();
 
-    if (!result.ok) {
+    if (!result) {
       toast.error("Regla inválida", "Revisa la condición, la phrase o los efectos antes de guardar.");
       return false;
     }
 
-    const normalized = {
-      id: result.data.id,
-      when: result.data.when,
-      phrase: result.data.phrase,
-      effects: result.data.effects as Effect[],
-    };
-
-    onSave(normalized);
-    if (onApply) onApply(normalized);
+    onSave(result);
 
     toast.success("Regla guardada", "La regla se ha aplicado correctamente.");
     onClose();
+
     return true;
-  }, [validateAndBuild, onSave, onApply, onClose]);
+  }, [validateAndBuild, onSave, onClose]);
 
   const handleClear = useCallback(() => {
     if (!hasSomethingToClear) return;
@@ -297,12 +230,7 @@ export function RuleBuilderModal({ open, project, nodeId, owner, interactionKind
   }, [hasSomethingToClear]);
 
   const confirmClear = useCallback(() => {
-    setDraft((prev) => ({
-      ...prev,
-      when: null,
-      phrase: { text: "", speaker: { kind: "narrator" } },
-      effects: [],
-    }));
+    setDraft((prev) => ({ ...prev, when: null, phrase: { text: "", speaker: { kind: "narrator" } }, effects: [] }));
     setCondDraft(conditionToUiDraft(createDefaultRootCondition()));
     setInlineErrorsByPath({});
     setConfirmClearOpen(false);
@@ -361,13 +289,7 @@ export function RuleBuilderModal({ open, project, nodeId, owner, interactionKind
                     onChange={(e) => {
                       const value = e.currentTarget.value;
 
-                      setDraft((prev) => ({
-                        ...prev,
-                        phrase: {
-                          ...prev.phrase,
-                          text: value,
-                        },
-                      }));
+                      setDraft((prev) => ({ ...prev, phrase: { ...prev.phrase, text: value } }));
                     }}
                     placeholder="Ej: Se necesita una llave para abrir esa puerta."
                     rows={3}
@@ -382,17 +304,7 @@ export function RuleBuilderModal({ open, project, nodeId, owner, interactionKind
 
                     <Select<string>
                       value={selectedPhraseSpeakerId}
-                      onChange={(value) => {
-                        const option = phraseSpeakerOptions.find((candidate) => candidate.id === value);
-
-                        setDraft((prev) => ({
-                          ...prev,
-                          phrase: {
-                            ...prev.phrase,
-                            speaker: option?.speaker ?? { kind: "narrator" },
-                          },
-                        }));
-                      }}
+                      onChange={(value) => {setDraft((prev) => ({ ...prev, phrase: { ...prev.phrase, speaker: speakerFromOptionId(factory, value)} }))}}
                       options={phraseSpeakerOptions}
                       placeholder="Selecciona emisor"
                       disabled={!phraseEnabled}
@@ -459,8 +371,8 @@ export function RuleBuilderModal({ open, project, nodeId, owner, interactionKind
       <ConfirmDangerModal
         open={confirmClearOpen}
         title="Borrar regla"
-        description="¿Quieres eliminar la condición, la phrase y todos los efectos de esta regla?"
-        confirmText="Sí, borrar todo"
+        description="¿Está seguro de que quiere eliminar esta regla?"
+        confirmText="Sí, borrar"
         cancelText="Cancelar"
         onConfirm={confirmClear}
         onCancel={() => setConfirmClearOpen(false)}
@@ -469,7 +381,7 @@ export function RuleBuilderModal({ open, project, nodeId, owner, interactionKind
       <ConfirmExitModal
         open={confirmExitOpen}
         title="Salir"
-        description="Hay cambios sin guardar. ¿Qué quieres hacer?"
+        description="Hay cambios sin guardar en la regla. ¿Qué quieres hacer?"
         canSave={true}
         onSaveAndExit={() => {
           const ok = handleSave();

@@ -1,27 +1,17 @@
-import type { ID, MusicTrackDef, Project } from "@/domain/types";
+import type { ID, Project, MusicTrackDef } from "@/domain/types";
 import type { DeleteTarget } from "@/features/editor/delete/deleteTypes";
 import { hasDuplicateName } from "@/validation/genericValidator";
+import { safeTrim, upsertAsset, upsertAssetFile } from "@/features/editor/core/editorDataUtils";
+import { findAssetByIdAndKind, findEntityById, isNameChanged, normalizeOptionalFile, normalizeOptionalName, replaceById } from "@/features/editor/history/shared/assetBackedEntityHelpers";
 import { buildAssetPath } from "@/store/assets/assetPath";
 import { generateId } from "@/utils/id";
-import { upsertAsset, upsertAssetFile, removeAssetFile } from "@/features/editor/core/editorGenericSlice";
-import { someEffectsInProject } from "@/features/editor/core/editorProjectWalkers";
-import {
-  findAssetByIdAndKind, isFileChanged, isNameChanged, normalizeOptionalFile, normalizeOptionalName,
-  replaceById
-} from "@/features/editor/history/shared/assetBackedEntityHelpers";
-import { nextSelectedAfterRemoval, hasTrackReferenceOutsideEffects, effectMatchesTypedId } from "@/features/editor/history/shared/genericHelpers";
-import { applyDeleteWithCleanup } from "@/features/editor/delete/deleteReferenceCleaner";
-import type { DeleteApplyFn } from "@/features/editor/delete/editorDeleteSlice";
 
 /* Mínimo contrato del store que necesita este slice */
 type EditorStoreLike = {
   project: Project | null;
   assetFiles: Record<ID, File>;
   selectedMusicTrackId: ID | null;
-  requestDelete: (input: {
-    target: DeleteTarget;
-    apply: DeleteApplyFn;
-  }) => void;
+  requestDelete: (target: DeleteTarget) => void;
 };
 
 export interface EditorMusicSlice {
@@ -30,31 +20,7 @@ export interface EditorMusicSlice {
   addMusicTrack: (file: File, name: string) => ID | null;
   updateMusicTrack: (id: ID, changes: { name?: string; file?: File | null }) => void;
   removeMusicTrack: (id: ID) => void;
-  isMusicTrackReferenced(trackId: ID): boolean;
 }
-
-const applyMusicDeleteTarget = (
-  target: DeleteTarget,
-): DeleteApplyFn => (state) => {
-  if (!state.project) return state;
-
-  const nextProject = applyDeleteWithCleanup(state.project, target);
-
-  let nextAssetFiles = state.assetFiles;
-  let nextSelectedMusicTrackId = state.selectedMusicTrackId;
-
-  if (target.kind === "music") {
-    nextAssetFiles = removeAssetFile(nextAssetFiles, target.trackId).assetFiles;
-    nextSelectedMusicTrackId = nextSelectedAfterRemoval(state.selectedMusicTrackId, target.trackId);
-  }
-
-  return {
-    ...state,
-    project: nextProject,
-    assetFiles: nextAssetFiles,
-    selectedMusicTrackId: nextSelectedMusicTrackId,
-  };
-};
 
 export function createEditorMusicSlice(set: (partial: | Partial<EditorStoreLike> | ((state: EditorStoreLike) => Partial<EditorStoreLike> | EditorStoreLike)) => void,
   get: () => EditorStoreLike): EditorMusicSlice {
@@ -102,7 +68,7 @@ export function createEditorMusicSlice(set: (partial: | Partial<EditorStoreLike>
         if (!state.project) return state;
 
         const project = state.project;
-        const prevTrack = project.musicTracks.find((track) => track.id === id);
+        const prevTrack = findEntityById(project.musicTracks, id);
         if (!prevTrack) return state;
 
         const nextName = normalizeOptionalName(changes.name);
@@ -111,7 +77,7 @@ export function createEditorMusicSlice(set: (partial: | Partial<EditorStoreLike>
         if (nameChanged && hasDuplicateName({ list: project.musicTracks, incomingName: nextName, ignoreId: id })) return state;
 
         const nextFile = normalizeOptionalFile(changes.file);
-        const fileChanged = isFileChanged(nextFile);
+        const fileChanged = Boolean(nextFile);
 
         if (!nameChanged && !fileChanged) return state;
 
@@ -126,7 +92,7 @@ export function createEditorMusicSlice(set: (partial: | Partial<EditorStoreLike>
         const existingAsset = findAssetByIdAndKind(nextAssets, id, "music");
 
         if (nameChanged && existingAsset) {
-          nextAssets = upsertAsset(nextAssets, { id, kind: "music", name: nextTrack.name, file: existingAsset.file.trim() }).assets;
+          nextAssets = upsertAsset(nextAssets, { id, kind: "music", name: nextTrack.name, file: safeTrim(existingAsset.file) }).assets;
         }
 
         if (fileChanged && nextFile) {
@@ -150,26 +116,13 @@ export function createEditorMusicSlice(set: (partial: | Partial<EditorStoreLike>
         };
       }),
 
-    /* Elimina una pista */
+    /* Elimina una pista de música */
     removeMusicTrack: (id) => {
       const { project, requestDelete } = get();
       if (!project) return;
       if (!project.musicTracks.some((track) => track.id === id)) return;
 
-      requestDelete({
-        target: { kind: "music", trackId: id },
-        apply: applyMusicDeleteTarget({ kind: "music", trackId: id }),
-      });
-    },
-
-    /* Comprueba si una pista está referenciada */
-    isMusicTrackReferenced: (trackId: ID) => {
-      const { project } = get();
-      if (!project) return false;
-
-      if (hasTrackReferenceOutsideEffects(project, trackId)) return true;
-
-      return someEffectsInProject(project, (effect) => effectMatchesTypedId(effect, "playMusic", "trackId", trackId));
+      requestDelete({ kind: "music", trackId: id });
     },
   };
 }

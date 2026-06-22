@@ -1,12 +1,7 @@
 import type { NodeLayout } from "@/domain/types";
 import { GRID_TILE_SIZE, NODE_SIZE, NODE_SLOT_OFFSET, type TileCell } from "@/features/editor/history/view/historyViewTypes";
 
-export type WorldRect = {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-};
+export type WorldRect = { x: number; y: number; w: number; h: number };
 
 /* Configuración visual/UX del panel */
 export const VIEW_CONFIG = {
@@ -31,20 +26,17 @@ export function getTileCell(p: NodeLayout): TileCell {
 }
 
 export function shareSameTile(a: NodeLayout, b: NodeLayout) {
-  const A = getTileCell(a);
-  const B = getTileCell(b);
-  return A.cx === B.cx && A.cy === B.cy;
+  const cellA  = getTileCell(a);
+  const cellB = getTileCell(b);
+  return cellA.cx === cellB.cx && cellA.cy === cellB.cy;
 }
 
 /* Snap final al slot más cercano (para "soltar") */
 export function snapToNodeSlotNearest(p: NodeLayout): NodeLayout {
-  const tx = Math.round((p.x - NODE_SLOT_OFFSET) / GRID_TILE_SIZE) * GRID_TILE_SIZE + NODE_SLOT_OFFSET;
-  const ty = Math.round((p.y - NODE_SLOT_OFFSET) / GRID_TILE_SIZE) * GRID_TILE_SIZE + NODE_SLOT_OFFSET;
+  const x = Math.round((p.x - NODE_SLOT_OFFSET) / GRID_TILE_SIZE) * GRID_TILE_SIZE + NODE_SLOT_OFFSET;
+  const y = Math.round((p.y - NODE_SLOT_OFFSET) / GRID_TILE_SIZE) * GRID_TILE_SIZE + NODE_SLOT_OFFSET;
 
-  return {
-    x: Math.max(MIN_WORLD_X, tx),
-    y: Math.max(MIN_WORLD_Y, ty),
-  };
+  return { x: Math.max(MIN_WORLD_X, x), y: Math.max(MIN_WORLD_Y, y) };
 }
 
 /* Rects world */

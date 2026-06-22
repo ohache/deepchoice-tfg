@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Project, AssetDef, ItemDef, NpcDef, PlayerDef, PlayerImage, MusicTrackDef, SoundEffectDef,
-  WorldMap, MapVisualSource, MapRegion, NodeMapLocation, InventoryItemInstance } from "@/domain/types";
-import { IdSchema, VarDefSchema, regionShapeSchema } from "@/validation/genericSchemas";
+  WorldMap, MapVisualSource, MapRegion, NodeMapLocation, ItemInstance } from "@/domain/types";
+import { IdSchema, NameSchema, VarDefSchema, regionShapeSchema } from "@/validation/genericSchemas";
 import { nodeSchema } from "@/features/editor/scene/node/nodeSchemas";
 
 /* Assets */
@@ -10,26 +10,26 @@ export const AssetKindSchema = z.enum([ "backgrounds", "players", "npcs", "items
 export const AssetSchema = z.object({
   id: IdSchema,
   kind: AssetKindSchema,
-  name: z.string().trim().min(1).max(60),
+  name: NameSchema,
   file: z.string().trim().min(1),
 }) satisfies z.ZodType<AssetDef>;
 
 /* SFX */
 export const SoundEffectSchema = z.object({
   id: IdSchema,
-  name: z.string().trim().min(1).max(60),
+  name: NameSchema,
 }) satisfies z.ZodType<SoundEffectDef>;
 
 /* Music */
 export const MusicTrackSchema = z.object({
   id: IdSchema,
-  name: z.string().trim().min(1).max(60),
+  name: NameSchema,
 }) satisfies z.ZodType<MusicTrackDef>;
 
 /* Items */
 export const ItemSchema = z.object({
   id: IdSchema,
-  name: z.string().trim().min(1).max(60),
+  name: NameSchema,
   description: z.string().trim().max(200).optional(),
 }) satisfies z.ZodType<ItemDef>;
 
@@ -37,13 +37,13 @@ export const ItemSchema = z.object({
 export const InventoryItemInstanceSchema = z.object({
   itemInstanceId: IdSchema,
   itemId: IdSchema,
-  label: z.string().trim().min(1).max(60),
-}) satisfies z.ZodType<InventoryItemInstance>;
+  label: NameSchema,
+}) satisfies z.ZodType<ItemInstance>;
 
 /* NPCs */
 export const NpcSchema = z.object({
   id: IdSchema,
-  name: z.string().trim().min(1).max(60),
+  name: NameSchema,
   description: z.string().trim().max(200).optional(),
   vars: z.array(VarDefSchema).optional(),
   initialInventory: z.array(InventoryItemInstanceSchema).optional(),
@@ -52,12 +52,12 @@ export const NpcSchema = z.object({
 /* Players */
 export const PlayerImageSchema = z.object({
   id: IdSchema,
-  name: z.string().trim().min(1).max(60),
+  name: NameSchema,
 }) satisfies z.ZodType<PlayerImage>;
 
 export const PlayerSchema = z.object({
   id: IdSchema,
-  name: z.string().trim().min(1).max(60),
+  name: NameSchema,
   description: z.string().trim().max(400).optional(),
   images: z.array(PlayerImageSchema).min(1),
   defaultImageId: IdSchema.optional(),
@@ -79,7 +79,7 @@ export const MapVisualSourceSchema = z.discriminatedUnion("type", [
 
 export const MapRegionSchema = z.object({
   id: IdSchema,
-  label: z.string().trim().min(1).max(60),
+  label: NameSchema,
   shape: regionShapeSchema,
   visible: z.boolean(),
   imageAssetId: IdSchema.optional(),
@@ -91,7 +91,7 @@ export const MapRegionSchema = z.object({
 
 export const WorldMapSchema = z.object({
   id: IdSchema,
-  name: z.string().trim().min(1).max(60),
+  name: NameSchema,
   visual: MapVisualSourceSchema,
   regions: z.array(MapRegionSchema),
 }) satisfies z.ZodType<WorldMap>;

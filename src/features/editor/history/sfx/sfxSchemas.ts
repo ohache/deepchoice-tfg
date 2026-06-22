@@ -12,6 +12,3 @@ export const SfxDraftSchema = z.object({
   name: z.string().trim().min(1, "El nombre del efecto es obligatorio").max(60, "El nombre no puede superar 60 caracteres"),
   file: SfxFileSchema.optional(),
 });
-
-export type SfxDraftInput = z.input<typeof SfxDraftSchema>;
-export type SfxDraftOutput = z.output<typeof SfxDraftSchema>;

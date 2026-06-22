@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useEditorStore } from "@/store/editorStore";
 import { useGameStore } from "@/store/gameStore";
-import { type EditorPrimaryMode, PRIMARY_TABS } from "@/features/editor/core/editorModes";
+import { type EditorPrimaryMode, PRIMARY_TABS } from "@/features/editor/core/editorNavigation";
 import { createCommitCancelKeyHandler } from "@/shared/keyboard";
 import { ExitWithoutSaveModal } from "@/features/editor/modals/ExitWithoutSaveModal";
 import { DocumentArrowDownIcon, ArchiveBoxArrowDownIcon } from "@heroicons/react/24/outline";
@@ -34,6 +34,7 @@ export function TopBar() {
 
   const canZoom = primaryMode === "historia" && secondaryMode === "vista";
 
+  /* Sincroniza el título temporal y el título del documento */
   useEffect(() => {
     if (!project) return;
 
@@ -48,6 +49,7 @@ export function TopBar() {
     setPrimaryMode(mode);
   };
 
+  /* Confirma la edición del título */
   const commitTitle = () => {
     if (!project) return;
 
@@ -57,9 +59,7 @@ export function TopBar() {
     updateProjectTitle(finalTitle);
     setIsEditingTitle(false);
 
-    if (finalTitle !== project.title) {
-      toast.info("Título actualizado", `Nuevo título: "${finalTitle}"`);
-    }
+    if (finalTitle !== project.title) toast.info("Título actualizado", `Nuevo título: "${finalTitle}"`);
   };
 
   const cancelTitleEdit = () => {
@@ -69,9 +69,14 @@ export function TopBar() {
     setTempTitle(project.title);
   };
 
-  const handleTitleKeyDown = createCommitCancelKeyHandler<HTMLInputElement>(commitTitle, cancelTitleEdit, { stopPropagation: true });
+  /* Handler de teclado para el input del título */
+  const handleTitleKeyDown = createCommitCancelKeyHandler<HTMLInputElement>(
+    commitTitle,
+    cancelTitleEdit, 
+    { stopPropagation: true }
+  );
 
-  /* Intenta arrancar el player usando el proyecto actual y los assets cargados */
+  /* Intenta "Jugar" usando el proyecto actual y los assets cargados */
   const handlePlayRequested = () => {
     const { project, assetFiles } = useEditorStore.getState();
     if (!project) return;
@@ -100,7 +105,6 @@ export function TopBar() {
       toast.success("Descargado", "Se descargó el JSON del proyecto.");
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "No se ha podido descargar el project.json.";
-
       toast.error("Error al descargar", message);
     }
   };
@@ -118,13 +122,9 @@ export function TopBar() {
     }
   };
 
-  const resetDocumentTitle = () => {
-    document.title = "Crea tu propia aventura";
-  };
+  const resetDocumentTitle = () => document.title = "Crea tu propia aventura";
 
-  const handleLogoClick = () => {
-    setIsExitModalOpen(true);
-  };
+  const handleLogoClick = () => setIsExitModalOpen(true);
 
   const handleExit = () => {
     setIsExitModalOpen(false);

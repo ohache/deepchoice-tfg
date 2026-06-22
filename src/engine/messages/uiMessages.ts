@@ -1,8 +1,8 @@
 import type { ID } from "@/domain/types";
 
-export type MessageChannel = "toast" | "bubble" | "modal";
+type MessageChannel = "toast" | "bubble" | "modal";
 
-export type MessageSpeaker = { kind: "narrator" } | { kind: "player"; playerId: ID } | { kind: "npc"; npcId: ID } | { kind: "system" };
+type MessageSpeaker = { kind: "narrator" } | { kind: "player"; playerId: ID } | { kind: "npc"; npcId: ID } | { kind: "system" };
 
 export type RuntimeMessage = {
   id: string;

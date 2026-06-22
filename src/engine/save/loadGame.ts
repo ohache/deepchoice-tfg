@@ -14,6 +14,8 @@ export async function loadSaveFile(file: File): Promise<SaveGameData> {
 
   const data = parsed as Partial<SaveGameData>;
 
+  if (!data.projectId) throw new Error("El archivo no contiene projectId.")
+
   if (!data.gameState) throw new Error("El archivo no contiene estado de partida.");
 
   return data as SaveGameData;
@@ -22,22 +24,19 @@ export async function loadSaveFile(file: File): Promise<SaveGameData> {
 export function restoreGameStateFromSave(project: Project, save: SaveGameData): GameState {
   if (save.projectId !== project.id) throw new Error("El archivo de guardado pertenece a otro proyecto.");
 
-  const gameState = save.gameState;
+  const savedState = save.gameState;
 
-  if (!gameState.currentNodeId) throw new Error("Save corrupto: falta currentNodeId.");
+  if (!savedState.currentNodeId) throw new Error("Save corrupto: falta currentNodeId.");
 
-  const nodeExists = project.nodes.some((node) => node.id === gameState.currentNodeId);
+  const nodeExists = project.nodes.some((node) => node.id === savedState.currentNodeId);
 
   if (!nodeExists) throw new Error("El nodo guardado ya no existe en el proyecto.");
 
   return {
-    ...gameState,
+    ...savedState,
     project,
-    gameEnded: Boolean(gameState.gameEnded),
-    ending: gameState.ending,
-    endingLineIndex:
-      gameState.gameEnded && gameState.ending?.lines?.length
-        ? gameState.endingLineIndex ?? 0
-        : undefined,
+    gameEnded: Boolean(savedState.gameEnded),
+    ending: savedState.ending,
+    endingLineIndex: savedState.gameEnded && savedState.ending?.lines?.length ? savedState.endingLineIndex ?? 0 : undefined,
   };
 }

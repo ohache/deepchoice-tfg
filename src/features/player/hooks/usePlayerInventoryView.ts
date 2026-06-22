@@ -2,49 +2,61 @@ import { useMemo } from "react";
 import type { ID, ItemDef, Project } from "@/domain/types";
 import type { GameState, InventoryEntry } from "@/engine/state/runtimeState";
 import type { InventoryItemView } from "@/features/player/components/InventoryOverlay";
+import { PLAYER_ITEM_CURSOR_FALLBACK_SIZE } from "@/features/player/hooks/usePlayerCursor";
 import { resolveAssetIdToSrc } from "@/features/player/utils/playerAssetResolution";
-import { findPlacedItemShapeByInstanceId } from "@/features/player/utils/playerSceneResolution";
 
-export function usePlayerInventoryView(project: Project | null, gameState: GameState | null, assetIdToFile: Map<ID, string>,
-  assetUrls: Record<string, string>, sceneContentRect: { w: number; h: number} | null) {
-  const itemById = useMemo(() => {
-    const map = new Map<ID, ItemDef>();
-    for (const item of project?.items ?? []) {
-      map.set(item.id, item);
-    }
-    return map;
-  }, [project]);
+function buildItemById(project: Project | null): Map<ID, ItemDef> {
+  const map = new Map<ID, ItemDef>();
+
+  for (const item of project?.items ?? []) map.set(item.id, item);
+
+  return map;
+}
+
+/* Determina qué inventario de Player debe mostrarse */
+function resolveInventoryPlayerId(project: Project | null, playerId?: ID | null): ID | null {
+  if (playerId) return playerId;
+
+  return project?.players?.[0]?.id ?? null;
+}
+
+function getPlayerInventoryEntries(gameState: GameState | null, playerId: ID | null): InventoryEntry[] {
+  if (!gameState || !playerId) return [];
+
+  return gameState.playerInventory[playerId] ?? [];
+}
+
+export function usePlayerInventoryView(project: Project | null, gameState: GameState | null, assetIdToFile: Map<ID, string>, assetUrls: Record<string, string>, playerId?: ID | null) {
+  const itemById = useMemo(() => buildItemById(project), [project]);
+
+  const inventoryPlayerId = useMemo(() => {
+    return resolveInventoryPlayerId(project, playerId);
+  }, [project, playerId]);
 
   const inventoryItems = useMemo<InventoryItemView[]>(() => {
     if (!gameState || !project) return [];
 
-    return gameState.inventory
-      .map((entry: InventoryEntry) => {
-        const item = itemById.get(entry.itemId);
-        if (!item) return null;
+    const entries = getPlayerInventoryEntries(gameState, inventoryPlayerId);
 
-        const imageSrc = resolveAssetIdToSrc(entry.itemId, assetIdToFile, assetUrls);
+    const mappedItems = entries.map((entry): InventoryItemView | null => {
+      const item = itemById.get(entry.itemId);
+      if (!item) return null;
 
-        const shape = findPlacedItemShapeByInstanceId(project, entry.itemInstanceId);
+      const imageSrc = resolveAssetIdToSrc(entry.itemId, assetIdToFile, assetUrls);
 
-const cursorSize =
-  shape?.type === "rect" && sceneContentRect
-    ? {
-        width: Math.max(64, Math.min(180, shape.w * sceneContentRect.w)),
-        height: Math.max(64, Math.min(180, shape.h * sceneContentRect.h)),
-      }
-    : { width: 128, height: 128 };
+      return {
+        itemInstanceId: entry.itemInstanceId,
+        itemId: entry.itemId,
+        name: entry.label?.trim() || item.name,
+        imageSrc: imageSrc ?? "",
+        cursorSize: PLAYER_ITEM_CURSOR_FALLBACK_SIZE,
+      };
+    });
 
-        return {
-          itemInstanceId: entry.itemInstanceId,
-          itemId: entry.itemId,
-          name: item.name,
-          imageSrc: imageSrc ?? "",
-          cursorSize,
-        };
-      })
-      .filter((item): item is InventoryItemView => item !== null);
-  }, [gameState, project, itemById, assetIdToFile, assetUrls, sceneContentRect]);
+    return mappedItems.filter((item): item is InventoryItemView => item !== null);
+  }, [gameState, project, inventoryPlayerId, itemById, assetIdToFile, assetUrls]);
 
-  return { inventoryItems };
+  return {
+    inventoryPlayerId, inventoryItems,
+  };
 }

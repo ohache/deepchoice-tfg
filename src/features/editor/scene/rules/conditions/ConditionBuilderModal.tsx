@@ -1,17 +1,17 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
-import type { Project } from "@/domain/types";
+import type { Project, ID } from "@/domain/types";
 import type { Condition } from "@/domain/conditions";
 import { conditionSchema } from "@/validation/rulesSchemas";
 import { conditionToUiDraft, createDefaultRootCondition, pruneEmptyGroups, uiDraftToCondition, type UiDraft } from "@/features/editor/scene/rules/conditions/conditionDraftMapper";
 import { ConditionGroups } from "@/features/editor/scene/rules/conditions/ConditionGroups";
 import { ConfirmDangerModal } from "@/features/editor/modals/ConfirmDangerModal";
-import { ConfirmExitModal } from "@/features/editor/modals/ConfirmExitModal";
 import { toast } from "@/shared/toast/toastStore";
+import { ConfirmExitModal } from "@/features/editor/modals/ConfirmExitModal";
 
 type Props = {
   open: boolean;
   project: Project | null;
-  currentNodeId?: string;
+  currentNodeId?: ID;
   value?: Condition | null;
   title?: string;
   onClose: () => void;
@@ -24,9 +24,7 @@ function signatureOfDraft(draft: UiDraft): string {
   const cleaned = pruneEmptyGroups(draft);
 
   const minimal = {
-    groups: (cleaned.groups ?? []).map((group) => ({
-      atoms: (group.atoms ?? []).map((atom) => ({ not: Boolean(atom.not), cond: atom.cond })),
-    })),
+    groups: (cleaned.groups ?? []).map((group) => ({ atoms: (group.atoms ?? []).map((atom) => ({ not: Boolean(atom.not), cond: atom.cond })) })),
   };
 
   return JSON.stringify(minimal);
@@ -43,8 +41,9 @@ function parseConditionFromDraft(draft: UiDraft): Condition | null {
 }
 
 export function ConditionBuilderModal({ open, project, currentNodeId, value, title = "Condiciones", onClose, onSave, onApply }: Props) {
+  const initialConditionSignature = useMemo(() => JSON.stringify(value ?? createDefaultRootCondition()), [value]);
 
-  const initialDraft = useMemo<UiDraft>(() => conditionToUiDraft(value ?? createDefaultRootCondition()), [value]);
+  const initialDraft = useMemo<UiDraft>(() => conditionToUiDraft(value ?? createDefaultRootCondition()), [initialConditionSignature]);
 
   const initialSig = useMemo(() => signatureOfDraft(initialDraft), [initialDraft]);
 
@@ -68,7 +67,7 @@ export function ConditionBuilderModal({ open, project, currentNodeId, value, tit
   }, [open, initialDraft]);
 
   /* Actions */
-  const handleSave = useCallback((): boolean => {
+  const handleSaveAndClose = useCallback((): boolean => {
     const parsedCondition = parseConditionFromDraft(draft);
 
     if (!parsedCondition) {
@@ -103,15 +102,17 @@ export function ConditionBuilderModal({ open, project, currentNodeId, value, tit
     const parsed = conditionSchema.safeParse(emptyCondition);
 
     if (!parsed.success) {
-      toast.error("No se pudo borrar", "La condición vacía resultó inválida (schema).");
+      toast.error("No se pudo borrar", "La condición vacía resultó inválida.");
       setConfirmClearOpen(false);
       return;
     }
 
+    const applyClear = onApply ?? onSave;
+
     setDraft(conditionToUiDraft(parsed.data));
     setConfirmClearOpen(false);
 
-    (onApply ?? onSave)(parsed.data);
+    applyClear(parsed.data);
     toast.info("Condición reiniciada", "Has limpiado las condiciones.");
   }, [onApply, onSave]);
 
@@ -151,8 +152,8 @@ export function ConditionBuilderModal({ open, project, currentNodeId, value, tit
         </div>
 
         <div
-          className={ "mt-4 pt-3 border-t border-slate-700 flex justify-between sticky bottom-0 bg-slate-900 transition-opacity " +
-            (isBusy ? "opacity-0 pointer-events-none" : "opacity-100") }
+          className={"mt-4 pt-3 border-t border-slate-700 flex justify-between sticky bottom-0 bg-slate-900 transition-opacity " +
+            (isBusy ? "opacity-0 pointer-events-none" : "opacity-100")}
         >
           <button
             type="button"
@@ -178,7 +179,7 @@ export function ConditionBuilderModal({ open, project, currentNodeId, value, tit
 
             <button
               type="button"
-              onClick={handleSave}
+              onClick={handleSaveAndClose}
               className="btn btn-create text-[12px]"
               disabled={!isDirty || isBusy}
               title={!isDirty ? "No hay cambios que guardar" : "Guardar"}
@@ -200,22 +201,22 @@ export function ConditionBuilderModal({ open, project, currentNodeId, value, tit
       />
 
       <ConfirmExitModal
-        open={confirmExitOpen}
-        title="Salir"
-        description="Hay cambios sin guardar. ¿Qué quieres hacer?"
-        canSave={!isBusy}
-        onSaveAndExit={() => {
-          const ok = handleSave();
-          if (!ok) return;
-          setConfirmExitOpen(false);
-        }}
-        onDiscardAndExit={() => {
-          setConfirmExitOpen(false);
-          setDraft(initialDraft);
-          onClose();
-        }}
-        onCancel={() => setConfirmExitOpen(false)}
-      />
+              open={confirmExitOpen}
+              title="Salir"
+              description="Hay cambios sin guardar. ¿Qué quieres hacer?"
+              canSave={true}
+              onSaveAndExit={() => {
+                const ok = handleSaveAndClose();
+                if (!ok) return;
+                setConfirmExitOpen(false);
+              }}
+              onDiscardAndExit={() => {
+                setConfirmExitOpen(false);
+                setDraft(initialDraft);
+                onClose();
+              }}
+              onCancel={() => setConfirmExitOpen(false)}
+            />
     </div>
   );
 }

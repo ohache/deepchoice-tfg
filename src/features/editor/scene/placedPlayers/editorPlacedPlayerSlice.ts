@@ -1,64 +1,36 @@
 import type { ID, PlacedPlayer, PlacedPlayerState, RegionShape } from "@/domain/types";
-import type { PlacedPlayerEditorState } from "@/features/editor/scene/placedPlayers/placedPlayerEditorTypes";
+import type { CommitPlacedPlayerDraftResult, PlacedPlayerEditorState } from "@/features/editor/scene/placedPlayers/placedPlayerEditorTypes";
 import {
-  buildContext, buildDraftFromPlacedPlayer, buildEmptyPlacedPlayerDraft, buildPlacedPlayerCandidateFromDraft,
-  initialPlacedPlayerEditorState, rectFromGesture, validatePlacedPlayerDraftCandidate
+  buildContext, buildDraftFromPlacedPlayer, buildEmptyPlacedPlayerDraft, initialPlacedPlayerEditorState,
+  validatePlacedPlayerDraftCandidate
 } from "@/features/editor/scene/interactiveComponents/interactiveEditorHelpers";
 
-type Store = {
+type EditorStoreLike = {
   activeLayerId: ID | null;
   placedPlayerEditor: PlacedPlayerEditorState;
 
   getActivePlacedPlayers: () => PlacedPlayer[];
   upsertPlacedPlayer: (placedPlayer: PlacedPlayer) => void;
-  selectedInteractionKind: "hotspot" | "placedItem" | "placedNpc" | "placedPlayer" | null;
-  selectedInteractionId: ID | null;
 };
 
 export interface EditorPlacedPlayersSlice {
   placedPlayerEditor: PlacedPlayerEditorState;
-
-  setPlacedPlayerSelection: (input: { playerId: ID | null }) => void;
-
-  clearPlacedPlayerEditor: () => void;
   startPlacingPlacedPlayer: (input: { playerId: ID; initialImageId: ID }) => void;
-
   setPlacedPlayerDraftPlayerId: (playerId: ID) => void;
   setPlacedPlayerDraftInitialImageId: (initialImageId: ID) => void;
   setPlacedPlayerDraftShape: (shape: RegionShape | null) => void;
-  clearPlacedPlayerDraftShape: () => void;
-  updateDrawingPlacedPlayer: (pt: { x: number; y: number }) => void;
   finishDrawingPlacedPlayer: () => void;
   startRedrawPlacedPlayerShape: () => void;
-
   editPlacedPlayer: (playerId: ID) => void;
   cancelPlacedPlayerDraft: () => void;
-
   setPlacedPlayerDraftInitialState: (patch: Partial<PlacedPlayerState>) => void;
-
-  validatePlacedPlayerDraft: () => { ok: boolean; error?: string };
-  commitPlacedPlayerDraft: () => { ok: boolean; error?: string; playerId?: ID };
+  commitPlacedPlayerDraft: () => CommitPlacedPlayerDraftResult;
 }
 
-export function createEditorPlacedPlayersSlice(set: (partial: Partial<Store> | ((s: Store) => Partial<Store> | Store)) => void,
-  get: () => Store): EditorPlacedPlayersSlice {
+export function createEditorPlacedPlayersSlice(set: (partial: Partial<EditorStoreLike> | ((s: EditorStoreLike) => Partial<EditorStoreLike> | EditorStoreLike)) => void,
+  get: () => EditorStoreLike): EditorPlacedPlayersSlice {
   return {
     placedPlayerEditor: initialPlacedPlayerEditorState,
-
-    setPlacedPlayerSelection: (input) =>
-      set((state) => ({
-        ...state,
-        placedPlayerEditor: {
-          ...state.placedPlayerEditor,
-          selection: { playerId: input.playerId },
-        },
-      })),
-
-    clearPlacedPlayerEditor: () =>
-      set((state) => ({
-        ...state,
-        placedPlayerEditor: initialPlacedPlayerEditorState,
-      })),
 
     startPlacingPlacedPlayer: (input) =>
       set((state) => {
@@ -118,42 +90,6 @@ export function createEditorPlacedPlayersSlice(set: (partial: Partial<Store> | (
           placedPlayerEditor: {
             ...state.placedPlayerEditor,
             draft: { ...draft, shape },
-          },
-        };
-      }),
-
-    clearPlacedPlayerDraftShape: () =>
-      set((state) => {
-        const draft = state.placedPlayerEditor.draft;
-        if (!draft) return state;
-
-        return {
-          ...state,
-          placedPlayerEditor: {
-            ...state.placedPlayerEditor,
-            draft: { ...draft, shape: null },
-          },
-        };
-      }),
-
-    updateDrawingPlacedPlayer: (pt) =>
-      set((state) => {
-        const editor = state.placedPlayerEditor;
-        if (editor.mode.type !== "drawing" || !editor.draft) return state;
-
-        const currentDrawing = editor.drawing;
-        const nextDrawing = currentDrawing
-          ? { ...currentDrawing, currentX: pt.x, currentY: pt.y }
-          : { startX: pt.x, startY: pt.y, currentX: pt.x, currentY: pt.y };
-
-        const shape = rectFromGesture(nextDrawing);
-
-        return {
-          ...state,
-          placedPlayerEditor: {
-            ...editor,
-            drawing: nextDrawing,
-            draft: { ...editor.draft, shape },
           },
         };
       }),
@@ -232,26 +168,18 @@ export function createEditorPlacedPlayersSlice(set: (partial: Partial<Store> | (
         };
       }),
 
-    validatePlacedPlayerDraft: () => {
-      const state = get();
-      const result = validatePlacedPlayerDraftCandidate(state.placedPlayerEditor.draft);
-
-      if (!result.ok) return { ok: false, error: result.error };
-
-      return { ok: true };
-    },
-
     commitPlacedPlayerDraft: () => {
       const state = get();
       const draft = state.placedPlayerEditor.draft;
 
-      if (!draft) return { ok: false, code: "missing_draft", error: "No hay borrador de PlacedPlayer." } as const;
-  
+      if (!draft) return { ok: false, code: "missing_draft", error: "No hay borrador de placedPlayer." };
+
       const result = validatePlacedPlayerDraftCandidate(draft);
 
-      if (!result.ok) return { ok: false, code: "invalid_draft", error: result.error } as const;
+      if (!result.ok)  return { ok: false, code: "invalid_draft", error: result.error };
+      
 
-      const candidate = buildPlacedPlayerCandidateFromDraft({ ...draft, shape: draft.shape! });
+      const candidate = result.candidate;
 
       state.upsertPlacedPlayer(candidate);
 
@@ -260,7 +188,7 @@ export function createEditorPlacedPlayersSlice(set: (partial: Partial<Store> | (
         placedPlayerEditor: initialPlacedPlayerEditorState,
       }));
 
-      return { ok: true, playerId: candidate.playerId } as const;
+      return { ok: true, playerId: candidate.playerId };
     },
   };
 }

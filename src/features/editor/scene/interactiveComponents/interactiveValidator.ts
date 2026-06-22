@@ -1,20 +1,24 @@
 import { z, type ZodError } from "zod";
 import { issuesToFieldErrors } from "@/shared/zodIssues";
-import type { Project } from "@/domain/types";
+import type { InteractionRules, Project } from "@/domain/types";
 
-type RuleWithItemInstanceId = {
-  itemInstanceId: string;
+type ValidationContext = {
+  project?: Project | null;
 };
 
-type RulesWithUseItem = {
-  onUseItem?: RuleWithItemInstanceId[];
+type FieldErrors<K extends string> = Record<K, string | undefined>;
+
+type ValidationResult<Errors extends Record<string, string | undefined>> = {
+  ok: boolean;
+  errors: Errors;
+  zodError?: ZodError;
 };
 
-type HasRulesWithUseItem = {
-  rules?: RulesWithUseItem;
+type HasInteractionRules = {
+  rules?: Pick<InteractionRules, "onUseItem"> | null;
 };
 
-export function hasDuplicateUseItemRules(entity: HasRulesWithUseItem): boolean {
+export function hasDuplicateUseItemRules(entity: HasInteractionRules): boolean {
   const rules = entity.rules?.onUseItem ?? [];
   const seen = new Set<string>();
 
@@ -26,12 +30,12 @@ export function hasDuplicateUseItemRules(entity: HasRulesWithUseItem): boolean {
   return false;
 }
 
-export function createFieldErrors<const K extends readonly string[]>(keys: K): Record<K[number], string | undefined> {
-  return Object.fromEntries(keys.map((key) => [key, undefined])) as Record<K[number], string | undefined>;
+export function createFieldErrors<const K extends readonly string[]>(keys: K): FieldErrors<K[number]> {
+  return Object.fromEntries(keys.map((key) => [key, undefined])) as FieldErrors<K[number]>;
 }
 
-export function validateWithSchema<TSchema extends z.ZodType, Errors extends Record<string, string | undefined>>
-  (schema: TSchema, input: unknown, createErrors: () => Errors, applyBusinessRules?: (data: z.infer<TSchema>, errors: Errors) => void): { ok: boolean; errors: Errors; zodError?: ZodError } {
+export function validateWithSchema<TSchema extends z.ZodTypeAny, Errors extends Record<string, string | undefined>>
+  (schema: TSchema, input: unknown, createErrors: () => Errors, applyBusinessRules?: (data: z.output<TSchema>, errors: Errors) => void): ValidationResult<Errors> {
   const result = schema.safeParse(input);
   const zodError = result.success ? undefined : result.error;
 
@@ -42,16 +46,16 @@ export function validateWithSchema<TSchema extends z.ZodType, Errors extends Rec
   return { ok: Object.values(errors).every((value) => value == null), errors, zodError };
 }
 
-export function createEntityValidators<Schema extends z.ZodType, DraftSchema extends z.ZodType,
-  Errors extends Record<string, string | undefined>, Ctx extends object | undefined = { project?: Project | null }>(
-  schema: Schema, draftSchema: DraftSchema, createErrors: () => Errors, applyBusinessRules?: ( data: z.infer<Schema> | z.infer<DraftSchema>, errors: Errors, ctx?: Ctx ) => void) {
+export function createEntityValidators<Schema extends z.ZodTypeAny, DraftSchema extends z.ZodTypeAny, Errors extends Record<string, string | undefined>,
+  Ctx extends object = ValidationContext>(schema: Schema, draftSchema: DraftSchema, createErrors: () => Errors,
+  applyBusinessRules?: (data: z.output<Schema> | z.output<DraftSchema>, errors: Errors, ctx?: Ctx) => void) {
   return {
     validate(input: z.input<Schema>, ctx?: Ctx) {
-      return validateWithSchema(schema, input, createErrors, (data, errors) => applyBusinessRules?.(data, errors, ctx));
+      return validateWithSchema(schema, input, createErrors, (data, errors) => { applyBusinessRules?.(data, errors, ctx) });
     },
 
     validateDraft(input: z.input<DraftSchema>, ctx?: Ctx) {
-      return validateWithSchema(draftSchema, input, createErrors, (data, errors) => applyBusinessRules?.(data, errors, ctx));
+      return validateWithSchema(draftSchema, input, createErrors, (data, errors) => { applyBusinessRules?.(data, errors, ctx) });
     },
   };
 }

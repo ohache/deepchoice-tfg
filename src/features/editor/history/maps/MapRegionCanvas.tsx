@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { ID, MapRegion, RegionShape } from "@/domain/types";
 import { useEditorStore } from "@/store/editorStore";
@@ -6,27 +6,29 @@ import { useResolvedAssetUrl } from "@/features/editor/hooks/useResolvedAssetUrl
 import { useObjectContainRect } from "@/features/editor/hooks/useObjectContainRect";
 import type { Rect } from "@/features/editor/hooks/useObjectContainRect";
 import { useRegionShapeRectDrawing } from "@/features/editor/hooks/useRegionShapeRectDrawing";
-import { rectStyleFromShape, isValidRect01, rect01Intersects } from "@/features/editor/hooks/regionShape";
+import { rectStyleFromShape, isValidRect01, rect01Intersects, DEFAULT_MIN_RECT_01 } from "@/features/editor/hooks/regionShape";
 
-type MapRegionCanvasProps = {
-  mapId: ID;
-  mapVisualType: "singleImage" | "composed";
-  setPanelError: React.Dispatch<React.SetStateAction<string | null>>;
-};
+/* Genera una URL temporal a partir de un File. Lo limpia cuando cambia o se desmonta */
+function useObjectUrl(file?: File | null): string | null {
+  const [url, setUrl] = useState<string | null>(null);
 
-type RegionImageOverlayProps = {
-  assetId: ID;
-  style: CSSProperties;
-  alt: string;
-};
+  useEffect(() => {
+    if (!file) {
+      setUrl(null);
+      return;
+    }
 
-type DraftRegionImagePreviewProps = {
-  assetId: ID | null;
-  shape: RegionShape | null;
-  contentRectInContainer: Rect | null;
-};
+    const nextUrl = URL.createObjectURL(file);
+    setUrl(nextUrl);
 
-function RegionImageOverlay({ assetId, style, alt }: RegionImageOverlayProps) {
+    return () => URL.revokeObjectURL(nextUrl);
+  }, [file]);
+
+  return url;
+}
+
+/* Capa visual de región persistida */
+function RegionImageOverlay({ assetId, style, alt }: { assetId: ID; style: CSSProperties; alt: string }) {
   const imageUrl = useResolvedAssetUrl(assetId);
   if (!imageUrl) return null;
 
@@ -41,8 +43,13 @@ function RegionImageOverlay({ assetId, style, alt }: RegionImageOverlayProps) {
   );
 }
 
-function DraftRegionImagePreview({ assetId, shape, contentRectInContainer }: DraftRegionImagePreviewProps) {
-  const imageUrl = useResolvedAssetUrl(assetId);
+/* Previsualización de región en edición */
+function DraftRegionImagePreview({ imageAssetId, imageFile, shape, contentRectInContainer}:
+  { imageAssetId?: ID | null; imageFile?: File | null; shape: RegionShape | null; contentRectInContainer: Rect | null }) {
+  const persistedImageUrl = useResolvedAssetUrl(imageAssetId ?? null);
+  const draftImageUrl = useObjectUrl(imageFile);
+
+  const imageUrl = draftImageUrl ?? persistedImageUrl;
   const style = rectStyleFromShape(shape ?? null, contentRectInContainer);
 
   if (!imageUrl || !style) return null;
@@ -58,29 +65,25 @@ function DraftRegionImagePreview({ assetId, shape, contentRectInContainer }: Dra
   );
 }
 
-export function MapRegionCanvas({ mapId, mapVisualType, setPanelError }: MapRegionCanvasProps) {
+export function MapRegionCanvas({ mapId, mapVisualType, setPanelError }:
+  { mapId: ID; mapVisualType: "singleImage" | "composed"; setPanelError: React.Dispatch<React.SetStateAction<string | null>> }) {
   const project = useEditorStore((s) => s.project);
-  const selectedMapId = useEditorStore((s) => s.selectedMapId);
 
   const mapRegionEditor = useEditorStore((s) => s.mapRegionEditor);
-  const setMapRegionSelection = useEditorStore((s) => s.setMapRegionSelection);
   const editMapRegion = useEditorStore((s) => s.editMapRegion);
   const setMapRegionDraftShape = useEditorStore((s) => s.setMapRegionDraftShape);
   const clearMapRegionDraftShape = useEditorStore((s) => s.clearMapRegionDraftShape);
   const finishDrawingMapRegion = useEditorStore((s) => s.finishDrawingMapRegion);
   const startRedrawMapRegionShape = useEditorStore((s) => s.startRedrawMapRegionShape);
 
-  const selectedMap = useMemo(
-    () => (project?.maps ?? []).find((map) => map.id === mapId) ?? null,
-    [project, mapId],
-  );
+  /* Mapa activo en pantalla */
+  const selectedMap = useMemo(() => (project?.maps ?? []).find((map) => map.id === mapId) ?? null, [project, mapId]);
 
+  /* Asset base del mapa */
   const effectiveAssetId = useMemo<ID | null>(() => {
     if (!selectedMap) return null;
 
-    return selectedMap.visual.type === "singleImage"
-      ? selectedMap.visual.imageAssetId
-      : selectedMap.visual.backgroundAssetId;
+    return selectedMap.visual.type === "singleImage" ? selectedMap.visual.imageAssetId : selectedMap.visual.backgroundAssetId;
   }, [selectedMap]);
 
   const imageUrl = useResolvedAssetUrl(effectiveAssetId);
@@ -94,54 +97,49 @@ export function MapRegionCanvas({ mapId, mapVisualType, setPanelError }: MapRegi
 
   const draft = mapRegionEditor.draft;
   const draftShape = draft?.shape ?? null;
-  const selectedRegionId = mapRegionEditor.selection.regionId;
+  const selectedRegionId = mapRegionEditor.selectedRegionId;
 
-  const isDraftOnActiveMap = mapRegionEditor.context?.mapId != null && selectedMapId != null &&
-    String(mapRegionEditor.context.mapId) === String(selectedMapId) && String(selectedMapId) === String(mapId);
+  const isDraftOnActiveMap = mapRegionEditor.mapId != null && String(mapRegionEditor.mapId) === String(mapId);
 
   const isDrawing = mapRegionEditor.mode.type === "drawing" && isDraftOnActiveMap;
 
   const draftShapeStyle = rectStyleFromShape(isDraftOnActiveMap ? draftShape : null, contentRectInContainer);
 
-  const showDraftRegionImagePreview = mapVisualType === "composed" && isDraftOnActiveMap && !!draft?.imageAssetId;
+  const showDraftRegionImagePreview = mapVisualType === "composed" && isDraftOnActiveMap && !!draftShape && (!!draft?.imageFile || !!draft?.imageAssetId);
 
-  const resetKey = [
-    selectedMapId ?? "",
-    mapId,
-    mapRegionEditor.mode.type,
-    selectedRegionId ?? "",
-    draft?.id ?? "",
-  ].join(":");
+  const resetKey = [mapId, mapRegionEditor.mapId ?? "", mapRegionEditor.mode.type, selectedRegionId ?? "", draft?.id ?? ""].join(":");
 
-  useEffect(() => {
-    lastRejectedShapeKeyRef.current = "";
-  }, [resetKey, setPanelError]);
+  /* Reset de control de colisiones cuando cambia el contexto */
+  useEffect(() => {lastRejectedShapeKeyRef.current = "";}, [resetKey, setPanelError]);
 
+  /* Detecta colisiones entre regiones del mapa */
   const collidingRegions = useMemo(() => {
     if (!isDraftOnActiveMap || isDrawing) return [];
     if (!draftShape) return [];
-    if (!isValidRect01(draftShape, { min: 0.02 })) return [];
-  
+    if (!isValidRect01(draftShape, { min: DEFAULT_MIN_RECT_01 })) return [];
+
     return regions.filter((region) => {
       if (region.id === draft?.id) return false;
-      if (!isValidRect01(region.shape, { min: 0.02 })) return false;
+      if (!isValidRect01(region.shape, { min: DEFAULT_MIN_RECT_01 })) return false;
       return rect01Intersects(draftShape, region.shape);
     });
   }, [isDraftOnActiveMap, isDrawing, draftShape, draft?.id, regions]);
 
+  /* Texto resumen de colisiones */
   const collisionSummary = useMemo(() => {
     if (!collidingRegions.length) return "";
 
     return collidingRegions.map((region) => region.label?.trim() || "Región sin etiqueta").slice(0, 2).join(", ");
   }, [collidingRegions]);
 
+  /* Si hay colisión, invalida el shape actual y reinicia el dibujo */
   useEffect(() => {
     if (!isDraftOnActiveMap || isDrawing) return;
-    if (!isValidRect01(draftShape, { min: 0.02 })) return;
+    if (!isValidRect01(draftShape, { min: DEFAULT_MIN_RECT_01 })) return;
     if (!collisionSummary) return;
 
     let shapeKey = "";
-    try { shapeKey = JSON.stringify(draftShape); } 
+    try { shapeKey = JSON.stringify(draftShape); }
     catch { shapeKey = String(draftShape ?? ""); }
 
     if (lastRejectedShapeKeyRef.current === shapeKey) return;
@@ -152,6 +150,7 @@ export function MapRegionCanvas({ mapId, mapVisualType, setPanelError }: MapRegi
     setPanelError(`Colisión con: ${collisionSummary}. Dibuja otra región o pulsa “Cancelar”.`);
   }, [isDraftOnActiveMap, isDrawing, draftShape, collisionSummary, clearMapRegionDraftShape, startRedrawMapRegionShape, setPanelError]);
 
+  /* Dibujo de región en canvas */
   const draw = useRegionShapeRectDrawing({
     contentRect: contentRectInContainer,
     enabled: Boolean(isDrawing && imageUrl),
@@ -202,25 +201,33 @@ export function MapRegionCanvas({ mapId, mapVisualType, setPanelError }: MapRegi
             <div className="absolute inset-0 z-20">
               {mapVisualType === "composed"
                 ? regions.map((region) => {
-                    if (!region.imageAssetId) return null;
+                  if (!region.imageAssetId) return null;
 
-                    const style = rectStyleFromShape(region.shape ?? null, contentRectInContainer);
-                    if (!style) return null;
+                  const isDraftRegion =
+                    showDraftRegionImagePreview &&
+                    isDraftOnActiveMap &&
+                    draft?.id === region.id;
 
-                    return (
-                      <RegionImageOverlay
-                        key={`region-image:${region.id}:${region.imageAssetId}`}
-                        assetId={region.imageAssetId}
-                        style={style}
-                        alt={region.label || "Región"}
-                      />
-                    );
-                  })
+                  if (isDraftRegion) return null;
+
+                  const style = rectStyleFromShape(region.shape ?? null, contentRectInContainer);
+                  if (!style) return null;
+
+                  return (
+                    <RegionImageOverlay
+                      key={`region-image:${region.id}:${region.imageAssetId}`}
+                      assetId={region.imageAssetId}
+                      style={style}
+                      alt={region.label || "Región"}
+                    />
+                  );
+                })
                 : null}
 
               {showDraftRegionImagePreview ? (
                 <DraftRegionImagePreview
-                  assetId={draft?.imageAssetId ?? null}
+                  imageAssetId={draft?.imageAssetId ?? null}
+                  imageFile={draft?.imageFile ?? null}
                   shape={draftShape}
                   contentRectInContainer={contentRectInContainer}
                 />
@@ -241,10 +248,10 @@ export function MapRegionCanvas({ mapId, mapVisualType, setPanelError }: MapRegi
                     type="button"
                     style={style}
                     onClick={() => {
-                      setMapRegionSelection({ regionId: region.id });
+                      setPanelError(null);
                       editMapRegion(region.id);
                     }}
-                    className={ "absolute rounded-sm transition-colors " +
+                    className={"absolute rounded-sm transition-colors " +
                       (isSelected
                         ? "border-2 border-amber-300 bg-amber-500/20"
                         : "border-2 border-amber-500/70 bg-amber-500/10 hover:bg-amber-500/20")}

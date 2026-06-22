@@ -1,17 +1,9 @@
 import type { Hotspot } from "@/domain/types";
 
-export type InteractionKind =
-  | "idle"
-  | "travelUp"
-  | "travelDown"
-  | "travelLeft"
-  | "travelRight"
-  | "inspect"
-  | "take"
-  | "talk"
-  | "dialogue"
-  | "map";
+/* Tipos de cursor que puede mostrar el Player */
+export type InteractionKind = "idle" | "travelUp" | "travelDown" | "travelLeft" | "travelRight" | "inspect" | "take" | "talk" | "dialogue" | "map";
 
+/* Catálogo centralizado de iconos de cursor */
 const INTERACTION_ICONS: Record<InteractionKind, string> = {
   idle: "/cursor/idle.png",
   travelUp: "/cursor/goUp.png",
@@ -25,6 +17,7 @@ const INTERACTION_ICONS: Record<InteractionKind, string> = {
   map: "/cursor/map.png",
 };
 
+/* Determina si un hotspot puede llegar a provocar navegación */
 function hasGoToNodeEffect(hotspot: Hotspot): boolean {
   const clickRules = hotspot.rules?.onClick ?? [];
   const useItemRules = hotspot.rules?.onUseItem ?? [];
@@ -35,10 +28,7 @@ function hasGoToNodeEffect(hotspot: Hotspot): boolean {
   });
 }
 
-export function getHotspotInteractionKind(hotspot: Hotspot): InteractionKind {
-  return hasGoToNodeEffect(hotspot) ? "travelRight" : "inspect";
-}
-
+/* Resuelve el cursor de navegación según la posición del hotspot */
 export function getTravelInteractionKindFromHotspotCenter(hotspot: Hotspot): InteractionKind {
   if (!hasGoToNodeEffect(hotspot)) return "inspect";
 
@@ -55,10 +45,6 @@ export function getTravelInteractionKindFromHotspotCenter(hotspot: Hotspot): Int
   if (centerY > 2 / 3) return "travelDown";
 
   return centerX < 0.5 ? "travelLeft" : "travelRight";
-}
-
-export function getDialogueInteractionKind(): InteractionKind {
-  return "dialogue";
 }
 
 export function iconForInteractionKind(kind: InteractionKind): string {

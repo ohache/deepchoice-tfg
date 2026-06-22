@@ -8,7 +8,7 @@ import { UserManualModal } from "@/features/home/components/UserManualModal";
 import { PencilSquareIcon, DocumentTextIcon } from "@heroicons/react/24/outline";
 import { Joystick, LightbulbIcon } from "lucide-react";
 import { toast } from "@/shared/toast/toastStore";
-import { publicPath } from "@/shared/publicPath";
+import { publicPath } from "@/shared/helpers";
 
 type LoadMode = "edit" | "play" | null;
 

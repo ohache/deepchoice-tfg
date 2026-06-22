@@ -3,13 +3,13 @@ import type { Project, ID } from "@/domain/types";
 import { downloadProjectJsonFile, exportProjectAsZip } from "@/store/utils/editorPersistence";
 import { resolveDirectoryImport } from "@/shared/directoryImport";
 import { createEmptyProject, buildBaseEditorState, canUseHistoryViewZoom, clamp, DEFAULT_ZOOM, MAX_ZOOM, MIN_ZOOM, STEP_ZOOM } from "@/store/utils/editorStoreUtils";
-import { type EditorPrimaryMode, type EditorSecondaryMode, getDefaultSecondaryMode } from "@/features/editor/core/editorModes";
+import { type EditorPrimaryMode, type EditorSecondaryMode, getDefaultSecondaryMode } from "@/features/editor/core/editorNavigation";
 import { type EditorHistoryViewSlice, createEditorHistoryViewSlice } from "@/features/editor/history/view/editorHistoryViewSlice";
+import { type EditorPlayerSlice, createEditorPlayerSlice } from "@/features/editor/history/players/editorPlayersSlice";
+import { type EditorNpcSlice, createEditorNpcSlice } from "@/features/editor/history/npcs/editorNpcSlice";
+import { type EditorItemsSlice, createEditorItemsSlice } from "@/features/editor/history/items/editorItemsSlice";
 import { type EditorMusicSlice, createEditorMusicSlice } from "@/features/editor/history/music/editorMusicSlice";
 import { type EditorSfxSlice, createEditorSfxSlice } from "@/features/editor/history/sfx/editorSfxSlice";
-import { type EditorItemsSlice, createEditorItemsSlice } from "@/features/editor/history/items/editorItemsSlice";
-import { type EditorNpcSlice, createEditorNpcSlice } from "@/features/editor/history/npcs/editorNpcSlice";
-import { type EditorPlayerSlice, createEditorPlayerSlice } from "@/features/editor/history/players/editorPlayersSlice";
 import { type EditorMapsSlice, createEditorMapsSlice } from "@/features/editor/history/maps/editorMapsSlice";
 import { type EditorMapRegionsSlice, createEditorMapRegionsSlice } from "@/features/editor/history/maps/editorMapRegionSlice";
 import { type EditorNodesSlice, createEditorNodesSlice } from "@/features/editor/scene/node/editorNodeSlice";
@@ -17,14 +17,16 @@ import { type EditorLayerSlice, createEditorLayerSlice } from "@/features/editor
 import { type EditorLayerInteractionsSlice, createEditorLayerInteractionsSlice } from "@/features/editor/scene/layer/editorLayerInteractionSlice";
 import { type EditorHotspotsSlice, createEditorHotspotsSlice } from "@/features/editor/scene/hotspots/editorHotspotsSlice";
 import { type EditorPlacedItemsSlice, createEditorPlacedItemsSlice } from "@/features/editor/scene/placedItems/editorPlacedItemSlice";
-import { type EditorPlacedPlayersSlice, createEditorPlacedPlayersSlice } from "@/features/editor/scene/placedPlayers/editorPlacedPlayerSlice";
 import { type EditorPlacedNpcsSlice, createEditorPlacedNpcsSlice } from "@/features/editor/scene/placedNpcs/editorPlacedNpcSlice";
+import { type EditorPlacedPlayersSlice, createEditorPlacedPlayersSlice } from "@/features/editor/scene/placedPlayers/editorPlacedPlayerSlice";
 import { type EditorDialoguesSlice, createEditorDialoguesSlice } from "@/features/editor/scene/dialogues/editorDialogueSlice";
+import { type EditorTestSlice, createEditorTestSlice } from "@/features/editor/scene/test/editorTestSlice";
 import { type EditorDeleteSlice, createEditorDeleteSlice } from "@/features/editor/delete/editorDeleteSlice";
 
-export interface EditorStore extends EditorMusicSlice, EditorSfxSlice, EditorItemsSlice, EditorPlayerSlice, EditorNpcSlice, EditorHistoryViewSlice, EditorNodesSlice,
-  EditorLayerSlice, EditorLayerInteractionsSlice, EditorHotspotsSlice, EditorPlacedItemsSlice, EditorPlacedPlayersSlice, EditorPlacedNpcsSlice, EditorDialoguesSlice,
-  EditorMapsSlice, EditorMapRegionsSlice, EditorDeleteSlice {
+export interface EditorStore extends EditorHistoryViewSlice, EditorPlayerSlice, EditorNpcSlice, EditorItemsSlice, EditorMusicSlice, EditorSfxSlice, EditorMapsSlice,
+  EditorMapRegionsSlice, EditorNodesSlice, EditorLayerSlice, EditorLayerInteractionsSlice, EditorHotspotsSlice, EditorPlacedItemsSlice, EditorPlacedNpcsSlice,
+  EditorPlacedPlayersSlice, EditorDialoguesSlice, EditorTestSlice, EditorDeleteSlice {
+
   project: Project | null;
   primaryMode: EditorPrimaryMode;
   secondaryMode: EditorSecondaryMode;
@@ -44,7 +46,6 @@ export interface EditorStore extends EditorMusicSlice, EditorSfxSlice, EditorIte
   downloadProjectJson: () => void;
   exportProject: () => Promise<void>;
 
-  setZoom: (zoom: number) => void;
   zoomIn: () => void;
   zoomOut: () => void;
   zoomReset: () => void;
@@ -54,15 +55,16 @@ export const useEditorStore = create<EditorStore>()((set, get) => ({
   ...buildBaseEditorState(),
 
   project: null,
-  
+
   assetFiles: {},
 
-  ...createEditorSfxSlice(set, get),
-  ...createEditorMusicSlice(set, get),
-  ...createEditorItemsSlice(set, get),
-  ...createEditorNpcSlice(set, get),
-  ...createEditorPlayerSlice(set, get),
+  ...createEditorHistoryViewSlice(set, get),
 
+  ...createEditorPlayerSlice(set, get),
+  ...createEditorNpcSlice(set, get),
+  ...createEditorItemsSlice(set, get),
+  ...createEditorMusicSlice(set, get),
+  ...createEditorSfxSlice(set, get),
   ...createEditorMapsSlice(set, get),
   ...createEditorMapRegionsSlice(set, get),
 
@@ -77,7 +79,7 @@ export const useEditorStore = create<EditorStore>()((set, get) => ({
 
   ...createEditorDialoguesSlice(set, get),
 
-  ...createEditorHistoryViewSlice(set, get),
+  ...createEditorTestSlice(get),
 
   ...createEditorDeleteSlice(set, get),
 
@@ -154,13 +156,8 @@ export const useEditorStore = create<EditorStore>()((set, get) => ({
 
   /* Registar un File en memoria para un assetId */
   registerAssetFile: (assetId: ID, file: File) => {
-    set((state) => ({
-      assetFiles: { ...state.assetFiles, [assetId]: file }
-    }
-    ));
+    set((state) => ({ assetFiles: { ...state.assetFiles, [assetId]: file }}));
   },
-
-  
 
   /* Descarga el JSON del proyecto */
   downloadProjectJson: () => {
@@ -177,14 +174,6 @@ export const useEditorStore = create<EditorStore>()((set, get) => ({
 
     await exportProjectAsZip(project, assetFiles);
   },
-
-  /* Fija el zoom */
-  setZoom: (zoom) =>
-    set((state) =>
-      canUseHistoryViewZoom(state.primaryMode, state.secondaryMode)
-        ? { zoom: clamp(zoom, MIN_ZOOM, MAX_ZOOM) }
-        : state,
-    ),
 
   /* Aumenta el zoom */
   zoomIn: () =>

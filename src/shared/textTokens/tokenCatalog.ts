@@ -1,5 +1,5 @@
 import type { ID, Project, VarDef } from "@/domain/types";
-import type { TextTokenKind } from "@/features/editor/scene/textTokens/tokenFormat";
+import type { TextTokenKind } from "@/shared/textTokens/tokenFormat";
 
 type TokenCatalogVar = { id: ID; name: string };
 type TokenCatalogRegion = { id: ID; name: string };
@@ -22,15 +22,9 @@ export function buildTokenCatalog(project: Project | null): TokenCatalog {
 
   return {
     players: (project.players ?? []).map((player) => ({ id: player.id, name: player.name, vars: mapVars(player.vars) })),
-
     npcs: (project.npcs ?? []).map((npc) => ({ id: npc.id, name: npc.name, vars: mapVars(npc.vars) })),
-
     items: (project.items ?? []).map((item) => ({ id: item.id, name: item.name })),
-
-    maps: (project.maps ?? []).map((map) => ({ id: map.id, name: map.name,
-      regions: (map.regions ?? []).map((region) => ({ id: region.id, name: region.label })),
-    })),
-
+    maps: (project.maps ?? []).map((map) => ({ id: map.id, name: map.name, regions: (map.regions ?? []).map((region) => ({ id: region.id, name: region.label }))})),
     music: (project.musicTracks ?? []).map((track) => ({ id: track.id, name: track.name })),
   };
 }

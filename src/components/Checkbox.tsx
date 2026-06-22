@@ -19,6 +19,7 @@ export function Checkbox({ checked, onChange, disabled = false, label, id, class
   const checkboxControl = (
     <span
       className={"flex h-4 w-4 shrink-0 items-center justify-center rounded border-2 transition-colors " +
+        "peer-focus-visible:ring-2 peer-focus-visible:ring-emerald-400 " +
         (checked
           ? "border-emerald-500 bg-emerald-600"
           : "border-slate-600 bg-slate-900") +
@@ -55,11 +56,11 @@ export function Checkbox({ checked, onChange, disabled = false, label, id, class
         checked={checked}
         disabled={disabled}
         onChange={(event) => onChange(event.currentTarget.checked)}
-        className="absolute -z-10 h-0 w-0 opacity-0"
+        className="peer sr-only" // "absolute -z-10 h-0 w-0 opacity-0"
       />
 
       {labelPosition === "left" && hasLabel ? (
-        <span className={labelClassName}>{label}</span>
+        <span className={labelClassName ?? ""}>{label}</span>
       ) : null}
 
       {checkboxControl}

@@ -1,5 +1,11 @@
 import { create } from "zustand";
-import { createRuntimeMessage, type RuntimeMessage, type RuntimeMessageInput } from "./uiMessages";
+import type { ID } from "@/domain/types";
+import { createRuntimeMessage, type RuntimeMessage, type RuntimeMessageInput } from "@/engine/messages/uiMessages";
+
+type BubbleSpeakerInput = {
+  kind: "narrator" | "player" | "npc";
+  speakerId?: ID;
+};
 
 type UiMessageState = {
   queue: RuntimeMessage[];
@@ -46,3 +52,15 @@ export const useUiMessageStore = create<UiMessageState>((set, get) => ({
       queue: [],
     })),
 }));
+
+function normalizeBubbleSpeaker(speaker?: BubbleSpeakerInput): RuntimeMessageInput["speaker"] {
+  if (speaker?.kind === "player" && speaker.speakerId) return { kind: "player", playerId: speaker.speakerId };
+  if (speaker?.kind === "npc" && speaker.speakerId) return { kind: "npc", npcId: speaker.speakerId };
+  if (speaker?.kind === "narrator") return { kind: "narrator" };
+
+  return undefined;
+}
+
+export function pushBubbleMessage(text: string, speaker?: BubbleSpeakerInput): string {
+  return useUiMessageStore.getState().push({ text, preferredChannel: "bubble", speaker: normalizeBubbleSpeaker(speaker) });
+}

@@ -16,12 +16,18 @@ function normalizeSeconds(seconds: number): number {
   return Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
 }
 
+/* Sincroniza el estado musical del motor con un <audio> real del DOM */
 export function useSceneAudio(opts: UseSceneAudioOptions) {
   const { targetTrackId, currentTrackId, musicSrc, savedPosition = 0, loop = true, onRememberPosition, onPlaybackStarted, onPlaybackStopped } = opts;
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const appliedTrackIdRef = useRef<ID | null>(null);
+
+  const currentTrackIdRef = useRef<ID | undefined>(currentTrackId);
+  const targetTrackIdRef = useRef<ID | undefined>(targetTrackId);
+
   const suppressRememberRef = useRef(false);
+  const suppressReleaseTimerRef = useRef<number | null>(null);
 
   const lastRememberedRef = useRef<{ trackId?: ID; seconds: number }>({ trackId: undefined, seconds: -1 });
 
@@ -30,10 +36,32 @@ export function useSceneAudio(opts: UseSceneAudioOptions) {
   const stoppedRef = useRef(onPlaybackStopped);
 
   useEffect(() => {
+    currentTrackIdRef.current = currentTrackId;
+    targetTrackIdRef.current = targetTrackId;
+  }, [currentTrackId, targetTrackId]);
+
+  useEffect(() => {
     rememberRef.current = onRememberPosition;
     startedRef.current = onPlaybackStarted;
     stoppedRef.current = onPlaybackStopped;
   }, [onRememberPosition, onPlaybackStarted, onPlaybackStopped]);
+
+  function clearSuppressReleaseTimer() {
+    if (suppressReleaseTimerRef.current === null) return;
+
+    window.clearTimeout(suppressReleaseTimerRef.current);
+    suppressReleaseTimerRef.current = null;
+  }
+
+  /* Mantiene suppressRemember activo hasta el siguiente ciclo de eventos */
+  function releaseRememberSuppressionSoon() {
+    clearSuppressReleaseTimer();
+
+    suppressReleaseTimerRef.current = window.setTimeout(() => {
+      suppressRememberRef.current = false;
+      suppressReleaseTimerRef.current = null;
+    }, 0);
+  }
 
   function safeRemember(trackId: ID | undefined, seconds: number) {
     if (!trackId) return;
@@ -51,9 +79,10 @@ export function useSceneAudio(opts: UseSceneAudioOptions) {
 
   function pauseSilently(audio: HTMLAudioElement) {
     suppressRememberRef.current = true;
+
     audio.pause();
 
-    queueMicrotask(() => { suppressRememberRef.current = false });
+    releaseRememberSuppressionSoon();
   }
 
   function resetAudioElement(audio: HTMLAudioElement) {
@@ -64,9 +93,10 @@ export function useSceneAudio(opts: UseSceneAudioOptions) {
     audio.removeAttribute("src");
     audio.load();
 
-    queueMicrotask(() => { suppressRememberRef.current = false });
+    releaseRememberSuppressionSoon();
   }
 
+  /* Listener estable de pausa */
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -74,7 +104,8 @@ export function useSceneAudio(opts: UseSceneAudioOptions) {
     const handlePause = () => {
       if (suppressRememberRef.current) return;
 
-      const trackId = appliedTrackIdRef.current ?? currentTrackId ?? targetTrackId;
+      const trackId = appliedTrackIdRef.current ?? currentTrackIdRef.current ?? targetTrackIdRef.current;
+
       safeRemember(trackId, audio.currentTime);
     };
 
@@ -83,14 +114,18 @@ export function useSceneAudio(opts: UseSceneAudioOptions) {
     return () => {
       audio.removeEventListener("pause", handlePause);
 
-      const trackId = appliedTrackIdRef.current ?? currentTrackId ?? targetTrackId;
+      const trackId = appliedTrackIdRef.current ?? currentTrackIdRef.current ?? targetTrackIdRef.current;
+
       safeRemember(trackId, audio.currentTime);
 
       resetAudioElement(audio);
       appliedTrackIdRef.current = null;
+
+      clearSuppressReleaseTimer();
     };
   }, []);
 
+  /* Efecto principal: aplica la pista objetivo al elemento <audio> */
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -113,23 +148,26 @@ export function useSceneAudio(opts: UseSceneAudioOptions) {
       audio.loop = loop;
 
       if (audio.paused) {
-        void audio.play().catch(() => { stoppedRef.current?.(targetTrackId) });
+        void audio.play().then(() => {
+            startedRef.current?.(targetTrackId);
+          })
+          .catch(() => {
+            stoppedRef.current?.(targetTrackId);
+          });
       }
 
       return;
     }
 
     if (activeTrackId && activeTrackId !== targetTrackId) safeRemember(activeTrackId, audio.currentTime);
-    
+
     if (!audio.paused) pauseSilently(audio);
-    
+
     audio.src = musicSrc;
     audio.loop = loop;
     audio.currentTime = normalizeSeconds(savedPosition);
 
-    void audio
-      .play()
-      .then(() => {
+    void audio.play().then(() => {
         appliedTrackIdRef.current = targetTrackId;
         startedRef.current?.(targetTrackId);
       })

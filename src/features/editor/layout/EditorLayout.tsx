@@ -1,15 +1,15 @@
 import { useEditorStore } from "@/store/editorStore";
-import { SceneListView } from "@/features/editor/scene/SceneListView";
-import { HistoryMusicPanel } from "@/features/editor/history/music/HistoryMusicPanel";
-import { HistoryTagsPanel } from "@/features/editor/history/HistoryTagsPanel";
 import { HistoryViewPanel } from "@/features/editor/history/view/HistoryViewPanel";
-import { HistoryItemsPanel } from "@/features/editor/history/items/HistoryItemsPanel";
-import { HistoryMapsPanel } from "@/features/editor/history/maps/HistoryMapsPanel";
 import { HistoryPlayersPanel } from "@/features/editor/history/players/HistoryPlayersPanel";
-import { HistorySfxPanel } from "@/features/editor/history/sfx/HistorySfxPanel";
 import { HistoryNpcsPanel } from "@/features/editor/history/npcs/HistoryNpcsPanel";
+import { HistoryItemsPanel } from "@/features/editor/history/items/HistoryItemsPanel";
+import { HistoryMusicPanel } from "@/features/editor/history/music/HistoryMusicPanel";
+import { HistorySfxPanel } from "@/features/editor/history/sfx/HistorySfxPanel";
+import { HistoryMapsPanel } from "@/features/editor/history/maps/HistoryMapsPanel";
+import { HistoryTagsPanel } from "@/features/editor/history/HistoryTagsPanel";
 import { SceneEditorView } from "@/features/editor/scene/SceneEditorView";
-import { SceneTestView } from "../scene/test/SceneTestView";
+import { SceneListView } from "@/features/editor/scene/SceneListView";
+import { SceneTestView } from "@/features/editor/scene/test/SceneTestView";
 
 function renderHistoryContent(secondaryMode: string) {
   switch (secondaryMode) {
@@ -19,10 +19,10 @@ function renderHistoryContent(secondaryMode: string) {
     case "jugador":
       return <HistoryPlayersPanel />;
 
-    case "pnjs":
+    case "pnj":
       return <HistoryNpcsPanel />;
 
-    case "items":
+    case "objeto":
       return <HistoryItemsPanel />;
 
     case "musica":
@@ -64,11 +64,8 @@ export function EditorLayout() {
 
   let content = null;
 
-  if (primaryMode === "historia") {
-    content = renderHistoryContent(secondaryMode);
-  } else if (primaryMode === "escena") {
-    content = renderSceneContent(secondaryMode);
-  }
+  if (primaryMode === "historia") content = renderHistoryContent(secondaryMode);
+  else if (primaryMode === "escena") content = renderSceneContent(secondaryMode);
 
   return (
     <main data-editor-scroll="true" className="editor-scroll flex-1 min-h-0 p-4 overflow-auto bg-slate-950">

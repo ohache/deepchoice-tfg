@@ -7,16 +7,16 @@ import { PlacedItemSchema } from "@/features/editor/scene/placedItems/placedItem
 import { PlacedPlayerSchema } from "@/features/editor/scene/placedPlayers/placedPlayerSchemas";
 import { PlacedNpcSchema } from "@/features/editor/scene/placedNpcs/placedNpcSchemas";
 
-export const textDockSchema = z.enum(["bottom", "top", "left", "right"]);
+const textDockSchema = z.enum(["bottom", "top", "left", "right"]);
 
-export const conditionalTextEntrySchema = z.object({
+const conditionalTextEntrySchema = z.object({
   id: IdSchema,
   label: z.string().trim().min(1, "El texto necesita un nombre.").max(60, "El nombre no puede tener más de 60 caracteres."),
   when: conditionSchema.optional(),
   content: z.string(),
 }) satisfies z.ZodType<ConditionalTextEntry>;
 
-export const conditionalTextSchema = z.array(conditionalTextEntrySchema) satisfies z.ZodType<ConditionalText>;
+const conditionalTextSchema = z.array(conditionalTextEntrySchema) satisfies z.ZodType<ConditionalText>;
 
 export const sceneLayerSchema = z.object({
   id: IdSchema,
@@ -31,5 +31,3 @@ export const sceneLayerSchema = z.object({
   placedPlayers: z.array(PlacedPlayerSchema).optional(),
   musicTrackId: IdSchema.optional(),
 }) satisfies z.ZodType<SceneImageLayer>;
-
-export type SceneImageLayerDTO = z.infer<typeof sceneLayerSchema>;

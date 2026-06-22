@@ -11,7 +11,7 @@ export type EffectRefs = Partial<{
   nodeIds: readonly ID[];
   itemIds: readonly ID[];
   dialogueIds: readonly ID[];
-  placedItemIds: readonly ID[];
+  itemInstanceIds: readonly ID[];
   hotspotIds: readonly ID[];
   imageAssetIds: readonly ID[];
   sfxIds: readonly ID[];
@@ -32,24 +32,27 @@ const EXTRACT_REFS: ExtractorMap = {
   goToNode: (effect) => ({ nodeIds: [effect.targetNodeId] }),
 
   /* Inventario */
-  addItem: (effect) => ({ placedItemIds: [effect.itemInstanceId] }),
-  removeItem: (effect) => ({ placedItemIds: [effect.itemInstanceId] }),
+  addItem: (effect) => ({ playerIds: [effect.playerId], itemInstanceIds: [effect.itemInstanceId] }),
+  removeItem: (effect) => ({ playerIds: [effect.playerId], itemInstanceIds: [effect.itemInstanceId] }),
 
   /* Diálogo / PNJ */
   startDialogue: (effect) => ({ dialogueIds: [effect.nodeDialogueId] }),
   endDialogue: () => ({}),
 
-  giveItemToNpc: (effect) => ({ npcIds: [effect.npcId], placedItemIds: [effect.itemInstanceId] }),
-  receiveItemFromNpc: (effect) => ({ npcIds: [effect.npcId], placedItemIds: [effect.itemInstanceId] }),
-  transformItem: (effect) => ({ itemIds: [effect.resultItemId], placedItemIds: [effect.sourceItemInstanceId, effect.resultItemInstanceId]}),
-  combineItems: (effect) => ({ itemIds: [effect.resultItemId], placedItemIds: [effect.sourceItemInstanceId, effect.targetItemInstanceId, effect.resultItemInstanceId]}),
+  giveItemToNpc: (effect) => ({ npcIds: [effect.npcId], itemInstanceIds: [effect.itemInstanceId] }),
+  receiveItemFromNpc: (effect) => ({ npcIds: [effect.npcId], itemInstanceIds: [effect.itemInstanceId] }),
+  transformItem: (effect) => ({ itemIds: [effect.resultItemId], itemInstanceIds: [effect.itemInstanceId, effect.resultItemInstanceId] }),
+  combineItems: (effect) => ({ itemIds: [effect.resultItemId], itemInstanceIds: [effect.itemAInstanceId, effect.itemBInstanceId, effect.resultItemInstanceId] }),
 
   /* Feedback */
-  showMessage: () => ({}),
+  showMessage: (effect) => ({
+    playerIds: effect.speaker?.kind === "player" ? [effect.speaker.playerId] : undefined,
+    npcIds: effect.speaker?.kind === "npc" ? [effect.speaker.npcId] : undefined,
+  }),
 
   /* Estado de items colocados */
-  setPlacedItemVisible: (effect) => ({ nodeIds: [effect.nodeId], placedItemIds: [effect.itemInstanceId] }),
-  setPlacedItemReachable: (effect) => ({ nodeIds: [effect.nodeId], placedItemIds: [effect.itemInstanceId] }),
+  setPlacedItemVisible: (effect) => ({ itemInstanceIds: [effect.itemInstanceId] }),
+  setPlacedItemReachable: (effect) => ({ itemInstanceIds: [effect.itemInstanceId] }),
 
   /* Estado de hotspot */
   setHotspotVisible: (effect) => ({ hotspotIds: [effect.hotspotId] }),
@@ -133,15 +136,15 @@ const EXTRACT_REFS: ExtractorMap = {
   /* Audio */
   playSfx: (effect) => ({ sfxIds: [effect.sfxId] }),
   playMusic: (effect) => ({ musicTrackIds: [effect.trackId] }),
-  stopMusic: () => ({}),
+  stopMusic: (effect) => ({ musicTrackIds: [effect.trackId] }),
 
   /* Mapa */
   setMapRegionAvailable: (effect) => ({ mapRegions: [{ mapId: effect.mapId, regionId: effect.regionId }] }),
 
   /* Finalizar juego */
   endGame: (effect) => ({
-    musicTrackIds: effect.ending?.musicTrackId ? [effect.ending.musicTrackId] : [],
-    playerIds: effect.ending?.lines?.flatMap((line) =>  line.speaker?.kind === "player" ? [line.speaker.playerId] : []),
+    musicTrackIds: effect.ending?.musicTrackId ? [effect.ending.musicTrackId] : undefined,
+    playerIds: effect.ending?.lines?.flatMap((line) => line.speaker?.kind === "player" ? [line.speaker.playerId] : []),
     npcIds: effect.ending?.lines?.flatMap((line) => line.speaker?.kind === "npc" ? [line.speaker.npcId] : []),
   }),
 };
@@ -183,8 +186,8 @@ export function effectReferencesHotspot(effect: Effect, hotspotId: ID): boolean 
   return includes(getEffectRefs(effect).hotspotIds, hotspotId);
 }
 
-export function effectReferencesPlacedItem(effect: Effect, placedItemId: ID): boolean {
-  return includes(getEffectRefs(effect).placedItemIds, placedItemId);
+export function effectReferencesItemInstance(effect: Effect, itemInstanceId: ID): boolean {
+  return includes(getEffectRefs(effect).itemInstanceIds, itemInstanceId);
 }
 
 export function effectReferencesImageAsset(effect: Effect, assetId: ID): boolean {

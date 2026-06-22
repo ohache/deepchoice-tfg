@@ -1,26 +1,19 @@
 import type { ID, Project, ItemDef } from "@/domain/types";
 import type { DeleteTarget } from "@/features/editor/delete/deleteTypes";
-import { conditionReferences } from "@/domain/conditionRefs";
-import { effectReferencesPlacedItem } from "@/domain/effectRefs";
 import { hasDuplicateName } from "@/validation/genericValidator";
-import { generateId } from "@/utils/id";
+import { safeTrim, upsertAsset, upsertAssetFile } from "@/features/editor/core/editorDataUtils";
+import { findAssetByIdAndKind, findEntityById, isDescriptionChanged, isNameChanged, normalizeOptionalDescription, normalizeOptionalFile,
+  normalizeOptionalName, replaceById } from "@/features/editor/history/shared/assetBackedEntityHelpers";
 import { buildAssetPath } from "@/store/assets/assetPath";
-import { safeTrim, upsertAsset, upsertAssetFile, removeAssetFile } from "@/features/editor/core/editorGenericSlice";
-import { somePlacedItem, isEntityReferenced, collectPlaced } from "@/features/editor/core/editorProjectWalkers";
-import { findAssetByIdAndKind, replaceById } from "@/features/editor/history/shared/assetBackedEntityHelpers";
-import { collectIds, someReferenceForIds, nextSelectedAfterRemoval } from "@/features/editor/history/shared/genericHelpers";
-import { applyDeleteWithCleanup } from "@/features/editor/delete/deleteReferenceCleaner";
-import type { DeleteApplyFn } from "@/features/editor/delete/editorDeleteSlice";
+import { generateId } from "@/utils/id";
+import { hasDuplicatedItemInstanceLabel } from "@/validation/itemInstanceLabels";
 
 /* Mínimo contrato del store que necesita este slice */
 type EditorStoreLike = {
   project: Project | null;
   assetFiles: Record<ID, File>;
   selectedItemId: ID | null;
-  requestDelete: (input: {
-    target: DeleteTarget;
-    apply: DeleteApplyFn;
-  }) => void;
+  requestDelete: (target: DeleteTarget) => void;
 };
 
 export interface EditorItemsSlice {
@@ -29,61 +22,35 @@ export interface EditorItemsSlice {
   addItem: (input: { name: string; description?: string; file: File }) => ID | null;
   updateItem: (id: ID, changes: { name?: string; description?: string; file?: File | null }) => void;
   removeItem: (id: ID) => void;
-  isItemReferenced: (id: ID) => boolean;
 }
 
-const applyItemDeleteTarget = (
-  target: DeleteTarget,
-): DeleteApplyFn => (state) => {
-  if (!state.project) return state;
-
-  const nextProject = applyDeleteWithCleanup(state.project, target);
-
-  let nextAssetFiles = state.assetFiles;
-  let nextSelectedItemId = state.selectedItemId;
-
-  if (target.kind === "item") {
-    nextAssetFiles = removeAssetFile(nextAssetFiles, target.itemId).assetFiles;
-    nextSelectedItemId = nextSelectedAfterRemoval(state.selectedItemId, target.itemId);
-  }
-
-  return {
-    ...state,
-    project: nextProject,
-    assetFiles: nextAssetFiles,
-    selectedItemId: nextSelectedItemId,
-  };
-};
-
-export function createEditorItemsSlice(set: (partial: Partial<EditorStoreLike> | ((state: EditorStoreLike) => Partial<EditorStoreLike> | EditorStoreLike)) => void,
+export function createEditorItemsSlice(set: (partial: | Partial<EditorStoreLike> | ((state: EditorStoreLike) => Partial<EditorStoreLike> | EditorStoreLike)) => void,
   get: () => EditorStoreLike): EditorItemsSlice {
   return {
     selectedItemId: null,
 
     setSelectedItemId: (id) => set({ selectedItemId: id }),
 
-    /* Añade item */
+    /* Añade un objeto */
     addItem: (input) => {
       const { project, assetFiles } = get();
       if (!project) return null;
 
-      const nextName = safeTrim(input?.name);
-      const nextDescription = safeTrim(input?.description);
-      const file = input?.file;
+      const nextName = normalizeOptionalName(input.name);
+      const nextDescription = normalizeOptionalDescription(input.description);
+      const file = input.file;
 
       if (!nextName) return null;
       if (!(file instanceof File)) return null;
 
       if (hasDuplicateName({ list: project.items, incomingName: nextName })) return null;
 
+      if (hasDuplicatedItemInstanceLabel(project, nextName)) return null;
+
       const id = generateId.item();
       const filePath = buildAssetPath("items", file.name);
 
-      const newItem: ItemDef = {
-        id,
-        name: nextName,
-        ...(nextDescription ? { description: nextDescription } : null),
-      };
+      const newItem: ItemDef = { id, name: nextName, ...(nextDescription ? { description: nextDescription } : null) };
 
       const assetResult = upsertAsset(project.assets, { id, kind: "items", name: nextName, file: filePath });
 
@@ -108,20 +75,22 @@ export function createEditorItemsSlice(set: (partial: Partial<EditorStoreLike> |
         if (!state.project) return state;
 
         const project = state.project;
-        const prevItem = project.items.find((item) => item.id === id);
+        const prevItem = findEntityById(project.items, id);
         if (!prevItem) return state;
 
-        const nextName = typeof changes.name === "string" ? safeTrim(changes.name) : "";
-        const nameChanged = Boolean(nextName) && nextName !== prevItem.name;
+        const nextName = normalizeOptionalName(changes.name);
+        const nameChanged = isNameChanged(prevItem.name, nextName);
 
         if (nameChanged && hasDuplicateName({ list: project.items, incomingName: nextName, ignoreId: id })) return state;
 
-        const nextDescription = typeof changes.description === "string" ? safeTrim(changes.description) : "";
+        if (nameChanged && hasDuplicatedItemInstanceLabel(project, nextName)) return state;
 
-        const prevDescription = safeTrim(prevItem.description);
-        const descriptionChanged = typeof changes.description === "string" && nextDescription !== prevDescription;
+        const hasIncomingDescription = typeof changes.description === "string";
+        const nextDescription = normalizeOptionalDescription(changes.description);
 
-        const nextFile = changes.file instanceof File ? changes.file : null;
+        const descriptionChanged = isDescriptionChanged(prevItem.description, nextDescription, hasIncomingDescription);
+
+        const nextFile = normalizeOptionalFile(changes.file);
         const fileChanged = Boolean(nextFile);
 
         if (!nameChanged && !descriptionChanged && !fileChanged) return state;
@@ -139,6 +108,7 @@ export function createEditorItemsSlice(set: (partial: Partial<EditorStoreLike> |
 
         if (nameChanged && existingAsset) {
           const assetResult = upsertAsset(nextAssets, { id, kind: "items", name: nextItem.name, file: safeTrim(existingAsset.file) });
+
           nextAssets = assetResult.assets;
         }
 
@@ -146,6 +116,7 @@ export function createEditorItemsSlice(set: (partial: Partial<EditorStoreLike> |
           const filePath = buildAssetPath("items", nextFile.name);
 
           const assetResult = upsertAsset(nextAssets, { id, kind: "items", name: nextItem.name, file: filePath });
+
           nextAssets = assetResult.assets;
 
           const fileResult = upsertAssetFile(nextAssetFiles, id, nextFile);
@@ -163,32 +134,13 @@ export function createEditorItemsSlice(set: (partial: Partial<EditorStoreLike> |
         };
       }),
 
-        /* Elimina un item */
+    /* Elimina un item */
     removeItem: (id) => {
       const { project, requestDelete } = get();
       if (!project) return;
       if (!project.items.some((item) => item.id === id)) return;
 
-      requestDelete({
-        target: { kind: "item", itemId: id },
-        apply: applyItemDeleteTarget({ kind: "item", itemId: id }),
-      });
-    },
-
-    /* Comprueba si un item global está referenciado */
-    isItemReferenced: (itemId: ID) => {
-      const { project } = get();
-      if (!project) return false;
-
-      const placedItemIds = collectIds(collectPlaced(project, "placedItems", (placedItem) => placedItem.itemId === itemId), (placedItem) => placedItem.id);
-
-      return isEntityReferenced(project, {
-        someSceneRef: (currentProject) => somePlacedItem(currentProject, (placedItem) => placedItem.itemId === itemId),
-
-        someWhenRef: (when) => someReferenceForIds(placedItemIds, when, conditionReferences.placedItem),
-
-        someEffectRef: (effect) => someReferenceForIds(placedItemIds, effect, effectReferencesPlacedItem),
-      });
+      requestDelete({ kind: "item", itemId: id });
     },
   };
 }

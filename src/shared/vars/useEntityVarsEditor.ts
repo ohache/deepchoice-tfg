@@ -1,27 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { VarDef } from "@/domain/types";
-import { generateId } from "@/utils/id";
 import { type VarRow, type VarRowErrors, getDefaultVarName, rowToVarDefValidatedDetailed, varDefToRow } from "@/shared/vars/varRow";
+import { generateId } from "@/utils/id";
 
-type PersistSaveMeta = {
-  existedBefore: boolean;
-};
 
 type UseEntityVarsEditorArgs = {
   initialVars: VarDef[];
   createId?: () => string;
   onPersistRemove?: (varId: string) => void;
-  onPersistSave?: (variable: VarDef, meta: PersistSaveMeta) => void;
+  onPersistSave?: (variable: VarDef, existedBefore: boolean) => void;
   useDirtyTracking?: boolean;
   blockOpenIfDirty?: boolean;
   onBlockedOpenDirty?: () => void;
 };
 
-type SaveVarResult =
-  | { ok: true; variable: VarDef }
-  | { ok: false; errors: VarRowErrors };
+type SaveVarResult = { ok: true; variable: VarDef } | { ok: false; errors: VarRowErrors };
 
-export type UseEntityVarsEditorResult = {
+type UseEntityVarsEditorResult = {
   draftVars: VarRow[];
   openVarId: string | null;
   varNameRefs: React.RefObject<Record<string, HTMLInputElement | null>>;
@@ -103,8 +98,7 @@ export function useEntityVarsEditor({ initialVars, createId = () => generateId.v
     requestAnimationFrame(() => {
       input.focus();
 
-      try {
-        input.select();
+      try { input.select();
       } catch {
         try {
           const len = input.value.length;
@@ -209,7 +203,7 @@ export function useEntityVarsEditor({ initialVars, createId = () => generateId.v
 
       clearDirty(variable.id);
       setOpenVarId(null);
-      onPersistSave?.(variable, { existedBefore });
+      onPersistSave?.(variable, existedBefore);
 
       return { ok: true, variable };
     }, [useDirtyTracking, isDirtyVar, draftVars, initialVars, clearDirty, onPersistSave],

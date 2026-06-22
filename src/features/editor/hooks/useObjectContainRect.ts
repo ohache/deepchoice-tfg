@@ -1,17 +1,14 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import type { RefObject } from "react";
 
-export type Rect = {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-};
+export type Rect = { x: number; y: number; w: number; h: number };
 
 type UseObjectContainRectParams = {
   containerRef: RefObject<HTMLElement | null>;
   imgRef: RefObject<HTMLImageElement | null>;
 };
+
+const RECT_PRECISION = 1000;
 
 /* Comparación exacta de rects ya redondeados */
 function areRectsEqual(a: Rect | null, b: Rect | null): boolean {
@@ -21,14 +18,13 @@ function areRectsEqual(a: Rect | null, b: Rect | null): boolean {
   return a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
 }
 
+function roundCoord(value: number): number {
+  return Math.round(value * RECT_PRECISION) / RECT_PRECISION;
+}
+
 /* Redondea para evitar ruido de decimales y renders innecesarios */
 function roundRect(rect: Rect): Rect {
-  return {
-    x: Math.round(rect.x * 1000) / 1000,
-    y: Math.round(rect.y * 1000) / 1000,
-    w: Math.round(rect.w * 1000) / 1000,
-    h: Math.round(rect.h * 1000) / 1000,
-  };
+  return { x: roundCoord(rect.x), y: roundCoord(rect.y), w: roundCoord(rect.w), h: roundCoord(rect.h) };
 }
 
 /* Calcula el rectángulo real visible de una imagen con object-contain dentro del contenedor */
@@ -44,14 +40,13 @@ function calcContentRectInContainer(container: HTMLElement, img: HTMLImageElemen
   const containerRatio = containerBox.width / containerBox.height;
   const imageRatio = naturalWidth / naturalHeight;
 
+  if (!Number.isFinite(containerRatio) || !Number.isFinite(imageRatio)) return null;
+
   let width = containerBox.width;
   let height = containerBox.height;
 
-  if (imageRatio > containerRatio) {
-    height = width / imageRatio;
-  } else {
-    width = height * imageRatio;
-  }
+  if (imageRatio > containerRatio) height = width / imageRatio;
+  else width = height * imageRatio;
 
   const x = (containerBox.width - width) / 2;
   const y = (containerBox.height - height) / 2;
@@ -86,69 +81,100 @@ export function useObjectContainRect({ containerRef, imgRef }: UseObjectContainR
   }, [containerRef, imgRef, updateRect]);
 
   useLayoutEffect(() => {
-    let raf = 0;
+    let disposed = false;
+    let attachRaf = 0;
+    let recomputeRaf = 0;
     let resizeObserver: ResizeObserver | null = null;
-    let cleanup: (() => void) | null = null;
+    let cleanupListeners: (() => void) | null = null;
+
+    const cancelAttachRaf = () => {
+      if (!attachRaf) return;
+
+      cancelAnimationFrame(attachRaf);
+      attachRaf = 0;
+    };
+
+    const cancelRecomputeRaf = () => {
+      if (!recomputeRaf) return;
+
+      cancelAnimationFrame(recomputeRaf);
+      recomputeRaf = 0;
+    };
+
+    const requestRecompute = () => {
+      cancelRecomputeRaf();
+
+      recomputeRaf = requestAnimationFrame(() => {
+        recomputeRaf = 0;
+
+        if (!disposed) recompute();
+      });
+    };
 
     const attachIfPossible = () => {
+      if (disposed) return;
+
       const container = containerRef.current;
       const img = imgRef.current;
 
       if (!container || !img) {
-        raf = requestAnimationFrame(attachIfPossible);
+        attachRaf = requestAnimationFrame(attachIfPossible);
         return;
       }
 
-      if (cleanup) return;
+      if (cleanupListeners) return;
 
-      const handleWindowChange = () => recompute();
-      const handleImageLoad = () => recompute();
+      const handleWindowChange = () => requestRecompute();
+      const handleImageChange = () => requestRecompute();
 
-      resizeObserver = new ResizeObserver(() => recompute());
+      resizeObserver = new ResizeObserver(requestRecompute);
       resizeObserver.observe(container);
 
       window.addEventListener("resize", handleWindowChange, { passive: true });
       window.addEventListener("scroll", handleWindowChange, { passive: true });
-      img.addEventListener("load", handleImageLoad);
 
-      recompute();
+      img.addEventListener("load", handleImageChange);
+      img.addEventListener("error", handleImageChange);
 
-      if (img.complete) requestAnimationFrame(() => recompute());
+      requestRecompute();
 
-      cleanup = () => {
+      if (img.complete) requestRecompute();
+
+      cleanupListeners = () => {
         resizeObserver?.disconnect();
         resizeObserver = null;
 
         window.removeEventListener("resize", handleWindowChange);
         window.removeEventListener("scroll", handleWindowChange);
-        img.removeEventListener("load", handleImageLoad);
 
-        cleanup = null;
+        img.removeEventListener("load", handleImageChange);
+        img.removeEventListener("error", handleImageChange);
+
+        cleanupListeners = null;
       };
     };
 
     attachIfPossible();
 
     return () => {
-      if (raf) cancelAnimationFrame(raf);
-      if (cleanup) cleanup();
+      disposed = true;
+
+      cancelAttachRaf();
+      cancelRecomputeRaf();
+
+      cleanupListeners?.();
     };
-  }, [recompute, containerRef, imgRef]);
+  }, [containerRef, imgRef, recompute]);
 
   /* Convierte un punto absoluto del viewport a coordenadas relativas al contenedor */
-  const toContainerPx = useCallback(
-    (point: { x: number; y: number }) => {
-      const container = containerRef.current;
-      if (!container) return null;
+  const toContainerPx = useCallback((point: { x: number; y: number }) => {
+    const container = containerRef.current;
+    if (!container) return null;
 
-      const box = container.getBoundingClientRect();
+    const box = container.getBoundingClientRect();
 
-      return {
-        x: point.x - box.left,
-        y: point.y - box.top,
-      };
-    },
-    [containerRef],
+    return { x: point.x - box.left, y: point.y - box.top };
+  }, [containerRef],
   );
 
   return { contentRectInContainer, recompute, toContainerPx };

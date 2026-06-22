@@ -1,17 +1,18 @@
 import { useMemo, useRef } from "react";
 import type { CSSProperties } from "react";
-import type { Hotspot, ID, PlacedItem, PlacedNpc, PlacedPlayer, SceneImageLayer } from "@/domain/types";
+import type { Hotspot, ID, ItemInstance, PlacedNpc, PlacedPlayer, SceneImageLayer } from "@/domain/types";
 import { useEditorStore } from "@/store/editorStore";
 import { useResolvedAssetUrl } from "@/features/editor/hooks/useResolvedAssetUrl";
-import { countBrokenTokens, ResolvedTextRenderer, resolveTextTokensToParts } from "@/features/editor/scene/textTokens/ResolveTextTokens";
+import { countBrokenTokens, ResolvedTextRenderer, resolveTextTokensToParts } from "@/shared/textTokens/ResolveTextTokens";
 import { useObjectContainRect } from "@/features/editor/hooks/useObjectContainRect";
 import { rectStyleFromShape } from "@/features/editor/hooks/regionShape";
-import { PlacedItemPreview } from "@/features/editor/scene/placedItems/PlacedItemPreview";
-import { PlacedPlayerPreview } from "../placedPlayers/PlacedPlayerPreview";
-import { PlacedNpcPreview } from "../placedNpcs/PlacedNpcPreview";
-import { useScenePreviewAudio } from "@/features/editor/scene/music/useScenePreviewAudio";
+import { PlacedItemPreview } from "@/features/editor/scene/preview/PlacedItemPreview";
+import { PlacedPlayerPreview } from "@/features/editor/scene/preview/PlacedPlayerPreview";
+import { PlacedNpcPreview } from "@/features/editor/scene/preview/PlacedNpcPreview";
+import { useScenePreviewAudio, resolveScenePreviewMusic } from "@/features/editor/scene/music/useScenePreviewAudio";
 import { useSceneRenderPreviewInteractions, type PreviewInteractiveFieldId } from "@/features/editor/scene/preview/useSceneRenderPreviewInteractions";
-import { PlayIcon, StopIcon } from "@heroicons/react/24/solid";
+import { canRenderPreviewLabel, getCssRectSize } from "@/features/editor/scene/preview/previewRenderHelpers";
+import { PlayIcon, PauseIcon } from "@heroicons/react/24/solid";
 
 const TEMP_TEXT_ENTRY_ID = "__preview_text__";
 
@@ -53,15 +54,6 @@ function getResolvedPreviewTextEntry(layer: SceneImageLayer | null): { id?: stri
   return entries.find((entry) => !entry.when) ?? null;
 }
 
-function getRectSize(style: CSSProperties | null) {
-  if (!style) return { width: 0, height: 0 };
-
-  const width = Number(String(style.width ?? "0").replace("px", "")) || 0;
-  const height = Number(String(style.height ?? "0").replace("px", "")) || 0;
-
-  return { width, height };
-}
-
 function buildClickableEntries<T>(items: T[], getId: (item: T) => ID, getTitle: (item: T) => string, getStyle: (item: T) => CSSProperties | null): PreviewClickableEntry[] {
   return items.map((item) => ({ id: getId(item), title: getTitle(item), style: getStyle(item) }));
 }
@@ -89,9 +81,9 @@ function HotspotPreviewBox({ hotspot, contentRectInContainer, onClick }: Hotspot
   const style = rectStyleFromShape(hotspot.shape ?? null, contentRectInContainer);
   if (!style) return null;
 
-  const { width, height } = getRectSize(style);
+  const { width, height } = getCssRectSize(style);
   const label = (hotspot.label ?? "").trim();
-  const canShowLabel = Boolean(label) && width >= 20 && height >= 10;
+  const canShowLabel = canRenderPreviewLabel({ label, width, height, minWidth: 20, minHeight: 10 });
 
   return (
     <button
@@ -134,33 +126,22 @@ export function SceneRenderPreview({ textPreview, onOpenInteractiveField }: Scen
   const effectiveAssetId: ID | null = activeLayer?.assetId ?? null;
   const imageUrl = useResolvedAssetUrl(effectiveAssetId);
 
-  const resolvedPreviewTrackId = useMemo(() => {
-    if (activeLayer?.musicTrackId) return activeLayer.musicTrackId;
-    if (nodeDraft?.musicTrackId) return nodeDraft.musicTrackId;
+  const maps = project?.maps;
 
-    const mapId = nodeDraft?.mapLocation?.mapId;
-    const regionId = nodeDraft?.mapLocation?.regionId;
-    if (!project || !mapId || !regionId) return undefined;
+  const resolvedPreviewMusic = useMemo(() => resolveScenePreviewMusic({ maps, nodeMusicTrackId: nodeDraft?.musicTrackId, layerMusicTrackId: activeLayer?.musicTrackId,
+    mapId: nodeDraft?.mapLocation?.mapId, regionId: nodeDraft?.mapLocation?.regionId }),
+    [maps, nodeDraft?.musicTrackId, activeLayer?.musicTrackId, nodeDraft?.mapLocation?.mapId, nodeDraft?.mapLocation?.regionId]
+  );
 
-    const map = (project.maps ?? []).find((entry) => entry.id === mapId) ?? null;
-    const region = map?.regions.find((entry) => entry.id === regionId) ?? null;
-
-    return region?.musicTrackId;
-  }, [activeLayer?.musicTrackId, nodeDraft?.musicTrackId, nodeDraft?.mapLocation?.mapId, nodeDraft?.mapLocation?.regionId, project]);
-
-  const musicSrc = useResolvedAssetUrl(resolvedPreviewTrackId ?? null);
+  const musicSrc = useResolvedAssetUrl(resolvedPreviewMusic?.trackId ?? null);
 
   const { audioRef, isPlaying: isPreviewMusicPlaying, canPlay: canPlayPreviewMusic, toggle: togglePreviewMusic } = useScenePreviewAudio({
-    project,
-    nodeMusicTrackId: nodeDraft?.musicTrackId,
-    layerMusicTrackId: activeLayer?.musicTrackId,
-    mapId: nodeDraft?.mapLocation?.mapId,
-    regionId: nodeDraft?.mapLocation?.regionId,
+    resolvedMusic: resolvedPreviewMusic,
     musicSrc: musicSrc ?? undefined,
   });
 
   const hotspots = useMemo<Hotspot[]>(() => (activeLayer && effectiveAssetId ? activeLayer.hotspots ?? [] : []), [activeLayer, effectiveAssetId]);
-  const placedItems = useMemo<PlacedItem[]>(() => (activeLayer && effectiveAssetId ? activeLayer.placedItems ?? [] : []), [activeLayer, effectiveAssetId]);
+  const placedItems = useMemo<ItemInstance[]>(() => (activeLayer && effectiveAssetId ? activeLayer.placedItems ?? [] : []), [activeLayer, effectiveAssetId]);
   const placedPlayers = useMemo<PlacedPlayer[]>(() => (activeLayer && effectiveAssetId ? activeLayer.placedPlayers ?? [] : []), [activeLayer, effectiveAssetId]);
   const placedNpcs = useMemo<PlacedNpc[]>(() => (activeLayer && effectiveAssetId ? activeLayer.placedNpcs ?? [] : []), [activeLayer, effectiveAssetId]);
 
@@ -185,30 +166,19 @@ export function SceneRenderPreview({ textPreview, onOpenInteractiveField }: Scen
     });
 
   const placedItemClickBoxes = useMemo(() =>
-    buildClickableEntries(
-      placedItems,
-      (item) => item.id,
-      (item) => (item.label ?? "").trim() || "Editar item",
-      (item) => rectStyleFromShape(item.shape ?? null, contentRectInContainer),
+    buildClickableEntries( placedItems, (item) => item.itemInstanceId, (item) => (item.label ?? "").trim() || "Editar objeto",
+      (item) => rectStyleFromShape(item.placement?.shape ?? null, contentRectInContainer),
     ), [placedItems, contentRectInContainer],
   );
 
   const placedNpcClickBoxes = useMemo(() =>
-    buildClickableEntries(
-      placedNpcs,
-      (npc) => npc.npcId,
-      () => "Editar NPC",
-      (npc) => rectStyleFromShape(npc.shape ?? null, contentRectInContainer),
-    ), [placedNpcs, contentRectInContainer],
+    buildClickableEntries( placedNpcs, (npc) => npc.npcId, () => "Editar PNJ", (npc) => rectStyleFromShape(npc.shape ?? null, contentRectInContainer)),
+    [placedNpcs, contentRectInContainer],
   );
 
   const placedPlayerClickBoxes = useMemo(() =>
-    buildClickableEntries(
-      placedPlayers,
-      (player) => player.playerId,
-      () => "Editar player",
-      (player) => rectStyleFromShape(player.shape ?? null, contentRectInContainer),
-    ), [placedPlayers, contentRectInContainer],
+    buildClickableEntries(placedPlayers, (player) => player.playerId, () => "Editar Jugador", (player) => rectStyleFromShape(player.shape ?? null, contentRectInContainer)),
+   [placedPlayers, contentRectInContainer],
   );
 
   return (
@@ -274,15 +244,16 @@ export function SceneRenderPreview({ textPreview, onOpenInteractiveField }: Scen
                       event.stopPropagation();
                       void togglePreviewMusic();
                     }}
-                    className={"pointer-events-auto absolute bottom-5 right-5 z-30 rounded-full border-2 border-slate-600 bg-slate-950/80 p-2 text-white shadow-md transition-colors " +
+                    className={"pointer-events-auto absolute bottom-5 right-5 z-30 rounded-full border-2 border-slate-600 bg-slate-950/80 p-2 " +
+                      "text-white shadow-md transition-colors " +
                       (isPreviewMusicPlaying
                         ? "hover:bg-red-900/80 hover:border-red-700"
                         : "hover:bg-emerald-900/80 hover:border-emerald-700")}
-                    title={isPreviewMusicPlaying ? "Detener música" : "Reproducir música"}
-                    aria-label={isPreviewMusicPlaying ? "Detener música" : "Reproducir música"}
+                    title={isPreviewMusicPlaying ? "Pausar música" : "Reproducir música"}
+                    aria-label={isPreviewMusicPlaying ? "Pausar música" : "Reproducir música"}
                   >
                     {isPreviewMusicPlaying ? (
-                      <StopIcon className="h-5 w-5" />
+                      <PauseIcon className="h-5 w-5" />
                     ) : (
                       <PlayIcon className="h-5 w-5" />
                     )}

@@ -3,16 +3,11 @@ import type { GameState } from "@/engine/state/runtimeState";
 
 type ResolveAssetUrl = (assetId: ID, project: Project) => string | null;
 
-export interface AudioAdapter {
+export type AudioAdapter = {
   playSfx(state: GameState, sfxId: ID): void;
   playSfxUrl(url: string): void;
   setSfxVolume(volume: number): void;
   dispose(): void;
-}
-
-export interface CreateAudioAdapterOptions {
-  audioEl: HTMLAudioElement;
-  resolveAssetUrl: ResolveAssetUrl;
 }
 
 function cleanupAudioElement(audio: HTMLAudioElement) {
@@ -26,8 +21,7 @@ function clampVolume(volume: number): number {
   return Math.max(0, Math.min(1, volume));
 }
 
-export function createAudioAdapter(opts: CreateAudioAdapterOptions): AudioAdapter {
-  const { audioEl, resolveAssetUrl } = opts;
+export function createAudioAdapter(resolveAssetUrl: ResolveAssetUrl): AudioAdapter {
   const activeSfx = new Set<HTMLAudioElement>();
 
   let sfxVolume = 1;
@@ -49,9 +43,7 @@ export function createAudioAdapter(opts: CreateAudioAdapterOptions): AudioAdapte
   function setSfxVolume(volume: number) {
     sfxVolume = clampVolume(volume);
 
-    for (const audio of activeSfx) {
-      audio.volume = sfxVolume;
-    }
+    for (const audio of activeSfx) audio.volume = sfxVolume;
   }
 
   function playSfxUrl(url: string) {
@@ -61,9 +53,7 @@ export function createAudioAdapter(opts: CreateAudioAdapterOptions): AudioAdapte
 
     const cleanup = registerSfx(audio);
 
-    void audio.play().catch(() => {
-      cleanup();
-    });
+    void audio.play().catch(() => cleanup());
   }
 
   function playSfx(state: GameState, sfxId: ID) {
@@ -77,12 +67,9 @@ export function createAudioAdapter(opts: CreateAudioAdapterOptions): AudioAdapte
   }
 
   function dispose() {
-    for (const audio of activeSfx) {
-      cleanupAudioElement(audio);
-    }
+    for (const audio of activeSfx) cleanupAudioElement(audio);
 
     activeSfx.clear();
-    cleanupAudioElement(audioEl);
   }
 
   return { playSfx, playSfxUrl, setSfxVolume, dispose };

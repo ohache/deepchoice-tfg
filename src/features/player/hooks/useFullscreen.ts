@@ -15,7 +15,7 @@ export function useFullscreen() {
 
       await document.exitFullscreen();
     } catch {
-      toast.error("Error en fullScreen","No se ha podido cambiar el modo de pantalla completa.");
+      toast.error("Error en fullScreen","No se ha podido cambiar el modo de Pantalla completa.");
     }
   }, []);
 

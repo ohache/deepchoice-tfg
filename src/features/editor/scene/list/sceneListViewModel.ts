@@ -1,4 +1,4 @@
-import type { Dialogue, ID, Node, PlacedItem, PlacedNpc, PlacedPlayer, Project, SceneImageLayer } from "@/domain/types";
+import type { Dialogue, ID, Node, ItemInstance, PlacedNpc, PlacedPlayer, Project, SceneImageLayer } from "@/domain/types";
 
 export type SceneListLeafItem =
   | { id: ID; label: string; kind: "text" }
@@ -41,6 +41,7 @@ export interface SceneListMusicSummary {
 export interface SceneListSceneEntry {
   id: ID;
   title: string;
+  searchText: string;
   isStart: boolean;
   isFinal: boolean;
   layerCount: number;
@@ -72,9 +73,7 @@ function unknownLabel(base: string): string {
 }
 
 function buildTextGroup(layer: SceneImageLayer): SceneListLayerGroup | null {
-  const texts = (layer.text ?? [])
-    .filter((entry) => normalizeText(entry.label))
-    .map((entry) => ({ id: entry.id, label: normalizeText(entry.label), kind: "text" as const }));
+  const texts = (layer.text ?? []).filter((entry) => normalizeText(entry.label)).map((entry) => ({ id: entry.id, label: normalizeText(entry.label), kind: "text" as const }));
 
   if (texts.length === 0) return null;
 
@@ -82,9 +81,7 @@ function buildTextGroup(layer: SceneImageLayer): SceneListLayerGroup | null {
 }
 
 function buildHotspotGroup(layer: SceneImageLayer): SceneListLayerGroup | null {
-  const hotspots = (layer.hotspots ?? [])
-    .filter((entry) => normalizeText(entry.label))
-    .map((entry) => ({ id: entry.id, label: normalizeText(entry.label), kind: "hotspot" as const }));
+  const hotspots = (layer.hotspots ?? []).filter((entry) => normalizeText(entry.label)).map((entry) => ({ id: entry.id, label: normalizeText(entry.label), kind: "hotspot" as const }));
 
   if (hotspots.length === 0) return null;
 
@@ -92,8 +89,8 @@ function buildHotspotGroup(layer: SceneImageLayer): SceneListLayerGroup | null {
 }
 
 function buildPlacedItemsGroup(layer: SceneImageLayer, itemNameById: Record<ID, string>): SceneListLayerGroup | null {
-  const items = (layer.placedItems ?? []).map((entry: PlacedItem) => ({
-    id: entry.id,
+  const items = (layer.placedItems ?? []).map((entry: ItemInstance) => ({
+    id: entry.itemInstanceId,
     label: normalizeText(entry.label) || "Item sin label",
     itemName: itemNameById[entry.itemId] ?? unknownLabel("Item"),
     kind: "placedItem" as const,
@@ -106,19 +103,19 @@ function buildPlacedItemsGroup(layer: SceneImageLayer, itemNameById: Record<ID, 
 
 function buildPlacedNpcsGroup(layer: SceneImageLayer, npcNameById: Record<ID, string>): SceneListLayerGroup | null {
   const npcs = (layer.placedNpcs ?? []).map((entry: PlacedNpc, index) => ({
-    id: `${entry.npcId}-${index}`,
-    npcName: npcNameById[entry.npcId] ?? unknownLabel("NPC"),
+    id: `${layer.id}:${entry.npcId}:${index}`,
+    npcName: npcNameById[entry.npcId] ?? unknownLabel("PNJ"),
     kind: "placedNpc" as const,
   }));
 
   if (npcs.length === 0) return null;
 
-  return {  key: "placedNpcs", kind: "list", label: "NPCs", count: npcs.length, items: npcs };
+  return { key: "placedNpcs", kind: "list", label: "NPCs", count: npcs.length, items: npcs };
 }
 
 function buildPlacedPlayersGroup(layer: SceneImageLayer, playerNameById: Record<ID, string>): SceneListLayerGroup | null {
   const players = (layer.placedPlayers ?? []).map((entry: PlacedPlayer, index) => ({
-    id: `${entry.playerId}-${index}`,
+    id: `${layer.id}:${entry.playerId}:${index}`,
     playerName: playerNameById[entry.playerId] ?? unknownLabel("Player"),
     kind: "placedPlayer" as const,
   }));
@@ -134,11 +131,8 @@ function buildLayerMusicGroup(layer: SceneImageLayer, musicNameById: Record<ID, 
   return { key: "music", kind: "single", label: "Música", trackName: musicNameById[layer.musicTrackId] ?? unknownLabel("Pista") };
 }
 
-function buildLayerEntry(
-  layer: SceneImageLayer,
-  index: number,
-  refs: { itemNameById: Record<ID, string>; npcNameById: Record<ID, string>; playerNameById: Record<ID, string>; musicNameById: Record<ID, string> },
-): SceneListLayerEntry {
+function buildLayerEntry(layer: SceneImageLayer, index: number,
+   refs: { itemNameById: Record<ID, string>; npcNameById: Record<ID, string>; playerNameById: Record<ID, string>; musicNameById: Record<ID, string> }): SceneListLayerEntry {
   const groups = [
     buildTextGroup(layer),
     buildHotspotGroup(layer),
@@ -151,10 +145,7 @@ function buildLayerEntry(
   return { id: layer.id, label: fallbackLayerTitle(layer, index), groups };
 }
 
-function buildDialogueEntry(
-  dialogue: Dialogue,
-  refs: { playerNameById: Record<ID, string>; npcNameById: Record<ID, string> },
-): SceneListDialogueEntry {
+function buildDialogueEntry(dialogue: Dialogue, refs: { playerNameById: Record<ID, string>; npcNameById: Record<ID, string> }): SceneListDialogueEntry {
   return {
     id: dialogue.id,
     title: normalizeText(dialogue.title) || "Diálogo sin título",
@@ -168,9 +159,7 @@ function buildMapSummary(project: Project, node: Node): SceneListMapSummary | un
   if (!location) return undefined;
 
   const map = (project.maps ?? []).find((entry) => entry.id === location.mapId);
-  if (!map) {
-    return {  mapName: unknownLabel("Mapa"), regionName: unknownLabel("Región"), isEntry: Boolean(location.isEntry) };
-  }
+  if (!map) return { mapName: unknownLabel("Mapa"), regionName: unknownLabel("Región"), isEntry: Boolean(location.isEntry) };
 
   const region = (map.regions ?? []).find((entry) => entry.id === location.regionId);
 
@@ -187,6 +176,42 @@ function buildSceneMusicSummary(node: Node, musicNameById: Record<ID, string>): 
   return { trackName: musicNameById[node.musicTrackId] ?? unknownLabel("Pista") };
 }
 
+function buildSceneSearchText(args: { scene: Pick<SceneListSceneEntry, "title">; map?: SceneListMapSummary; music?: SceneListMusicSummary;
+  layers: SceneListLayerEntry[]; dialogues: SceneListDialogueEntry[]}): string {
+  const values: string[] = [];
+
+  values.push(args.scene.title);
+
+  if (args.map) values.push(args.map.mapName, args.map.regionName);
+
+  if (args.music) values.push(args.music.trackName);
+
+  for (const layer of args.layers) {
+    values.push(layer.label);
+
+    for (const group of layer.groups) {
+      values.push(group.label);
+
+      if (group.kind === "single") {
+        values.push(group.trackName);
+        continue;
+      }
+
+      for (const item of group.items) {
+        if (item.kind === "text") values.push(item.label);
+        else if (item.kind === "hotspot") values.push(item.label);
+        else if (item.kind === "placedItem") values.push(item.label, item.itemName);
+        else if (item.kind === "placedNpc") values.push(item.npcName);
+        else if (item.kind === "placedPlayer") values.push(item.playerName);
+      }
+    }
+  }
+
+  for (const dialogue of args.dialogues) values.push(dialogue.title, dialogue.playerName, dialogue.npcName);
+
+  return values.map((value) => normalizeText(value).toLowerCase()).filter(Boolean).join(" ");
+}
+
 export function buildSceneListEntries(project: Project | null): SceneListSceneEntry[] {
   if (!project) return [];
 
@@ -195,16 +220,17 @@ export function buildSceneListEntries(project: Project | null): SceneListSceneEn
   const playerNameById = createNameIndex(project.players);
   const musicNameById = createNameIndex(project.musicTracks);
 
-  return (project.nodes ?? []).map((node, index) => ({
-    id: node.id,
-    title: fallbackSceneTitle(node, index),
-    isStart: Boolean(node.isStart),
-    isFinal: Boolean(node.isFinal),
-    layerCount: node.layers.length,
-    dialogueCount: (node.dialogues ?? []).length,
-    map: buildMapSummary(project, node),
-    music: buildSceneMusicSummary(node, musicNameById),
-    layers: node.layers.map((layer, layerIndex) => buildLayerEntry(layer, layerIndex, { itemNameById, npcNameById, playerNameById, musicNameById })),
-    dialogues: (node.dialogues ?? []).map((dialogue) => buildDialogueEntry(dialogue, { playerNameById, npcNameById })),
-  }));
+  return (project.nodes ?? []).map((node, index) => {
+    const title = fallbackSceneTitle(node, index);
+    const map = buildMapSummary(project, node);
+    const music = buildSceneMusicSummary(node, musicNameById);
+
+    const layers = node.layers.map((layer, layerIndex) => buildLayerEntry(layer, layerIndex, { itemNameById, npcNameById, playerNameById, musicNameById }));
+
+    const dialogues = (node.dialogues ?? []).map((dialogue) => buildDialogueEntry(dialogue, { playerNameById, npcNameById }));
+
+    const searchText = buildSceneSearchText({ scene: { title }, map, music, layers, dialogues });
+
+    return { id: node.id, title, searchText, isStart: Boolean(node.isStart), isFinal: Boolean(node.isFinal), layerCount: node.layers.length,
+      dialogueCount: (node.dialogues ?? []).length, map, music, layers, dialogues }});
 }

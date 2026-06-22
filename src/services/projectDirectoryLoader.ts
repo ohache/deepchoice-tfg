@@ -1,4 +1,5 @@
 import type { Project } from "@/domain/types";
+import type { IssueLike } from "@/shared/zodIssues";
 import { ProjectSchema } from "@/validation/projectSchemas";
 
 interface LoadedProjectFromDirectory {
@@ -6,17 +7,11 @@ interface LoadedProjectFromDirectory {
   files: File[];
 }
 
-type IssueLike = {
-  path?: readonly PropertyKey[];
-  message: string;
-}
-
 /* Formatea los errores de Zod de forma legible */
 function formatZodIssues(issues: readonly IssueLike[]): string {
   const lines = issues.slice(0, 20).map((issue) => {
-    const pathString = issue.path?.length ? issue.path
-      .map((segment) => (typeof segment === "string" || typeof segment === "number" ? segment : String(segment)))
-      .join(".")
+    const pathString = issue.path?.length
+      ? issue.path.map((segment) => (typeof segment === "string" || typeof segment === "number" ? segment : String(segment))).join(".")
       : "project";
 
     return `- ${pathString}: ${issue.message}`;

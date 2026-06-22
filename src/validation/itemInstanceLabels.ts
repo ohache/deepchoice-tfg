@@ -1,93 +1,78 @@
 import type { Effect } from "@/domain/effects";
 import type { ID, InteractionRules, Project } from "@/domain/types";
 
-export function normalizeItemInstanceLabel(label?: string | null): string {
-  return (label ?? "").trim().toLowerCase();
+/* Normaliza labels para comparaciones sin distinguir mayúsculas ni espacios */
+function normalizeItemInstanceLabel(value?: string | null): string {
+  return String(value ?? "").trim().toLowerCase();
 }
 
-function pushLabel(labels: string[], label?: string | null) {
-  const normalized = normalizeItemInstanceLabel(label);
+/* Añade un label normalizado a la colección si no está vacío */
+function addNormalizedLabel(labels: string[], value?: string | null): void {
+  const normalized = normalizeItemInstanceLabel(value);
   if (normalized) labels.push(normalized);
 }
 
-function collectEffectResultLabels(
-  labels: string[],
-  effects: Effect[] | undefined,
-  excludeItemInstanceId?: ID,
-) {
+/* Extrae labels generados por efectos que crean nuevas instancias de item */
+function collectEffectItemInstanceLabels(labels: string[], effects: Effect[] | undefined, excludeItemInstanceId?: ID): void {
   for (const effect of effects ?? []) {
-    if (
-      (effect.type === "combineItems" || effect.type === "transformItem") &&
-      effect.resultItemInstanceId !== excludeItemInstanceId
-    ) {
-      pushLabel(labels, effect.resultItemLabel);
-    }
+    if (effect.type !== "combineItems" && effect.type !== "transformItem") continue;
+    if (effect.resultItemInstanceId === excludeItemInstanceId) continue;
+
+    addNormalizedLabel(labels, effect.resultItemLabel);
   }
 }
 
-function collectRulesResultLabels(
-  labels: string[],
-  rules: InteractionRules | undefined,
-  excludeItemInstanceId?: ID,
-) {
-  for (const rule of rules?.onClick ?? []) {
-    collectEffectResultLabels(labels, rule.effects, excludeItemInstanceId);
-  }
+/* Extrae labels generados por las reglas de interacción */
+function collectRulesItemInstanceLabels(labels: string[], rules: InteractionRules | undefined, excludeItemInstanceId?: ID): void {
+  for (const rule of rules?.onClick ?? []) collectEffectItemInstanceLabels(labels, rule.effects, excludeItemInstanceId);
 
-  for (const rule of rules?.onUseItem ?? []) {
-    collectEffectResultLabels(labels, rule.effects, excludeItemInstanceId);
-  }
+  for (const rule of rules?.onUseItem ?? []) collectEffectItemInstanceLabels(labels, rule.effects, excludeItemInstanceId);
 }
 
-export function getAllItemInstanceLabels(
-  project: Project,
-  excludeItemInstanceId?: ID,
-): string[] {
+/* Obtiene todos los labels de itemInstance existentes en el proyecto */
+function getAllItemInstanceLabels(project: Project, excludeItemInstanceId?: ID): string[] {
   const labels: string[] = [];
 
+  /* Inventario inicial de Players */
   for (const player of project.players ?? []) {
-    for (const entry of player.initialInventory ?? []) {
-      if (entry.itemInstanceId !== excludeItemInstanceId) {
-        pushLabel(labels, entry.label);
-      }
+    for (const itemInstance of player.initialInventory ?? []) {
+      if (itemInstance.itemInstanceId !== excludeItemInstanceId) addNormalizedLabel(labels, itemInstance.label);
 
-      collectRulesResultLabels(labels, entry.rules, excludeItemInstanceId);
+      collectRulesItemInstanceLabels(labels, itemInstance.rules, excludeItemInstanceId);
     }
   }
 
+  /* Inventario inicial de NPCs */
   for (const npc of project.npcs ?? []) {
-    for (const entry of npc.initialInventory ?? []) {
-      if (entry.itemInstanceId !== excludeItemInstanceId) {
-        pushLabel(labels, entry.label);
-      }
+    for (const itemInstance of npc.initialInventory ?? []) {
+      if (itemInstance.itemInstanceId !== excludeItemInstanceId) addNormalizedLabel(labels, itemInstance.label);
 
-      collectRulesResultLabels(labels, entry.rules, excludeItemInstanceId);
+      collectRulesItemInstanceLabels(labels, itemInstance.rules, excludeItemInstanceId);
     }
   }
 
+  /* Instancias colocadas en escenas */
   for (const node of project.nodes ?? []) {
     for (const layer of node.layers ?? []) {
-      for (const placedItem of layer.placedItems ?? []) {
-        if (placedItem.id !== excludeItemInstanceId) {
-          pushLabel(labels, placedItem.label);
-        }
+      for (const itemInstance of layer.placedItems ?? []) {
+        if (itemInstance.itemInstanceId !== excludeItemInstanceId) addNormalizedLabel(labels, itemInstance.label);
 
-        collectRulesResultLabels(labels, placedItem.rules, excludeItemInstanceId);
+        collectRulesItemInstanceLabels(labels, itemInstance.rules, excludeItemInstanceId);
       }
 
-      for (const hotspot of layer.hotspots ?? []) {
-        collectRulesResultLabels(labels, hotspot.rules, excludeItemInstanceId);
-      }
+      /* Hotspots */
+      for (const hotspot of layer.hotspots ?? []) collectRulesItemInstanceLabels(labels, hotspot.rules, excludeItemInstanceId);
 
-      for (const placedNpc of layer.placedNpcs ?? []) {
-        collectRulesResultLabels(labels, placedNpc.rules, excludeItemInstanceId);
-      }
+      /* NPCs colocados */
+      for (const placedNpc of layer.placedNpcs ?? []) collectRulesItemInstanceLabels(labels, placedNpc.rules, excludeItemInstanceId);
     }
 
+    /* Diálogos */
     for (const dialogue of node.dialogues ?? []) {
       for (const dialogueNode of dialogue.nodes ?? []) {
         if (dialogueNode.type !== "line") continue;
-        collectEffectResultLabels(labels, dialogueNode.effects, excludeItemInstanceId);
+
+        collectEffectItemInstanceLabels(labels, dialogueNode.effects, excludeItemInstanceId);
       }
     }
   }
@@ -95,11 +80,8 @@ export function getAllItemInstanceLabels(
   return labels;
 }
 
-export function hasDuplicatedItemInstanceLabel(
-  project: Project,
-  label: string,
-  excludeItemInstanceId?: ID,
-): boolean {
+/* Comprueba si un label ya está siendo utilizado por alguna itemInstance */
+export function hasDuplicatedItemInstanceLabel(project: Project, label: string, excludeItemInstanceId?: ID): boolean {
   const normalized = normalizeItemInstanceLabel(label);
   if (!normalized) return false;
 

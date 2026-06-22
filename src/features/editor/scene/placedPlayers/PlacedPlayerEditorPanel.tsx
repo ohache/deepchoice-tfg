@@ -9,7 +9,7 @@ type PlacedPlayerEditorPanelProps = {
   draft: PlacedPlayerDraft | null;
   selectedCatalogPlayerId: string;
   projectPlayers: PlayerDef[];
-  onSelectedCatalogPlayerIdChange: (playerId: string) => void;
+  onSelectedCatalogPlayerIdChange: (playerId: ID) => void;
 
   isDrawing: boolean;
   hasShape: boolean;
@@ -36,37 +36,41 @@ type PlacedPlayerEditorPanelProps = {
 export function PlacedPlayerEditorPanel({ draft, selectedCatalogPlayerId, projectPlayers, onSelectedCatalogPlayerIdChange, isDrawing,
   hasShape, isExistingPlacedPlayer, hasCollisions, collisionSummary, collisionLock, disableAllEditorFields, initialVisible,
   onPlayerChange, onInitialImageChange, onStartRedrawShape, onVisibleChange, panelError, onDelete, onCancel, onCommit }: PlacedPlayerEditorPanelProps) {
-  const playerOptions: Option<string>[] = projectPlayers.map((player) => ({ id: player.id, label: player.name || player.id }));
+  const playerOptions: Option<ID>[] = projectPlayers.map((player) => ({ id: player.id, label: player.name || player.id }));
 
   const selectedPlayer = draft ? projectPlayers.find((player) => player.id === draft.playerId) ?? null
     : projectPlayers.find((player) => player.id === selectedCatalogPlayerId) ?? null;
 
 
-  const imageOptions: Option<string>[] = (selectedPlayer?.images ?? []).map((image) => ({ id: image.id, label: image.name || image.id }));
+  const imageOptions: Option<ID>[] = (selectedPlayer?.images ?? []).map((image) => ({ id: image.id, label: image.name || image.id }));
 
   const saveButtonTitle = isDrawing ? "Termina o cancela el dibujo actual antes de guardar": !hasShape
     ? "Dibuja una región válida antes de guardar" : !draft?.playerId
-          ? "Debes seleccionar un player" : !draft.initialImageId
+          ? "Debes seleccionar un jugador" : !draft.initialImageId
             ? "Debes seleccionar una imagen inicial" : hasCollisions
               ? "Colisión con otro clicable" : undefined;
+
+  const selectButtonClassName = "w-full rounded-md border-2 border-slate-700 bg-slate-900/30 px-2 py-1.5 text-xs text-slate-100 focus:outline-none" 
+    + "focus:border-transparent focus:ring-2 focus:ring-fuchsia-500 disabled:opacity-50";
 
   if (!draft) {
     return (
       <div className="bg-slate-950/40 p-1 space-y-3">
-        <div className="rounded-md border border-slate-700 bg-slate-950/20 px-3 py-3 space-y-3">
+        <div className="bg-slate-950/20 px-3 py-3 space-y-3">
           <div className="text-center text-xs text-slate-200">
-            Selecciona un player del catálogo para dibujarlo directamente en la escena
+            Selecciona un jugador del catálogo para dibujarlo directamente en la escena
           </div>
 
           <div className="space-y-1">
             <div className="text-xs text-slate-100">Player</div>
 
-            <Select<string>
+            <Select<ID>
               value={selectedCatalogPlayerId}
               onChange={onSelectedCatalogPlayerIdChange}
               options={playerOptions}
-              placeholder="Seleccionar player"
+              placeholder="Seleccionar jugador"
               disabled={!projectPlayers.length}
+              buttonClassName={selectButtonClassName}
             />
           </div>
         </div>
@@ -89,24 +93,24 @@ export function PlacedPlayerEditorPanel({ draft, selectedCatalogPlayerId, projec
           collisionSummary={collisionSummary}
           collisionLock={collisionLock}
           drawingText="Dibuja una región en la imagen (arrastra con el ratón). Pulsa “Cancelar” para salir."
-          missingShapeText="Falta una región válida. Dibuja un rectángulo dentro de la imagen para definir el player."
+          missingShapeText="Falta una región válida. Dibuja un rectángulo dentro de la imagen para definir el jugador."
         />
       )}
 
       {/* Selector de player */}
       <div className="space-y-1">
-        <div className="mb-1.5 text-xs text-slate-100">Player</div>
+        <div className="mb-1.5 text-xs text-slate-100">Jugador</div>
 
-        <Select<string>
+        <Select<ID>
           value={draft.playerId}
           onChange={(value) => {
             if (!value) return;
-            onPlayerChange(value as ID);
+            onPlayerChange(value);
           }}
           options={playerOptions}
-          placeholder="Seleccionar player"
+          placeholder="Seleccionar jugador"
           disabled={!projectPlayers.length || disableAllEditorFields || isExistingPlacedPlayer}
-          className="w-full rounded-md border-2 border-slate-700 bg-slate-900/30 px-2 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-transparent focus:ring-2 focus:ring-fuchsia-500 disabled:opacity-50"
+          buttonClassName={selectButtonClassName}
         />
       </div>
 
@@ -116,16 +120,16 @@ export function PlacedPlayerEditorPanel({ draft, selectedCatalogPlayerId, projec
 
         <div className="flex items-center gap-2">
           <div className="min-w-0 flex-1">
-            <Select<string>
+            <Select<ID>
               value={draft.initialImageId}
               onChange={(value) => {
                 if (!value) return;
-                onInitialImageChange(value as ID);
+                onInitialImageChange(value);
               }}
               options={imageOptions}
               placeholder="Seleccionar imagen"
               disabled={!selectedPlayer || imageOptions.length === 0 || disableAllEditorFields}
-              className="w-full rounded-md border-2 border-slate-700 bg-slate-900/30 px-2 py-1.5 text-xs text-slate-100 focus:outline-none focus:border-transparent focus:ring-2 focus:ring-fuchsia-500 disabled:opacity-50"
+              buttonClassName={selectButtonClassName}
             />
           </div>
 
@@ -133,7 +137,7 @@ export function PlacedPlayerEditorPanel({ draft, selectedCatalogPlayerId, projec
             type="button"
             className="btn border-2 border-slate-700 bg-slate-900 text-xs text-white hover:bg-slate-800"
             onClick={onStartRedrawShape}
-            title={isDrawing ? "Termina o cancela el dibujo actual antes de editar la región" : "Editar región del player"}
+            title={isDrawing ? "Termina o cancela el dibujo actual antes de editar la región" : "Editar región del jugador"}
             disabled={isDrawing}
           >
             <Pencil className="h-4 w-4" />
@@ -142,7 +146,7 @@ export function PlacedPlayerEditorPanel({ draft, selectedCatalogPlayerId, projec
 
         {selectedPlayer && imageOptions.length === 0 ? (
           <div className="mt-2 rounded-md border border-rose-500/40 bg-rose-950/20 px-2 py-1 text-[11px] text-rose-100">
-            Este player no tiene imágenes disponibles.
+            Este jugador no tiene imágenes disponibles.
           </div>
         ) : null}
       </div>
@@ -172,7 +176,7 @@ export function PlacedPlayerEditorPanel({ draft, selectedCatalogPlayerId, projec
               type="button"
               className="btn btn-danger text-[11px] disabled:opacity-40 disabled:cursor-not-allowed"
               onClick={onDelete}
-              title="Eliminar player"
+              title="Eliminar jugador"
               disabled={isDrawing}
             >
               Eliminar
@@ -187,9 +191,10 @@ export function PlacedPlayerEditorPanel({ draft, selectedCatalogPlayerId, projec
 
           <button
             type="button"
-            className="btn btn-create text-[11px]"
+            className="btn btn-create text-[11px] disabled:opacity-40 disabled:cursor-not-allowed"
             onClick={onCommit}
             title={saveButtonTitle}
+            disabled={isDrawing}
           >
             Guardar
           </button>

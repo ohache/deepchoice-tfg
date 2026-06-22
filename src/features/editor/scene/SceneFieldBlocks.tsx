@@ -41,7 +41,3 @@ export function ToggleFieldBlock({ label, active, onToggle, children, contentCla
     </div>
   );
 }
-
-
-
-

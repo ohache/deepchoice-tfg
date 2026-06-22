@@ -1,14 +1,12 @@
+import { useEffect } from "react";
 import type { BaseInteractionRule, ClickRule, ID, Project, RulePhrase, UseItemRule } from "@/domain/types";
 import type { Condition } from "@/domain/conditions";
 import type { Effect } from "@/domain/effects";
-import type { EffectOwner } from "@/features/editor/scene/rules/effects/effectFactory";
+import type { RuleChannel } from "@/features/editor/scene/interactiveComponents/interactiveEditorTypes";
+import type { EffectOwner } from "@/features/editor/scene/rules/effects/effectShared";
 import { RuleBuilderModal } from "@/features/editor/scene/rules/RuleBuilderModal";
 import { Select, type Option } from "@/components/Select";
 import { Pencil, Trash2 } from "lucide-react";
-
-type RuleChannel =
-  | { type: "onClick" }
-  | { type: "onUseItem"; itemInstanceId: ID };
 
 type UseItemOption = Option<ID>;
 
@@ -53,19 +51,29 @@ type RuleListCardProps = {
 
 /* Card reutilizable para cada regla guardada */
 function RuleListCard({ index, ruleId, disabledEdit, disabledDelete, onEdit, onDelete }: RuleListCardProps) {
+  const canEdit = !disabledEdit;
+
+  const handleEdit = () => {
+    if (!canEdit) return;
+    onEdit();
+  };
+
   return (
     <div
       role="button"
-      tabIndex={0}
-      onClick={onEdit}
+      tabIndex={canEdit ? 0 : -1}
+      onClick={handleEdit}
       onKeyDown={(event) => {
+        if (!canEdit) return;
+
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
           onEdit();
         }
       }}
-      className="cursor-pointer select-none rounded-md border-2 border-fuchsia-800 bg-slate-950/30 px-3 py-2 hover:bg-fuchsia-900/20"
-      title="Editar regla"
+      className={`select-none rounded-md border-2 border-fuchsia-800 bg-slate-950/30 px-3 py-2 ${
+        canEdit ? "cursor-pointer hover:bg-fuchsia-900/20" : "cursor-not-allowed opacity-50"}`}
+      title={canEdit ? "Editar regla" : undefined}
       data-rule-id={ruleId}
     >
       <div className="flex items-center justify-between gap-2">
@@ -85,16 +93,18 @@ function RuleListCard({ index, ruleId, disabledEdit, disabledDelete, onEdit, onD
             disabled={disabledEdit}
             onClick={onEdit}
             title="Editar"
+            aria-label={`Editar regla ${index + 1}`}
           >
             <Pencil className="h-4 w-4" />
           </button>
 
           <button
             type="button"
-            className="btn border-2 border-rose-700/60 bg-rose-950/30 p-1 text-whote hover:bg-rose-950/50"
+            className="btn border-2 border-rose-700/60 bg-rose-950/30 p-1 text-white hover:bg-rose-950/50"
             disabled={disabledDelete}
             onClick={onDelete}
             title="Eliminar"
+            aria-label={`Eliminar regla ${index + 1}`}
           >
             <Trash2 className="h-4 w-4" />
           </button>
@@ -104,13 +114,18 @@ function RuleListCard({ index, ruleId, disabledEdit, disabledDelete, onEdit, onD
   );
 }
 
+type ChannelTabsProps = {
+  activeChannel: RuleChannel;
+  disableAllEditorFields: boolean;
+  disabledOnUseItem: boolean;
+  onSelectOnClick: () => void;
+  onSelectOnUseItem: () => void;
+};
+
 /* Botones para alternar el canal de interacción activo */
-function ChannelTabs({ activeChannel, disableAllEditorFields, onSelectOnClick, onSelectOnUseItem }:
-  { activeChannel: RuleChannel;  disableAllEditorFields: boolean; onSelectOnClick: () => void; onSelectOnUseItem: () => void }) {
+function ChannelTabs({ activeChannel, disableAllEditorFields, disabledOnUseItem, onSelectOnClick, onSelectOnUseItem }: ChannelTabsProps) {
   const getTabClassName = (selected: boolean) => `btn justify-center border-2 text-xs ${
-      selected
-        ? "border-fuchsia-500/50 bg-fuchsia-950/30 text-fuchsia-100"
-        : "border-slate-700 bg-slate-900 text-white hover:bg-fuchsia-950 hover:border-fuchsia-700"
+      selected ? "border-fuchsia-500/50 bg-fuchsia-950/30 text-fuchsia-100" : "border-slate-700 bg-slate-900 text-white hover:bg-fuchsia-950 hover:border-fuchsia-700"
     } disabled:cursor-not-allowed disabled:opacity-40`;
 
   return (
@@ -126,7 +141,7 @@ function ChannelTabs({ activeChannel, disableAllEditorFields, onSelectOnClick, o
 
       <button
         type="button"
-        disabled={disableAllEditorFields}
+        disabled={disableAllEditorFields || disabledOnUseItem}
         onClick={onSelectOnUseItem}
         className={getTabClassName(activeChannel.type === "onUseItem")}
       >
@@ -136,20 +151,36 @@ function ChannelTabs({ activeChannel, disableAllEditorFields, onSelectOnClick, o
   );
 }
 
-export function InteractionRulesSection({ owner, project, nodeId, disableAllEditorFields, activeChannel, setActiveChannel, clickRules,
-  useItemRulesForSelected, useItemOptions, ruleModalOpen, currentRuleValue, onOpenAddClickRule, onOpenEditClickRule, onRemoveClickRule, onOpenAddUseItemRule, onOpenEditUseItemRule, onRemoveUseItemRule, onCloseRuleModal,
-  onSaveRule, requiredErrorText }: InteractionRulesSectionProps) {
+export function InteractionRulesSection({ owner, project, nodeId, disableAllEditorFields, activeChannel, setActiveChannel, clickRules, useItemRulesForSelected,
+  useItemOptions, ruleModalOpen, currentRuleValue, onOpenAddClickRule, onOpenEditClickRule, onRemoveClickRule, onOpenAddUseItemRule, onOpenEditUseItemRule,
+  onRemoveUseItemRule, onCloseRuleModal, onSaveRule, requiredErrorText }: InteractionRulesSectionProps) {
   const firstUseItemId = useItemOptions[0]?.id ?? "";
-
-  const selectedUseItemId = activeChannel.type === "onUseItem" ? activeChannel.itemInstanceId : firstUseItemId;
-
-  const canOpenRuleModal = ruleModalOpen && owner && currentRuleValue;
-
   const hasUseItemOptions = useItemOptions.length > 0;
+
+  const activeUseItemIdExists = activeChannel.type === "onUseItem" && useItemOptions.some((option) => option.id === activeChannel.itemInstanceId);
+
+  const selectedUseItemId = activeChannel.type === "onUseItem" && activeUseItemIdExists ? activeChannel.itemInstanceId : firstUseItemId;
+
+  useEffect(() => {
+    if (activeChannel.type !== "onUseItem") return;
+
+    if (!hasUseItemOptions) {
+      setActiveChannel({ type: "onClick" });
+      return;
+    }
+
+    if (!activeUseItemIdExists) setActiveChannel({ type: "onUseItem", itemInstanceId: firstUseItemId });
+  }, [activeChannel, activeUseItemIdExists, firstUseItemId, hasUseItemOptions, setActiveChannel]);
+
+  const selectOnUseItemChannel = () => {
+    if (!selectedUseItemId) return;
+
+    setActiveChannel({ type: "onUseItem", itemInstanceId: selectedUseItemId });
+  };
 
   return (
     <>
-      {canOpenRuleModal ? (
+      {ruleModalOpen && owner && currentRuleValue ? (
         <RuleBuilderModal
           open={ruleModalOpen}
           project={project}
@@ -168,17 +199,17 @@ export function InteractionRulesSection({ owner, project, nodeId, disableAllEdit
         <ChannelTabs
           activeChannel={activeChannel}
           disableAllEditorFields={disableAllEditorFields}
+          disabledOnUseItem={!hasUseItemOptions}
           onSelectOnClick={() => setActiveChannel({ type: "onClick" })}
-          onSelectOnUseItem={() => { setActiveChannel({ type: "onUseItem", itemInstanceId: activeChannel.type === "onUseItem" ? activeChannel.itemInstanceId : firstUseItemId})}}
+          onSelectOnUseItem={selectOnUseItemChannel}
         />
 
-        {/* Reglas del canal onClick */}
         {activeChannel.type === "onClick" ? (
           <div className="space-y-2 bg-slate-950/20 px-2 py-2">
             <div className="flex justify-center">
               <button
                 type="button"
-                className="btn btn-add-rule text-[12px] disabled:cursor-not-allowed disabled:opacity-40 mb-1"
+                className="btn btn-add-rule mb-1 text-[12px] disabled:cursor-not-allowed disabled:opacity-40"
                 disabled={disableAllEditorFields || !owner}
                 onClick={onOpenAddClickRule}
               >
@@ -202,17 +233,19 @@ export function InteractionRulesSection({ owner, project, nodeId, disableAllEdit
           </div>
         ) : null}
 
-        {/* Reglas del canal onUseItem */}
         {activeChannel.type === "onUseItem" ? (
           <div className="space-y-2 bg-slate-950/20 px-2 py-2">
             <div className="flex items-center justify-center gap-2">
-              <div className="text-[13px] text-slate-100">Item:</div>
+              <div className="text-[13px] text-slate-100">Objeto:</div>
 
               <Select<ID>
                 value={selectedUseItemId}
-                onChange={(value) => setActiveChannel({ type: "onUseItem", itemInstanceId: value })}
+                onChange={(value) => {
+                  if (!value) return;
+                  setActiveChannel({ type: "onUseItem", itemInstanceId: value });
+                }}
                 options={useItemOptions}
-                placeholder="Selecciona…"
+                placeholder="Selecciona objeto…"
                 disabled={disableAllEditorFields || !hasUseItemOptions}
               />
             </div>
@@ -220,26 +253,31 @@ export function InteractionRulesSection({ owner, project, nodeId, disableAllEdit
             <div className="flex justify-center">
               <button
                 type="button"
-                className="btn btn-add-rule text-[12px] disabled:cursor-not-allowed disabled:opacity-40 mt-1 mb-1"
+                className="btn btn-add-rule mt-1 mb-1 text-[12px] disabled:cursor-not-allowed disabled:opacity-40"
                 disabled={disableAllEditorFields || !owner || !selectedUseItemId || !hasUseItemOptions}
-                onClick={() => onOpenAddUseItemRule(selectedUseItemId)}
+                onClick={() => {
+                  if (!selectedUseItemId) return;
+                  onOpenAddUseItemRule(selectedUseItemId);
+                }}
               >
                 + Añadir regla
               </button>
             </div>
 
             <div className="space-y-2">
-              {useItemRulesForSelected.map((rule, index) => (
-                <RuleListCard
-                  key={rule.id}
-                  ruleId={rule.id}
-                  index={index}
-                  disabledEdit={disableAllEditorFields || !owner}
-                  disabledDelete={disableAllEditorFields}
-                  onEdit={() => onOpenEditUseItemRule(selectedUseItemId, index)}
-                  onDelete={() => onRemoveUseItemRule(selectedUseItemId, index)}
-                />
-              ))}
+              {selectedUseItemId
+                ? useItemRulesForSelected.map((rule, index) => (
+                    <RuleListCard
+                      key={rule.id}
+                      ruleId={rule.id}
+                      index={index}
+                      disabledEdit={disableAllEditorFields || !owner}
+                      disabledDelete={disableAllEditorFields}
+                      onEdit={() => onOpenEditUseItemRule(selectedUseItemId, index)}
+                      onDelete={() => onRemoveUseItemRule(selectedUseItemId, index)}
+                    />
+                  ))
+                : null}
             </div>
           </div>
         ) : null}

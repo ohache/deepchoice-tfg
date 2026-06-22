@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 export type Option<K extends string> = {
@@ -38,20 +38,20 @@ export function Select<K extends string>({ value, onChange, options, placeholder
   const placeholderText = placeholder ?? "Selecciona…";
 
   /* Recalcula la posición del menú usando el botón disparador */
-  const updateMenuPosition = () => {
+  const updateMenuPosition = useCallback(() => {
     const trigger = triggerRef.current;
     if (!trigger) return;
 
     const rect = trigger.getBoundingClientRect();
 
     setMenuPosition({ top: rect.bottom + 4, left: rect.left, width: rect.width });
-  };
+  }, []);
 
   /* Cuando se abre el menú, calculamos su posición antes de pintar */
   useLayoutEffect(() => {
     if (!open) return;
     updateMenuPosition();
-  }, [open]);
+  }, [open, updateMenuPosition]);
 
   /* Si el componente se deshabilita mientras está abierto, lo cerramos */
   useEffect(() => {
@@ -69,9 +69,7 @@ export function Select<K extends string>({ value, onChange, options, placeholder
       if (!clickedInsideRoot && !clickedInsideMenu) setOpen(false);
     };
 
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
+    const handleEscape = (event: KeyboardEvent) => {if (event.key === "Escape") setOpen(false) };
 
     document.addEventListener("mousedown", handleClickOutside);
     document.addEventListener("keydown", handleEscape);
@@ -95,7 +93,7 @@ export function Select<K extends string>({ value, onChange, options, placeholder
       window.removeEventListener("resize", handleWindowChange);
       window.removeEventListener("scroll", handleWindowChange, true);
     };
-  }, [open]);
+  }, [open, updateMenuPosition]);
 
   const handleClear = () => {
     onChange("");
@@ -113,16 +111,14 @@ export function Select<K extends string>({ value, onChange, options, placeholder
       <div
         ref={menuRef}
         style={{ position: "fixed", top: menuPosition.top, left: menuPosition.left, width: menuPosition.width, zIndex: 9999 }}
-        className={
-          "editor-scroll max-h-48 max-w-[70vw] overflow-auto rounded-md border border-slate-700 bg-slate-900 p-1 shadow-lg " +
+        className={ "editor-scroll max-h-48 max-w-[70vw] overflow-auto rounded-md border border-slate-700 bg-slate-900 p-1 shadow-lg " +
           (menuClassName ?? "")
         }
       >
         <button
           type="button"
           onClick={handleClear}
-          className={
-            "block w-max min-w-full rounded px-2 py-1 text-left text-xs text-slate-300 hover:bg-fuchsia-600 hover:text-white whitespace-nowrap " +
+          className={ "block w-max min-w-full rounded px-2 py-1 text-left text-xs text-slate-300 hover:bg-fuchsia-600 hover:text-white whitespace-nowrap " +
             (optionClassName ?? "")
           }
         >
@@ -137,8 +133,7 @@ export function Select<K extends string>({ value, onChange, options, placeholder
               key={option.id}
               type="button"
               onClick={() => handleSelect(option.id)}
-              className={
-                "mb-1 block w-max min-w-full rounded px-2 py-1 text-left text-xs transition-colors whitespace-nowrap " +
+              className={ "mb-1 block w-max min-w-full rounded px-2 py-1 text-left text-xs transition-colors whitespace-nowrap " +
                 (isSelected
                   ? "bg-fuchsia-800 text-white "
                   : "text-slate-200 hover:bg-fuchsia-900 hover:text-white ") +

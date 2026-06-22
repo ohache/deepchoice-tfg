@@ -6,7 +6,7 @@ export const GRID_TILE_SIZE = NODE_SIZE + GRID_GUTTER_SIZE;
 export const NODE_SLOT_OFFSET = GRID_GUTTER_SIZE / 2;
 export const HISTORY_VIEW_COLUMNS = 10;
 
-export interface SceneNodeVM {
+export type SceneNodeVM = {
   id: ID;
   title: string;
   pos: NodeLayout;
@@ -17,7 +17,7 @@ export interface SceneNodeVM {
 }
 
 /* ViewModel de una arista entre dos nodos */
-export interface SceneEdgeVM {
+export type SceneEdgeVM = {
   id: string;
   from: ID;
   to: ID;
@@ -25,11 +25,11 @@ export interface SceneEdgeVM {
 }
 
 /* Grafo completo para la vista */
-export interface StoryGraphVM {
+export type StoryGraphVM = {
   nodes: SceneNodeVM[];
   edges: SceneEdgeVM[];
 }
 
-export type DirectedEdge = Pick<SceneEdgeVM, "from" | "to" >;
+export type DirectedEdge = Pick<SceneEdgeVM, "from" | "to">;
 
 export type TileCell = { cx: number; cy: number };

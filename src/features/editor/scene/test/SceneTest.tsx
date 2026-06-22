@@ -4,11 +4,27 @@ import type { ID, RegionShape, TextDock } from "@/domain/types";
 import { useResolvedAssetUrl } from "@/features/editor/hooks/useResolvedAssetUrl";
 import { useImageContentRect } from "@/features/player/hooks/useImageContentRect";
 import { useEditorStore } from "@/store/editorStore";
-import { countBrokenTokens, ResolvedTextRenderer, resolveTextTokensToParts } from "@/features/editor/scene/textTokens/ResolveTextTokens";
+import { countBrokenTokens, ResolvedTextRenderer, resolveTextTokensToParts } from "@/shared/textTokens/ResolveTextTokens";
 import type { SceneTestHotspotEntry, SceneTestInspectableRef, SceneTestPlacedItemEntry, SceneTestPlacedNpcEntry,
   SceneTestPlacedPlayerEntry } from "@/features/editor/scene/test/sceneTestTypes";
+import { canRenderPreviewLabel } from "@/features/editor/scene/preview/previewRenderHelpers";
+import { useSceneTestTransition } from "@/features/editor/scene/test/useSceneTestTransition";
 
-interface SceneTestProps {
+const TOOLTIP_DELAY_MS = 350;
+
+type SceneTestVisualSnapshot = {
+  imageAssetId?: ID | null;
+  text?: string;
+  textLabel?: string;
+  textDock: TextDock;
+  layerLabel?: string;
+  hotspots: SceneTestHotspotEntry[];
+  placedItems: SceneTestPlacedItemEntry[];
+  placedNpcs: SceneTestPlacedNpcEntry[];
+  placedPlayers: SceneTestPlacedPlayerEntry[];
+};
+
+type SceneTestProps = {
   title?: string;
   imageAssetId?: ID | null;
   text?: string;
@@ -36,15 +52,10 @@ interface SceneTestProps {
   onSelectTarget?: (ref: SceneTestInspectableRef) => void;
 }
 
-function rectPx(shape: RegionShape, content: { w: number; h: number }) {
-  if (shape.type !== "rect") return null;
+function rectPx(shape: RegionShape | null | undefined, content: { w: number; h: number }) {
+  if (!shape || shape.type !== "rect") return null;
 
-  return {
-    left: shape.x * content.w,
-    top: shape.y * content.h,
-    width: shape.w * content.w,
-    height: shape.h * content.h,
-  };
+  return { left: shape.x * content.w, top: shape.y * content.h, width: shape.w * content.w, height: shape.h * content.h };
 }
 
 function isSameRef(a: SceneTestInspectableRef | null | undefined, b: SceneTestInspectableRef | null | undefined) {
@@ -54,15 +65,6 @@ function isSameRef(a: SceneTestInspectableRef | null | undefined, b: SceneTestIn
 function isTextFirst(hasText: boolean, dock: TextDock) {
   if (!hasText) return false;
   return dock === "top" || dock === "left";
-}
-
-function getRectSize(style: CSSProperties | null) {
-  if (!style) return { width: 0, height: 0 };
-
-  const width = Number(String(style.width ?? "0").replace("px", "")) || 0;
-  const height = Number(String(style.height ?? "0").replace("px", "")) || 0;
-
-  return { width, height };
 }
 
 function baseOverlayStyle(isHovered: boolean, isPinned: boolean): CSSProperties | undefined {
@@ -101,9 +103,9 @@ function InlineNavButton({ children, disabled = false, onClick }: { children: st
   );
 }
 
-function ScenePlacedItemSprite({ entry, contentRect }: { entry: SceneTestPlacedItemEntry; contentRect: { w: number; h: number }}) {
+function ScenePlacedItemSprite({ entry, contentRect }: { entry: SceneTestPlacedItemEntry; contentRect: { w: number; h: number } }) {
   const imageSrc = useResolvedAssetUrl(entry.itemId);
-  const rect = rectPx(entry.raw.shape, contentRect);
+  const rect = rectPx(entry.raw.placement?.shape, contentRect);
 
   if (!rect || !imageSrc) return null;
 
@@ -119,7 +121,7 @@ function ScenePlacedItemSprite({ entry, contentRect }: { entry: SceneTestPlacedI
   );
 }
 
-function ScenePlacedNpcSprite({ entry, contentRect }: { entry: SceneTestPlacedNpcEntry; contentRect: { w: number; h: number }}) {
+function ScenePlacedNpcSprite({ entry, contentRect }: { entry: SceneTestPlacedNpcEntry; contentRect: { w: number; h: number } }) {
   const imageSrc = useResolvedAssetUrl(entry.npcId);
   const rect = rectPx(entry.raw.shape, contentRect);
 
@@ -137,7 +139,7 @@ function ScenePlacedNpcSprite({ entry, contentRect }: { entry: SceneTestPlacedNp
   );
 }
 
-function ScenePlacedPlayerSprite({ entry, contentRect }: { entry: SceneTestPlacedPlayerEntry; contentRect: { w: number; h: number }}) {
+function ScenePlacedPlayerSprite({ entry, contentRect }: { entry: SceneTestPlacedPlayerEntry; contentRect: { w: number; h: number } }) {
   const imageSrc = useResolvedAssetUrl(entry.initialImageId);
   const rect = rectPx(entry.raw.shape, contentRect);
 
@@ -159,45 +161,36 @@ export function SceneTest({ title, imageAssetId, text, textLabel, textDock = "bo
   canGoNextText = false, onPrevText, onNextText, canGoPrevLayer = false, canGoNextLayer = false, onPrevLayer, onNextLayer, layerLabel,
   showLayerNav = false, hotspots = [], placedItems = [], placedNpcs = [], placedPlayers = [], hoveredRef = null, pinnedRef = null,
   onHoverTarget, onLeaveTarget, onSelectTarget }: SceneTestProps) {
-  const imageSrc = useResolvedAssetUrl(imageAssetId ?? null);
+  const transitionKey = `${imageAssetId ?? ""}::${layerLabel ?? ""}::${textLabel ?? ""}`;
+
+  const visualSnapshot = useMemo<SceneTestVisualSnapshot>(() => ({
+    imageAssetId, text, textLabel, textDock, layerLabel, hotspots, placedItems, placedNpcs, placedPlayers
+  }), [imageAssetId, text, textLabel, textDock, layerLabel, hotspots, placedItems, placedNpcs, placedPlayers],
+  );
+
+  const { displayedSnapshot, isBlackTransition } = useSceneTestTransition({ transitionKey, snapshot: visualSnapshot });
+
+  const imageSrc = useResolvedAssetUrl(displayedSnapshot.imageAssetId ?? null);
   const project = useEditorStore((state) => state.project);
 
-  const { containerRef, imgRef, getImageContentRect } = useImageContentRect();
+  const { containerRef, imgRef, contentRect, refreshImageContentRect } = useImageContentRect();
   const stageRef = useRef<HTMLDivElement | null>(null);
 
-  const [contentRect, setContentRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
-
-  const TOOLTIP_DELAY_MS = 350;
   const tooltipTimerRef = useRef<number | null>(null);
   const [tooltipRef, setTooltipRef] = useState<SceneTestInspectableRef | null>(null);
 
-  const effectiveText = text ?? "";
+  const effectiveText = displayedSnapshot.text ?? "";
   const hasText = effectiveText.trim().length > 0;
-  const effectiveTextLabel = (textLabel ?? "").trim() || "Base";
+  const effectiveTextLabel = (displayedSnapshot.textLabel ?? "").trim() || "Base";
   const showTextHeader = Boolean(effectiveTextLabel) || showTextNav;
-  const effectiveTextDock: TextDock = textDock === "top" || textDock === "left" || textDock === "right" || textDock === "bottom"
-      ? textDock : "bottom";
+  const effectiveTextDock: TextDock = displayedSnapshot.textDock === "top" || displayedSnapshot.textDock === "left" || displayedSnapshot.textDock === "right" ||
+    displayedSnapshot.textDock === "bottom" ? displayedSnapshot.textDock: "bottom";
   const textFirst = isTextFirst(hasText, effectiveTextDock);
 
   const parts = useMemo(() => resolveTextTokensToParts(effectiveText, project), [effectiveText, project]);
   const brokenCount = useMemo(() => countBrokenTokens(parts), [parts]);
 
-  useEffect(() => {
-    if (!imageSrc) {
-      setContentRect(null);
-      return;
-    }
-
-    const recompute = () => setContentRect(getImageContentRect());
-    recompute();
-    window.addEventListener("resize", recompute);
-
-    return () => window.removeEventListener("resize", recompute);
-  }, [imageSrc, getImageContentRect]);
-
-  useEffect(() => {
-    stageRef.current?.focus();
-  }, [imageSrc]);
+  useEffect(() => stageRef.current?.focus(), [imageSrc]);
 
   useEffect(() => {
     return () => {
@@ -208,19 +201,10 @@ export function SceneTest({ title, imageAssetId, text, textLabel, textDock = "bo
     };
   }, []);
 
-  const hotspotEntries = useMemo(() => hotspots.map((entry) => ({ entry, ref: { type: "hotspot" as const, id: entry.id } })), [hotspots]);
-
-  const placedItemEntries = useMemo(() => placedItems.map((entry) => ({ entry, ref: { type: "placedItem" as const, id: entry.id } })), [placedItems]);
-
-  const placedNpcEntries = useMemo(
-    () => placedNpcs.map((entry) => ({ entry, ref: { type: "placedNpc" as const, id: entry.id } })),
-    [placedNpcs],
-  );
-
-  const placedPlayerEntries = useMemo(
-    () => placedPlayers.map((entry) => ({ entry, ref: { type: "placedPlayer" as const, id: entry.id } })),
-    [placedPlayers],
-  );
+  const hotspotEntries = useMemo(() => displayedSnapshot.hotspots.map((entry) => ({ entry, ref: { type: "hotspot" as const, id: entry.id } })), [displayedSnapshot.hotspots]);
+  const placedItemEntries = useMemo(() => displayedSnapshot.placedItems.map((entry) => ({ entry, ref: { type: "placedItem" as const, id: entry.id } })), [displayedSnapshot.placedItems]);
+  const placedNpcEntries = useMemo(() => displayedSnapshot.placedNpcs.map((entry) => ({ entry, ref: { type: "placedNpc" as const, id: entry.id } })), [displayedSnapshot.placedNpcs]);
+  const placedPlayerEntries = useMemo(() => displayedSnapshot.placedPlayers.map((entry) => ({ entry, ref: { type: "placedPlayer" as const, id: entry.id } })), [displayedSnapshot.placedPlayers]);
 
   const handleHoverTarget = (ref: SceneTestInspectableRef) => {
     onHoverTarget?.(ref);
@@ -268,102 +252,103 @@ export function SceneTest({ title, imageAssetId, text, textLabel, textDock = "bo
     );
   };
 
-const renderTextPanel = () => (
-  <div
-    className={"bg-[#0a0a0a] overflow-hidden shrink-0 min-h-0 flex items-center justify-center" +
-  (effectiveTextDock === "left"
-    ? " h-full w-[280px] border-r border-slate-800"
-    : effectiveTextDock === "right"
-      ? " h-full w-[280px] border-l border-slate-800"
-      : effectiveTextDock === "top"
-        ? " w-full h-40 border-b border-slate-800"
-        : " w-full h-40 border-t border-slate-800")}
-  >
-    <div className="h-full min-h-0 w-full flex flex-col px-5 py-4">
-      {showTextHeader && (
-        <div className="grid grid-cols-[auto_1fr_auto] items-center gap-3 mb-3 shrink-0">
-          <div className="justify-self-start">
-            {showTextNav ? (
-              <InlineNavButton disabled={!canGoPrevText} onClick={onPrevText}>
-                Anterior
-              </InlineNavButton>
-            ) : (
-              <div />
-            )}
-          </div>
+  const renderLayerNav = () => {
+    if (!showLayerNav) return null;
 
-          <div className="min-w-0 text-center">
-            <div className="text-sm font-semibold text-slate-100 truncate">
-              {effectiveTextLabel}
-            </div>
-          </div>
+    return (
+      <div className="relative z-30 shrink-0 flex items-center justify-between gap-3 border-b border-slate-800 bg-slate-950/85 px-3 py-1.5">
+        <InlineNavButton disabled={!canGoPrevLayer} onClick={onPrevLayer}>
+          Capa anterior
+        </InlineNavButton>
 
-          <div className="justify-self-end">
-            {showTextNav ? (
-              <InlineNavButton disabled={!canGoNextText} onClick={onNextText}>
-                Siguiente
-              </InlineNavButton>
-            ) : (
-              <div />
-            )}
-          </div>
+        <div className="min-w-0 text-xs text-slate-100 truncate text-center flex-1">
+          {displayedSnapshot.layerLabel ?? "Sin capa"}
         </div>
-      )}
 
-      <div className="min-h-0 flex-1 overflow-auto flex items-center justify-center">
-        <div className="w-full max-w-3xl">
-          {brokenCount > 0 ? (
-            <div className="mb-2 rounded-md border border-rose-500/40 bg-rose-950/30 px-2 py-1 text-[11px] text-rose-200">
-              Hay {brokenCount} referencia{brokenCount === 1 ? "" : "s"} rota
-              {brokenCount === 1 ? "" : "s"} en el texto.
+        <InlineNavButton disabled={!canGoNextLayer} onClick={onNextLayer}>
+          Siguiente capa
+        </InlineNavButton>
+      </div>
+    );
+  };
+
+  const renderTextPanel = () => (
+    <div
+      className={"bg-black overflow-hidden shrink-0 min-h-0 flex items-center justify-center" +
+        (effectiveTextDock === "left" ? " h-full w-[280px] border-r border-slate-800" : effectiveTextDock === "right"
+          ? " h-full w-[280px] border-l border-slate-800" : effectiveTextDock === "top"
+            ? " w-full h-40 border-b border-slate-800" : " w-full h-40 border-t border-slate-800")}
+    >
+      <div className="h-full min-h-0 w-full flex flex-col px-5 py-4">
+        {showTextHeader && (
+          <div className="grid grid-cols-[auto_1fr_auto] items-center gap-3 mb-3 shrink-0">
+            <div className="justify-self-start">
+              {showTextNav ? (
+                <InlineNavButton disabled={!canGoPrevText} onClick={onPrevText}>
+                  Anterior
+                </InlineNavButton>
+              ) : (
+                <div />
+              )}
             </div>
-          ) : null}
 
-          <ResolvedTextRenderer
-            parts={parts}
-            emptyText="Esta capa no tiene texto para la variante seleccionada."
-            wrapperClassName="wrap-break-word whitespace-pre-wrap text-center text-sm leading-relaxed text-slate-100"
-            resolvedTokenClassName="font-mono text-sm text-fuchsia-200"
-            brokenTokenClassName="font-mono text-sm text-red-200"
-            brokenTokenTitle="Referencia rota"
-          />
+            <div className="min-w-0 text-center">
+              <div className="text-sm font-semibold text-slate-100 truncate">
+                {effectiveTextLabel}
+              </div>
+            </div>
+
+            <div className="justify-self-end">
+              {showTextNav ? (
+                <InlineNavButton disabled={!canGoNextText} onClick={onNextText}>
+                  Siguiente
+                </InlineNavButton>
+              ) : (
+                <div />
+              )}
+            </div>
+          </div>
+        )}
+
+        <div className="min-h-0 flex-1 overflow-auto flex items-center justify-center">
+          <div className="w-full max-w-3xl">
+            {brokenCount > 0 ? (
+              <div className="mb-2 rounded-md border border-rose-500/40 bg-rose-950/30 px-2 py-1 text-[11px] text-rose-200">
+                Hay {brokenCount} referencia{brokenCount === 1 ? "" : "s"} rota
+                {brokenCount === 1 ? "" : "s"} en el texto.
+              </div>
+            ) : null}
+
+            <ResolvedTextRenderer
+              parts={parts}
+              emptyText="Esta capa no tiene texto para la variante seleccionada."
+              wrapperClassName="wrap-break-word whitespace-pre-wrap text-center text-sm leading-relaxed text-slate-100"
+              resolvedTokenClassName="font-mono text-sm text-fuchsia-200"
+              brokenTokenClassName="font-mono text-sm text-red-200"
+              brokenTokenTitle="Referencia rota"
+            />
+          </div>
         </div>
       </div>
     </div>
-  </div>
-);
+  );
 
-return (
-  <div className="rounded-xl border-2 border-slate-800 bg-black overflow-hidden min-h-[620px] shadow-2xl">
-    <div
-  className={
-    effectiveTextDock === "left" || effectiveTextDock === "right"
-      ? "w-full h-[620px] flex flex-row"
-      : "w-full h-[620px] flex flex-col"
-  }
->
+  return (
+    <div className="relative rounded-xl border-2 border-slate-800 bg-black overflow-hidden h-[620px] shadow-2xl flex flex-col">
+      {renderLayerNav()}
+
+      <div
+        className={
+          effectiveTextDock === "left" || effectiveTextDock === "right"
+            ? "w-full min-h-0 flex-1 flex flex-row"
+            : "w-full min-h-0 flex-1 flex flex-col"
+        }
+      >
         {textFirst && renderTextPanel()}
 
         <div className="relative flex-1 min-h-0 bg-black flex flex-col">
-          {showLayerNav && (
-            <div className="relative z-30 shrink-0 flex items-center justify-between gap-3 border-b border-slate-800 bg-slate-950/85 px-3 py-1.5">
-              <InlineNavButton disabled={!canGoPrevLayer} onClick={onPrevLayer}>
-                Capa anterior
-              </InlineNavButton>
-
-              <div className="min-w-0 text-xs text-slate-100 truncate text-center flex-1">
-                {layerLabel ?? "Sin capa"}
-              </div>
-
-              <InlineNavButton disabled={!canGoNextLayer} onClick={onNextLayer}>
-                Siguiente capa
-              </InlineNavButton>
-            </div>
-          )}
-
           {imageSrc ? (
             <div className="relative flex-1 min-h-0 w-full overflow-hidden bg-black">
-
               <div
                 ref={stageRef}
                 tabIndex={0}
@@ -381,18 +366,13 @@ return (
                     alt={title || "Escena"}
                     className="max-w-full max-h-full object-contain select-none"
                     draggable={false}
-                    onLoad={() => setContentRect(getImageContentRect())}
+                    onLoad={refreshImageContentRect}
                   />
 
                   {contentRect && (
                     <div
                       className="absolute z-20"
-                      style={{
-                        left: contentRect.x,
-                        top: contentRect.y,
-                        width: contentRect.w,
-                        height: contentRect.h,
-                      }}
+                      style={{ left: contentRect.x, top: contentRect.y, width: contentRect.w, height: contentRect.h }}
                     >
                       {placedItemEntries.map(({ entry }) => (
                         <ScenePlacedItemSprite
@@ -425,8 +405,7 @@ return (
                         const isHovered = isSameRef(hoveredRef, ref);
                         const isPinned = isSameRef(pinnedRef, ref);
                         const label = entry.label.trim();
-                        const { width, height } = getRectSize(rect);
-                        const canShowLabel = Boolean(label) && width >= 28 && height >= 14;
+                        const canShowLabel = canRenderPreviewLabel({ label, width: rect.width, height: rect.height, minWidth: 28, minHeight: 14 });
 
                         return (
                           <button
@@ -434,12 +413,8 @@ return (
                             type="button"
                             aria-label={entry.label}
                             className="absolute bg-transparent focus:outline-none"
-                            style={{
-                              ...rect,
-                              ...(baseOverlayStyle(isHovered, isPinned) ?? {}),
-                            }}
+                            style={{ ...rect, ...(baseOverlayStyle(isHovered, isPinned) ?? {}) }}
                             onMouseEnter={() => handleHoverTarget(ref)}
-                            onMouseMove={() => handleHoverTarget(ref)}
                             onMouseLeave={handleLeave}
                             onClick={() => handleSelectTarget(ref)}
                           >
@@ -457,7 +432,7 @@ return (
                       })}
 
                       {placedItemEntries.map(({ entry, ref }) => {
-                        const rect = rectPx(entry.raw.shape, { w: contentRect.w, h: contentRect.h });
+                        const rect = rectPx(entry.raw.placement?.shape, { w: contentRect.w, h: contentRect.h });
                         if (!rect) return null;
 
                         const isHovered = isSameRef(hoveredRef, ref);
@@ -469,12 +444,8 @@ return (
                             type="button"
                             aria-label={entry.label}
                             className="absolute bg-transparent focus:outline-none"
-                            style={{
-                              ...rect,
-                              ...(baseOverlayStyle(isHovered, isPinned) ?? {}),
-                            }}
+                            style={{ ...rect, ...(baseOverlayStyle(isHovered, isPinned) ?? {}) }}
                             onMouseEnter={() => handleHoverTarget(ref)}
-                            onMouseMove={() => handleHoverTarget(ref)}
                             onMouseLeave={handleLeave}
                             onClick={() => handleSelectTarget(ref)}
                           >
@@ -496,12 +467,8 @@ return (
                             type="button"
                             aria-label={entry.npcName}
                             className="absolute bg-transparent focus:outline-none"
-                            style={{
-                              ...rect,
-                              ...(baseOverlayStyle(isHovered, isPinned) ?? {}),
-                            }}
+                            style={{ ...rect, ...(baseOverlayStyle(isHovered, isPinned) ?? {}) }}
                             onMouseEnter={() => handleHoverTarget(ref)}
-                            onMouseMove={() => handleHoverTarget(ref)}
                             onMouseLeave={handleLeave}
                             onClick={() => handleSelectTarget(ref)}
                           >
@@ -523,12 +490,8 @@ return (
                             type="button"
                             aria-label={entry.playerName}
                             className="absolute bg-transparent focus:outline-none"
-                            style={{
-                              ...rect,
-                              ...(baseOverlayStyle(isHovered, isPinned) ?? {}),
-                            }}
+                            style={{ ...rect, ...(baseOverlayStyle(isHovered, isPinned) ?? {}) }}
                             onMouseEnter={() => handleHoverTarget(ref)}
-                            onMouseMove={() => handleHoverTarget(ref)}
                             onMouseLeave={handleLeave}
                             onClick={() => handleSelectTarget(ref)}
                           >
@@ -552,6 +515,13 @@ return (
 
         {!textFirst && renderTextPanel()}
       </div>
+
+      <div
+        className={
+          "pointer-events-none absolute inset-0 z-80 bg-black transition-opacity duration-120 " +
+          (isBlackTransition ? "opacity-100" : "opacity-0")
+        }
+      />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 
-export type PlayerKeyboardMode = "game" | "dialogue" | "map" | "inventory" | "settings" | "bottomBar";
+export type PlayerKeyboardMode = "game" | "dialogue" | "map" | "inventory" | "settings" | "playerBottomBar";
 
 type UsePlayerKeyboardOptions = {
   mode: PlayerKeyboardMode;
@@ -102,7 +102,7 @@ export function usePlayerKeyboard(opts: UsePlayerKeyboardOptions) {
         return;
       }
 
-      if (mode === "bottomBar") {
+      if (mode === "playerBottomBar") {
         return;
       }
 
@@ -140,13 +140,14 @@ export function usePlayerKeyboard(opts: UsePlayerKeyboardOptions) {
 
     return () => window.removeEventListener("keydown", handler);
   }, [
-    mode,
-    openInventory,
-    openMap,
-    openSettings,
-    toggleFullscreen,
-    onEscape,
-    onTab,
-    onEnter,
-  ]);
+  mode,
+  openInventory,
+  openMap,
+  openSettings,
+  toggleFullscreen,
+  onEscape,
+  onTab,
+  onEnter,
+  blockTabUntil,
+]);
 }

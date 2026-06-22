@@ -26,7 +26,7 @@ export function PlaceableStateSection({ initialVisible, initialReachable, initia
 
     if (wasVisible || !showNotReachableText) return;
 
-    requestAnimationFrame(() => {
+    const rafId = requestAnimationFrame(() => {
       const element = notReachableInputRef.current;
       if (!element) return;
 
@@ -37,6 +37,8 @@ export function PlaceableStateSection({ initialVisible, initialReachable, initia
         element.setSelectionRange(textLength, textLength);
       } catch { }
     });
+
+    return () => cancelAnimationFrame(rafId);
   }, [showNotReachableText, notReachableInputRef]);
 
   return (

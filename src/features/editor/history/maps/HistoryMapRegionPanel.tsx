@@ -7,25 +7,12 @@ import { Checkbox } from "@/components/Checkbox";
 import { Pencil, ImageIcon } from "lucide-react";
 import { toast } from "@/shared/toast/toastStore";
 
-type HistoryMapRegionsPanelProps = {
-  mapId: ID;
-  mapVisualType: "singleImage" | "composed";
-  isRegionMode: boolean;
-  panelError: string | null;
-  setPanelError: React.Dispatch<React.SetStateAction<string | null>>;
-  onEditMap: () => void;
-  onEnterRegionMode: () => void;
-};
-
-export function HistoryMapRegionsPanel({ mapId, mapVisualType, isRegionMode, panelError, setPanelError, onEditMap, onEnterRegionMode }: HistoryMapRegionsPanelProps) {
+export function HistoryMapRegionsPanel({ mapId, mapVisualType, isRegionMode, panelError, setPanelError, onEditMap, onEnterRegionMode } :
+  { mapId: ID; mapVisualType: "singleImage" | "composed"; isRegionMode: boolean; panelError: string | null;
+  setPanelError: React.Dispatch<React.SetStateAction<string | null>>; onEditMap: () => void; onEnterRegionMode: () => void }) {
   const project = useEditorStore((s) => s.project);
 
-  const selectedMapId = useEditorStore((s) => s.selectedMapId);
-  const setSelectedMapId = useEditorStore((s) => s.setSelectedMapId);
-
   const mapRegionEditor = useEditorStore((s) => s.mapRegionEditor);
-  const setMapRegionSelection = useEditorStore((s) => s.setMapRegionSelection);
-  const clearMapRegionEditor = useEditorStore((s) => s.clearMapRegionEditor);
 
   const startPlacingMapRegion = useEditorStore((s) => s.startPlacingMapRegion);
   const editMapRegion = useEditorStore((s) => s.editMapRegion);
@@ -33,7 +20,7 @@ export function HistoryMapRegionsPanel({ mapId, mapVisualType, isRegionMode, pan
 
   const setMapRegionDraftLabel = useEditorStore((s) => s.setMapRegionDraftLabel);
   const setMapRegionDraftVisible = useEditorStore((s) => s.setMapRegionDraftVisible);
-  const setMapRegionDraftImageAssetId = useEditorStore((s) => s.setMapRegionDraftImageAssetId);
+  const setMapRegionDraftImageFile = useEditorStore((s) => s.setMapRegionDraftImageFile);
   const setMapRegionDraftMusicTrackId = useEditorStore((s) => s.setMapRegionDraftMusicTrackId);
   const setMapRegionDraftSubMapId = useEditorStore((s) => s.setMapRegionDraftSubMapId);
   const startRedrawMapRegionShape = useEditorStore((s) => s.startRedrawMapRegionShape);
@@ -42,23 +29,25 @@ export function HistoryMapRegionsPanel({ mapId, mapVisualType, isRegionMode, pan
   const removeMapRegion = useEditorStore((s) => s.removeMapRegion);
   const validateMapRegionDraft = useEditorStore((s) => s.validateMapRegionDraft);
 
-  const addMapRegionImageAsset = useEditorStore((s) => s.addMapRegionImageAsset);
-
   const labelInputRef = useRef<HTMLInputElement | null>(null);
   const regionImageInputRef = useRef<HTMLInputElement | null>(null);
 
+  /* Mapa activo en edición */
   const selectedMap = useMemo(() => (project?.maps ?? []).find((map) => map.id === mapId) ?? null, [project, mapId]);
 
+  /* Listado de recursos del proyecto */
   const musicTracks = useMemo(() => project?.musicTracks ?? [], [project]);
   const allMaps = useMemo(() => project?.maps ?? [], [project]);
+
+  /* Regiones del mapa actual */
   const regions = useMemo(() => selectedMap?.regions ?? [], [selectedMap]);
+
   const subMapOptions = useMemo(() => allMaps.filter((map) => map.id !== mapId), [allMaps, mapId]);
-
   const musicTrackOptions: Option<string>[] = musicTracks.map((track) => ({ id: track.id, label: track.name }));
-
   const subMapSelectOptions: Option<string>[] = subMapOptions.map((map) => ({ id: map.id, label: map.name }));
 
-  const selectedRegionId = mapRegionEditor.selection.regionId;
+  /* Región seleccionada */
+  const selectedRegionId = mapRegionEditor.selectedRegionId;
 
   const selectedRegion = useMemo(() => {
     if (!selectedRegionId || !selectedMap) return null;
@@ -67,47 +56,43 @@ export function HistoryMapRegionsPanel({ mapId, mapVisualType, isRegionMode, pan
 
   const draft = mapRegionEditor.draft;
 
+  /* Estados derivados del editor */
   const isEditing = mapRegionEditor.mode.type !== "idle" && !!draft;
   const isDrawing = mapRegionEditor.mode.type === "drawing";
   const hasShape = !!draft?.shape;
   const isExistingRegion = !!selectedRegion;
   const isComposedMap = mapVisualType === "composed";
 
+  /* Auto-focus al entrar en edición de región */
   useEffect(() => {
     if (mapRegionEditor.mode.type === "editing" && draft?.shape) labelInputRef.current?.focus();
   }, [mapRegionEditor.mode.type, draft?.id, draft?.shape]);
 
+  /* Resetea el editor de regiones y limpia el error visible */
   const resetRegionEditor = () => {
+    setPanelError(null);
     cancelMapRegionDraft();
-    clearMapRegionEditor();
-    setMapRegionSelection({ regionId: null });
   };
 
   const openRegionImagePicker = () => { regionImageInputRef.current?.click() };
 
+  /* Guarda temporalmente la imagen seleccionada en el draft de región */
   const handleRegionImageSelected = (file?: File | null) => {
     if (!file) return;
-
-    const assetId = addMapRegionImageAsset({ file });
-    if (!assetId) {
-      toast.error("No se pudo crear la imagen", "Revisa el archivo seleccionado.");
-      return;
-    }
 
     setPanelError(null);
 
     if (!draft) {
-      startPlacingMapRegion({ imageAssetId: assetId });
+      startPlacingMapRegion({ imageFile: file });
       return;
     }
 
-    setMapRegionDraftImageAssetId(assetId);
+    setMapRegionDraftImageFile(file);
   };
 
+  /* Alta de una nueva región */
   const handleStartNew = () => {
     setPanelError(null);
-
-    if (selectedMapId !== mapId) setSelectedMapId(mapId);
 
     onEnterRegionMode();
 
@@ -119,10 +104,10 @@ export function HistoryMapRegionsPanel({ mapId, mapVisualType, isRegionMode, pan
     startPlacingMapRegion();
   };
 
+  /* Maneja la selección de una región existente */
   const handleSelectRegion = (region: MapRegion) => {
-    if (selectedMapId !== mapId) setSelectedMapId(mapId);
 
-    const isSameRegionOpen = isRegionMode && mapRegionEditor.mode.type === "editing" && mapRegionEditor.selection.regionId === region.id;
+    const isSameRegionOpen = isRegionMode && mapRegionEditor.mode.type === "editing" && mapRegionEditor.selectedRegionId === region.id;
 
     if (isSameRegionOpen) {
       setPanelError(null);
@@ -132,12 +117,12 @@ export function HistoryMapRegionsPanel({ mapId, mapVisualType, isRegionMode, pan
 
     setPanelError(null);
     onEnterRegionMode();
-    setMapRegionSelection({ regionId: region.id });
     editMapRegion(region.id);
   };
 
-  const handleRegionAreaClick = () => { if (!isRegionMode) onEnterRegionMode() };
+    const handleRegionAreaClick = () => { if (!isRegionMode) onEnterRegionMode() };
 
+  /* Punto único de guardado */
   const handleSave = () => {
     setPanelError(null);
 
@@ -157,12 +142,14 @@ export function HistoryMapRegionsPanel({ mapId, mapVisualType, isRegionMode, pan
     toast.success("Región guardada", "La región del mapa se ha guardado correctamente.");
   };
 
+  /* Solicita la eliminación de la región seleccionada */
   const handleDelete = () => {
     if (!selectedRegionId) return;
 
     removeMapRegion(selectedRegionId);
   };
 
+  /* Cancela la edición  actual y limpia errores */
   const handleCancel = () => {
     setPanelError(null);
     resetRegionEditor();
@@ -220,7 +207,7 @@ export function HistoryMapRegionsPanel({ mapId, mapVisualType, isRegionMode, pan
                 const isSelected =
                   isRegionMode &&
                   mapRegionEditor.mode.type === "editing" &&
-                  mapRegionEditor.selection.regionId === region.id;
+                  mapRegionEditor.selectedRegionId === region.id;
 
                 return (
                   <button

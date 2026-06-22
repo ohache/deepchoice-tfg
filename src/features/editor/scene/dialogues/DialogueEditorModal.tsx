@@ -1,28 +1,16 @@
 import { useMemo, useState } from "react";
-import type { ID, Dialogue, DialogueLineNode, PlayerDef, NpcDef, Project, RulePhrase } from "@/domain/types";
+import type { ID, DialogueLineNode, PlayerDef, NpcDef, Project } from "@/domain/types";
 import type { Effect } from "@/domain/effects";
 import type { Condition } from "@/domain/conditions";
 import { useEditorStore } from "@/store/editorStore";
-import { buildLiveProjectWithDialogueDraft } from "@/features/editor/scene/dialogues/dialogueHelpersSlice";
-import { Select, type Option } from "@/components/Select";
+import { buildLiveProjectWithDialogueDraft, buildCharacterOptions, findCharacterName } from "@/features/editor/scene/dialogues/dialogueHelpers";
 import { DialogueTreeView } from "@/features/editor/scene/dialogues/DialogueTreeView";
 import { ConditionBuilderModal } from "@/features/editor/scene/rules/conditions/ConditionBuilderModal";
 import { RuleBuilderModal } from "@/features/editor/scene/rules/RuleBuilderModal";
-
-/* Helpers */
-function buildCharacterOptions<T extends PlayerDef | NpcDef>(items: T[]): Option<string>[] {
-  return items.map((item) => ({ id: item.id, label: item.name?.trim() || item.id }));
-}
-
-function findCharacterName<T extends { id: ID; name?: string }>(items: T[] | undefined, id: ID | null | undefined, fallback: string): string {
-  if (!id) return fallback;
-  const item = (items ?? []).find((entry) => entry.id === id);
-  return item?.name?.trim() || id;
-}
+import { Select, type Option } from "@/components/Select";
 
 type DialogueEditorModalProps = {
   open: boolean;
-  dialogueDraft: Dialogue | null;
   project: Project | null;
   nodeId: ID;
   panelError?: string | null;
@@ -31,8 +19,9 @@ type DialogueEditorModalProps = {
   onDeleteCurrent: () => void;
 };
 
-export function DialogueEditorModal({ open, dialogueDraft, project, nodeId, panelError, onClose, onCommit, onDeleteCurrent }: DialogueEditorModalProps) {
+export function DialogueEditorModal({ open, project, nodeId, panelError, onClose, onCommit, onDeleteCurrent }: DialogueEditorModalProps) {
   const dialogueEditor = useEditorStore((state) => state.dialogueEditor);
+  const dialogueDraft = dialogueEditor.dialogueDraft;
   const nodeDraft = useEditorStore((state) => state.nodeDraft);
 
   const setDialogueSelection = useEditorStore((state) => state.setDialogueSelection);
@@ -61,13 +50,10 @@ export function DialogueEditorModal({ open, dialogueDraft, project, nodeId, pane
   const displayedPanelError = panelError ?? null;
 
   /* Proyecto “vivo” con el diálogo draft embebido */
-  const liveProject = useMemo(() =>
-      buildLiveProjectWithDialogueDraft({ project, nodeDraft, nodeId, dialogueDraft }),
-    [project, nodeDraft, nodeId, dialogueDraft]
-  );
+  const liveProject = useMemo(() => buildLiveProjectWithDialogueDraft({ project, nodeDraft, nodeId, dialogueEditor }), [project, nodeDraft, nodeId, dialogueEditor]);
 
-  const players = useMemo<PlayerDef[]>(() => liveProject?.players ?? [], [liveProject]);
-  const npcs = useMemo<NpcDef[]>(() => liveProject?.npcs ?? [], [liveProject]);
+  const players = useMemo<PlayerDef[]>(() => project?.players ?? [], [project?.players]);
+  const npcs = useMemo<NpcDef[]>(() => project?.npcs ?? [], [project?.npcs]);
 
   const playerOptions = useMemo<Option<string>[]>(() => buildCharacterOptions(players), [players]);
   const npcOptions = useMemo<Option<string>[]>(() => buildCharacterOptions(npcs), [npcs]);
@@ -84,21 +70,9 @@ export function DialogueEditorModal({ open, dialogueDraft, project, nodeId, pane
     return node && node.type === "line" ? node : null;
   }, [dialogueDraft, lineRuleTargetId, selectedNodeId]);
 
-  const lineRuleOwner = currentDialogueId && ruleLine
-    ? {
-        kind: "dialogueLine" as const,
-        dialogueId: currentDialogueId,
-        lineId: ruleLine.id,
-      }
-    : null;
+  const lineRuleOwner = currentDialogueId && ruleLine ? { kind: "dialogueLine" as const, dialogueId: currentDialogueId, lineId: ruleLine.id } : null;
 
-  const lineRuleValue = ruleLine
-    ? {
-        id: ruleLine.id,
-        when: ruleLine.when ?? null,
-        effects: ruleLine.effects ?? [],
-      }
-    : null;
+  const lineRuleValue = ruleLine ? { id: ruleLine.id, when: ruleLine.when ?? null, effects: ruleLine.effects ?? [] } : null;
 
   /* Handlers */
   const handleSelectLine = (lineId: ID | null) => {
@@ -111,11 +85,7 @@ export function DialogueEditorModal({ open, dialogueDraft, project, nodeId, pane
 
     commitLineDraft();
 
-    const id = addDialogueLine(currentDialogueId, {
-      parentId: dialogueDraft.rootId,
-      speaker: "player",
-      text: "",
-    });
+    const id = addDialogueLine(currentDialogueId, { parentId: dialogueDraft.rootId, speaker: "player", text: "" });
 
     if (id) setDialogueSelection({ selectedNodeId: id });
   };
@@ -125,11 +95,7 @@ export function DialogueEditorModal({ open, dialogueDraft, project, nodeId, pane
 
     commitLineDraft();
 
-    const id = addDialogueLine(currentDialogueId, {
-      parentId,
-      speaker,
-      text: "",
-    });
+    const id = addDialogueLine(currentDialogueId, { parentId, speaker, text: "" });
 
     if (id) setDialogueSelection({ selectedNodeId: id });
   };
@@ -145,13 +111,10 @@ export function DialogueEditorModal({ open, dialogueDraft, project, nodeId, pane
     setLineRuleOpen(true);
   };
 
-  const handleSaveLineRule = (rule: {id: ID; when?: Condition; phrase?: RulePhrase; effects: Effect[] }) => {
+  const handleSaveLineRule = (rule: {id: ID; when?: Condition; effects: Effect[] }) => {
     if (!currentDialogueId || !lineRuleTargetId) return;
 
-    updateDialogueLine(currentDialogueId, lineRuleTargetId, {
-      when: rule.when,
-      effects: rule.effects,
-    });
+    updateDialogueLine(currentDialogueId, lineRuleTargetId, { when: rule.when, effects: rule.effects });
 
     setLineRuleOpen(false);
     setLineRuleTargetId(null);
@@ -203,9 +166,7 @@ export function DialogueEditorModal({ open, dialogueDraft, project, nodeId, pane
                 <div>Descripción</div>
                 <textarea
                   value={dialogueDraft.description ?? ""}
-                  onChange={(event) =>
-                    setDialogueDescription(currentDialogueId, event.currentTarget.value)
-                  }
+                  onChange={(event) => setDialogueDescription(currentDialogueId, event.currentTarget.value)}
                   rows={3}
                   placeholder="Descripción opcional"
                   className="w-full rounded-md bg-slate-900/30 border-2 border-slate-700 px-2 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:border-transparent focus:ring-2 focus:ring-fuchsia-500"
@@ -214,11 +175,9 @@ export function DialogueEditorModal({ open, dialogueDraft, project, nodeId, pane
 
               <div className="space-y-1">
                 <div>Player</div>
-                <Select<string>
+                <Select<ID>
                   value={dialogueDraft.playerId}
-                  onChange={(value) =>
-                    value && setDialoguePlayerId(currentDialogueId, value as ID)
-                  }
+                  onChange={(value) => value && setDialoguePlayerId(currentDialogueId, value)}
                   options={playerOptions}
                   placeholder="Seleccionar player"
                   disabled={!playerOptions.length}
@@ -230,11 +189,9 @@ export function DialogueEditorModal({ open, dialogueDraft, project, nodeId, pane
 
               <div className="space-y-1">
                 <div>NPC</div>
-                <Select<string>
+                <Select<ID>
                   value={dialogueDraft.npcId}
-                  onChange={(value) =>
-                    value && setDialogueNpcId(currentDialogueId, value as ID)
-                  }
+                  onChange={(value) => value && setDialogueNpcId(currentDialogueId, value)}
                   options={npcOptions}
                   placeholder="Seleccionar NPC"
                   disabled={!npcOptions.length}

@@ -3,17 +3,12 @@ import type { SoundEffectDef } from "@/domain/types";
 import { useEditorStore } from "@/store/editorStore";
 import { validateSfxDraft } from "@/features/editor/history/sfx/sfxValidator";
 import { hasDuplicateFileByLinkedAssetId } from "@/validation/genericValidator";
+import { getDraftPanelTitle } from "@/features/editor/history/shared/genericHelpers";
 import { type AssetDraftFieldErrors } from "@/validation/validateAssetBackedDraft";
 import { useAssetDraftPanel } from "@/features/editor/history/shared/useAssetDraftPanel";
 import { useAudioFileDraft } from "@/features/editor/history/shared/useAudioFileDraft";
 import { PlayIcon, StopIcon } from "@heroicons/react/24/solid";
 import { toast } from "@/shared/toast/toastStore";
-
-function getModeTitle(mode: "none" | "new" | "edit") {
-  if (mode === "new") return "Nuevo efecto";
-  if (mode === "edit") return "Editar efecto";
-  return "Detalle de efecto";
-}
 
 export function HistorySfxPanel() {
   const project = useEditorStore((s) => s.project);
@@ -56,8 +51,10 @@ export function HistorySfxPanel() {
     },
   });
 
+  /* Al entrar en el panel se limpia la selección previa */
   useEffect(() => setSelectedSfxId(null), [setSelectedSfxId]);
 
+  /* Carga el draft desde el efecto seleccionado */
   const loadDraftFromSelectedSfx = (sfx: SoundEffectDef) => {
     setDraftName(sfx.name);
     setFieldErrors({});
@@ -69,12 +66,14 @@ export function HistorySfxPanel() {
     audio.loadPreviewFromExistingFile(assetFiles?.[sfx.id]);
   };
 
+  /* Limpia el formulario */
   const resetDraftFields = () => {
     setDraftName("");
     setFieldErrors({});
     audio.resetAudioDraft();
   };
 
+  /* Comportamiento común de selección / edición / creación */
   const panel = useAssetDraftPanel<SoundEffectDef>({
     hasProject: !!project,
     selectedId: selectedSfxId,
@@ -85,19 +84,21 @@ export function HistorySfxPanel() {
     onResetDraftFields: resetDraftFields,
   });
 
+  /* Estado visual actual del panel */
   const mode = panel.mode;
-  const rightTitle = getModeTitle(mode);
+  const rightTitle = getDraftPanelTitle(mode, {
+    detail: "Detalle de efecto",
+    create: "Nuevo efecto",
+    edit: "Editar efecto",
+  });
 
+  /* Validación del formulario */
   const validateDraft = (): boolean => {
     if (!project) return false;
 
     const { ok, errors } = validateSfxDraft(
       { name: draftName, file: audio.draftFile ?? undefined },
-      {
-        mode: mode === "edit" ? "edit" : "new",
-        project,
-        currentSfxId: selectedSfxId ?? undefined
-      },
+      { mode: mode === "edit" ? "edit" : "new", project, currentSfxId: selectedSfxId ?? undefined },
     );
 
     setFieldErrors(errors);
@@ -107,6 +108,7 @@ export function HistorySfxPanel() {
     return ok;
   };
 
+  /* Alta de un nuevo efecto de sonido */
   const handleCreate = () => {
     if (!audio.draftFile) {
       toast.error("Falta archivo", "Selecciona un archivo de audio antes de guardar.");
@@ -117,7 +119,7 @@ export function HistorySfxPanel() {
     const id = addSfx(audio.draftFile, displayName);
 
     if (!id) {
-      toast.error("No se pudo crear", "Puede que el archivo ya esté en uso por otro efecto.");
+      toast.error("Error inesperado", "No se pudo crear el efecto.");
       return;
     }
 
@@ -125,34 +127,30 @@ export function HistorySfxPanel() {
     panel.reset();
   };
 
+  /* Actualización de un efecto existente */
   const handleUpdate = () => {
     if (!selectedSfxId) return;
 
     const displayName = draftName.trim();
     const replacingFile = !!audio.draftFile;
 
-    updateSfx(selectedSfxId, {
-      name: displayName,
-      file: audio.draftFile ?? undefined,
-    });
+    updateSfx(selectedSfxId, { name: displayName, file: audio.draftFile ?? undefined });
 
     toast.success(replacingFile ? "Efecto actualizado (archivo reemplazado)" : "Efecto actualizado", `“${displayName}”`);
 
     panel.reset();
   };
 
+  /* Punto único de guardado */
   const handleSave = () => {
     if (!project) return;
     if (!validateDraft()) return;
 
-    if (mode === "new") {
-      handleCreate();
-      return;
-    }
-
-    if (mode === "edit") handleUpdate();
+    if (mode === "new") handleCreate();
+    else if (mode === "edit") handleUpdate();
   };
 
+  /* Solicita la eliminación del efecto seleccionado */
   const handleDeleteSfx = () => {
     if (!selectedSfxId) return;
     removeSfx(selectedSfxId);
@@ -295,7 +293,6 @@ export function HistorySfxPanel() {
                     className="hidden"
                     onChange={audio.handleFileChange}
                   />
-
 
                   {fieldErrors.file && <p className="form-field-error mt-1">{fieldErrors.file}</p>}
                 </div>

@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 
 type PlayerSettingsOverlayProps = {
   open: boolean;
@@ -18,26 +18,28 @@ type PlayerSettingsOverlayProps = {
 const MIN_DIALOGUE_DELAY_MS = 500;
 const MAX_DIALOGUE_DELAY_MS = 4000;
 
-export function PlayerSettingsOverlay({
-  open,
-  musicVolume,
-  sfxVolume,
-  dialogueDelayMs,
-  onClose,
-  onContinue,
-  onSaveGame,
-  onLoadGame,
-  onExit,
-  onMusicVolumeChange,
-  onDialogueDelayChange,
-  onSfxVolumeChange
-
-}: PlayerSettingsOverlayProps) {
+export function PlayerSettingsOverlay({ open, musicVolume, sfxVolume, dialogueDelayMs, onClose, onContinue, onSaveGame, onLoadGame, onExit,
+  onMusicVolumeChange, onDialogueDelayChange, onSfxVolumeChange }: PlayerSettingsOverlayProps) {
   const loadInputRef = useRef<HTMLInputElement | null>(null);
 
   const [saving, setSaving] = useState(false);
   const [saveName, setSaveName] = useState("");
   const [showOptions, setShowOptions] = useState(false);
+
+  const trimmedSaveName = saveName.trim();
+  const canConfirmSave = trimmedSaveName.length > 0;
+
+  function resetLocalState() {
+    setSaving(false);
+    setSaveName("");
+    setShowOptions(false);
+  }
+
+  useEffect(() => {
+    if (open) return;
+
+    resetLocalState();
+  }, [open]);
 
   if (!open) return null;
 
@@ -47,6 +49,7 @@ export function PlayerSettingsOverlay({
 
     try {
       await onLoadGame(file);
+      resetLocalState();
       onClose();
     } finally {
       event.target.value = "";
@@ -54,17 +57,21 @@ export function PlayerSettingsOverlay({
   };
 
   const handleConfirmSave = () => {
-    onSaveGame(saveName);
-    setSaveName("");
-    setSaving(false);
+    if (!canConfirmSave) return;
+
+    onSaveGame(trimmedSaveName);
+    resetLocalState();
     onClose();
   };
 
   const handleClose = () => {
-    setSaving(false);
-    setSaveName("");
-    setShowOptions(false);
+    resetLocalState();
     onClose();
+  };
+
+  const handleContinue = () => {
+    resetLocalState();
+    onContinue();
   };
 
   return (
@@ -96,7 +103,7 @@ export function PlayerSettingsOverlay({
                 onKeyDown={(event) => {
                   if (event.key === "Enter") {
                     event.preventDefault();
-                    handleConfirmSave();
+                    if (canConfirmSave) handleConfirmSave();
                   }
 
                   if (event.key === "Escape") {
@@ -105,16 +112,23 @@ export function PlayerSettingsOverlay({
                     setSaveName("");
                   }
                 }}
-                className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-400/70"
+                className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none
+                  focus:ring-2 focus:ring-fuchsia-400/70"
               />
 
-              <button type="button" className="btn btn-select" onClick={handleConfirmSave}>
+              <button 
+                type="button" 
+                className={`btn btn-json text-[13px] &{!canConfirmSave ? "opacity-40 : ""}`}
+                onClick={handleConfirmSave}
+                disabled={!canConfirmSave}
+                title={!canConfirmSave ? "Escribe un nombre para guardar la partida" : "Confirmar guardado"}
+              >
                 Confirmar guardado
               </button>
 
               <button
                 type="button"
-                className="btn btn-cancel"
+                className="btn btn-danger"
                 onClick={() => {
                   setSaving(false);
                   setSaveName("");
@@ -200,7 +214,7 @@ export function PlayerSettingsOverlay({
                 </div>
               ) : null}
 
-              <button type="button" className="btn btn-add-condition" onClick={onContinue}>
+              <button type="button" className="btn btn-add-condition" onClick={handleContinue}>
                 Seguir jugando
               </button>
 
@@ -210,8 +224,6 @@ export function PlayerSettingsOverlay({
             </>
           )}
         </div>
-
-
 
         <input
           ref={loadInputRef}

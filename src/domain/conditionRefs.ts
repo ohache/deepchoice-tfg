@@ -7,131 +7,190 @@ type MapRegionRef = Readonly<{ mapId: ID; regionId: ID }>;
 /* Referencias encontradas en una condición */
 export type ConditionRefs = Partial<{
   nodeIds: readonly ID[];
-  placedItemIds: readonly ID[];
+  itemInstanceIds: readonly ID[];
   hotspotIds: readonly ID[];
   npcIds: readonly ID[];
   playerIds: readonly ID[];
+  imageAssetIds: readonly ID[];
+  musicTrackIds: readonly ID[];
   mapRegions: readonly MapRegionRef[];
   hotspotVars: readonly OwnerVarRef[];
   npcVars: readonly OwnerVarRef[];
   playerVars: readonly OwnerVarRef[];
 }>;
 
-/* Tipos auxiliares */
+/* Condiciones lógicas excluidas: no contienen referencias directas, solo agrupan otras condiciones */
 type ConditionLeaf = Exclude<Condition, { type: "and" } | { type: "or" } | { type: "not" }>;
+
 type ConditionLeafType = ConditionLeaf["type"];
 
-type ExtractorMap = {
-  [T in ConditionLeafType]: (cond: Extract<ConditionLeaf, { type: T }>) => ConditionRefs
-};
+type ExtractorMap = { [T in ConditionLeafType]: (condition: Extract<ConditionLeaf, { type: T }>) => ConditionRefs };
 
-/* Mapa declarativo */
+/* Mapa declarativo: define qué referencias contiene cada tipo de condición */
 const EXTRACT_REFS: ExtractorMap = {
-  nodeVisited: c => ({ nodeIds: [c.nodeId] }),
-
-  hasItem: c => ({ placedItemIds: [c.itemInstanceId] }),
-
-  npcHasItem: c => ({
-    npcIds: [c.npcId],
-    placedItemIds: [c.itemInstanceId],
+  nodeVisited: (condition) => ({
+    nodeIds: [condition.nodeId],
   }),
 
-  playerVar: c => ({
-    playerIds: [c.playerId],
-    playerVars: [{ ownerId: c.playerId, varId: c.varId }],
+  hasItem: (condition) => ({
+    playerIds: [condition.playerId],
+    itemInstanceIds: [condition.itemInstanceId],
   }),
 
-  npcVar: c => ({
-    npcIds: [c.npcId],
-    npcVars: [{ ownerId: c.npcId, varId: c.varId }],
+  npcHasItem: (condition) => ({
+    npcIds: [condition.npcId],
+    itemInstanceIds: [condition.itemInstanceId],
   }),
 
-  hotspotVar: c => ({
-    hotspotIds: [c.hotspotId],
-    hotspotVars: [{ ownerId: c.hotspotId, varId: c.varId }],
+  playerVar: (condition) => ({
+    playerIds: [condition.playerId],
+    playerVars: [{ ownerId: condition.playerId, varId: condition.varId }],
   }),
 
-  hotspotVisible: c => ({ hotspotIds: [c.hotspotId] }),
-  hotspotReachable: c => ({ hotspotIds: [c.hotspotId] }),
+  npcVar: (condition) => ({
+    npcIds: [condition.npcId],
+    npcVars: [{ ownerId: condition.npcId, varId: condition.varId }],
+  }),
 
-  placedItemVisible: c => ({ placedItemIds: [c.placedItemId] }),
-  placedItemReachable: c => ({ placedItemIds: [c.placedItemId] }),
+  hotspotVar: (condition) => ({
+    hotspotIds: [condition.hotspotId],
+    hotspotVars: [{ ownerId: condition.hotspotId, varId: condition.varId }],
+  }),
 
-  placedNpcVisible: c => ({ npcIds: [c.npcId] }),
-  placedNpcReachable: c => ({ npcIds: [c.npcId] }),
+  hotspotVisible: (condition) => ({
+    hotspotIds: [condition.hotspotId],
+  }),
 
-  placedPlayerVisible: c => ({ playerIds: [c.playerId] }),
-  placedPlayerImage: c => ({ playerIds: [c.playerId] }),
+  hotspotReachable: (condition) => ({
+    hotspotIds: [condition.hotspotId],
+  }),
 
-  mapRegionVisited: c => ({
-    mapRegions: [{ mapId: c.mapId, regionId: c.regionId }],
+  placedItemVisible: (condition) => ({
+    itemInstanceIds: [condition.itemInstanceId],
+  }),
+
+  placedItemReachable: (condition) => ({
+    itemInstanceIds: [condition.itemInstanceId],
+  }),
+
+  placedNpcVisible: (condition) => ({
+    nodeIds: [condition.nodeId],
+    npcIds: [condition.npcId],
+  }),
+
+  placedNpcReachable: (condition) => ({
+    nodeIds: [condition.nodeId],
+    npcIds: [condition.npcId],
+  }),
+
+  placedPlayerVisible: (condition) => ({
+    nodeIds: [condition.nodeId],
+    playerIds: [condition.playerId],
+  }),
+
+  placedPlayerImage: (condition) => ({
+    nodeIds: [condition.nodeId],
+    playerIds: [condition.playerId],
+    imageAssetIds: [condition.imageId],
+  }),
+
+  musicPlaying: (condition) => ({
+    musicTrackIds: [condition.trackId],
+  }),
+
+  mapRegionVisited: (condition) => ({
+    mapRegions: [{ mapId: condition.mapId, regionId: condition.regionId }],
   }),
 };
 
-function mergeRefs(a: ConditionRefs, b: ConditionRefs): ConditionRefs {
-  const merge = <T>(x?: readonly T[], y?: readonly T[]) => x || y ? [...(x ?? []), ...(y ?? [])] : undefined;
+function mergeArrays<T>(left?: readonly T[], right?: readonly T[]): readonly T[] | undefined {
+  if (!left && !right) return undefined;
+  return [...(left ?? []), ...(right ?? [])];
+}
 
+function mergeRefs(left: ConditionRefs, right: ConditionRefs): ConditionRefs {
   return {
-    nodeIds: merge(a.nodeIds, b.nodeIds),
-    placedItemIds: merge(a.placedItemIds, b.placedItemIds),
-    hotspotIds: merge(a.hotspotIds, b.hotspotIds),
-    npcIds: merge(a.npcIds, b.npcIds),
-    playerIds: merge(a.playerIds, b.playerIds),
-    mapRegions: merge(a.mapRegions, b.mapRegions),
-    hotspotVars: merge(a.hotspotVars, b.hotspotVars),
-    npcVars: merge(a.npcVars, b.npcVars),
-    playerVars: merge(a.playerVars, b.playerVars),
+    nodeIds: mergeArrays(left.nodeIds, right.nodeIds),
+    itemInstanceIds: mergeArrays(left.itemInstanceIds, right.itemInstanceIds),
+    hotspotIds: mergeArrays(left.hotspotIds, right.hotspotIds),
+    npcIds: mergeArrays(left.npcIds, right.npcIds),
+    playerIds: mergeArrays(left.playerIds, right.playerIds),
+    imageAssetIds: mergeArrays(left.imageAssetIds, right.imageAssetIds),
+    musicTrackIds: mergeArrays(left.musicTrackIds, right.musicTrackIds),
+    mapRegions: mergeArrays(left.mapRegions, right.mapRegions),
+    hotspotVars: mergeArrays(left.hotspotVars, right.hotspotVars),
+    npcVars: mergeArrays(left.npcVars, right.npcVars),
+    playerVars: mergeArrays(left.playerVars, right.playerVars),
   };
 }
 
-/*Recorrido del árbol de condiciones */
-function isLeaf(cond: Condition): cond is ConditionLeaf {
-  return cond.type !== "and" && cond.type !== "or" && cond.type !== "not";
+function isConditionLeaf(condition: Condition): condition is ConditionLeaf {
+  return (condition.type !== "and" && condition.type !== "or" && condition.type !== "not");
 }
 
-function getConditionRefs(cond: Condition | undefined): ConditionRefs {
-  if (!cond) return {};
+/* Recorre el árbol completo de condiciones y devuelve todas sus referencias */
+export function getConditionRefs(condition: Condition | undefined): ConditionRefs {
+  if (!condition) return {};
 
-if (cond.type === "and") return cond.all.reduce<ConditionRefs>((acc, c) => mergeRefs(acc, getConditionRefs(c)), {});
+  if (condition.type === "and") {
+    return condition.all.reduce<ConditionRefs>((acc, child) => mergeRefs(acc, getConditionRefs(child)), {});
+  }
 
-if (cond.type === "or") return cond.any.reduce<ConditionRefs>((acc, c) => mergeRefs(acc, getConditionRefs(c)), {});
+  if (condition.type === "or") {
+    return condition.any.reduce<ConditionRefs>((acc, child) => mergeRefs(acc, getConditionRefs(child)), {});
+  }
 
-  if (cond.type === "not") return getConditionRefs(cond.cond);
+  if (condition.type === "not") return getConditionRefs(condition.cond);
 
-   if (isLeaf(cond)) { const extractor = EXTRACT_REFS[cond.type] as (c: typeof cond) => ConditionRefs;
+  if (isConditionLeaf(condition)) {
+    const extractor = EXTRACT_REFS[condition.type] as (value: typeof condition) => ConditionRefs;
 
-    return extractor(cond);
+    return extractor(condition);
   }
 
   return {};
 }
 
-
-function includes<T>(arr: readonly T[] | undefined, value: T) {
-  return arr?.includes(value) ?? false;
+function includes<T>(values: readonly T[] | undefined, target: T): boolean {
+  return values?.includes(target) ?? false;
 }
 
-function some<T>(arr: readonly T[] | undefined, fn: (v: T) => boolean) {
-  return arr?.some(fn) ?? false;
+function some<T>(values: readonly T[] | undefined, predicate: (value: T) => boolean): boolean {
+  return values?.some(predicate) ?? false;
 }
 
-/* API pública */
+/* API pública para consultar referencias concretas */
 export const conditionReferences = {
-  placedItem: (cond: Condition | undefined, id: ID) => includes(getConditionRefs(cond).placedItemIds, id),
+  itemInstance: (condition: Condition | undefined, itemInstanceId: ID) =>
+    includes(getConditionRefs(condition).itemInstanceIds, itemInstanceId),
 
-  node: (cond: Condition | undefined, id: ID) => includes(getConditionRefs(cond).nodeIds, id),
+  node: (condition: Condition | undefined, nodeId: ID) =>
+    includes(getConditionRefs(condition).nodeIds, nodeId),
 
-  hotspot: (cond: Condition | undefined, id: ID) => includes(getConditionRefs(cond).hotspotIds, id),
+  hotspot: (condition: Condition | undefined, hotspotId: ID) =>
+    includes(getConditionRefs(condition).hotspotIds, hotspotId),
 
-  npc: (cond: Condition | undefined, id: ID) => includes(getConditionRefs(cond).npcIds, id),
+  npc: (condition: Condition | undefined, npcId: ID) =>
+    includes(getConditionRefs(condition).npcIds, npcId),
 
-  player: (cond: Condition | undefined, id: ID) => includes(getConditionRefs(cond).playerIds, id),
+  player: (condition: Condition | undefined, playerId: ID) =>
+    includes(getConditionRefs(condition).playerIds, playerId),
 
-  npcVar: (cond: Condition | undefined, input: { npcId: ID; varId: ID }) => some(getConditionRefs(cond).npcVars, r => r.ownerId === input.npcId && r.varId === input.varId),
+  imageAsset: (condition: Condition | undefined, imageAssetId: ID) =>
+    includes(getConditionRefs(condition).imageAssetIds, imageAssetId),
 
-  playerVar: (cond: Condition | undefined, input: { playerId: ID; varId: ID }) => some(getConditionRefs(cond).playerVars, r => r.ownerId === input.playerId && r.varId === input.varId),
+  musicTrack: (condition: Condition | undefined, trackId: ID) =>
+    includes(getConditionRefs(condition).musicTrackIds, trackId),
 
-  hotspotVar: (cond: Condition | undefined, input: { hotspotId: ID; varId: ID }) => some(getConditionRefs(cond).hotspotVars, r => r.ownerId === input.hotspotId && r.varId === input.varId),
+  npcVar: (condition: Condition | undefined, input: { npcId: ID; varId: ID }) =>
+    some(getConditionRefs(condition).npcVars, (ref) => ref.ownerId === input.npcId && ref.varId === input.varId),
 
-  mapRegion: (cond: Condition | undefined, input: { mapId: ID; regionId: ID }) => some(getConditionRefs(cond).mapRegions, r => r.mapId === input.mapId && r.regionId === input.regionId),
+  playerVar: (condition: Condition | undefined, input: { playerId: ID; varId: ID }) =>
+    some(getConditionRefs(condition).playerVars, (ref) => ref.ownerId === input.playerId && ref.varId === input.varId),
+
+  hotspotVar: (condition: Condition | undefined, input: { hotspotId: ID; varId: ID }) =>
+    some(getConditionRefs(condition).hotspotVars, (ref) => ref.ownerId === input.hotspotId && ref.varId === input.varId),
+
+  mapRegion: (condition: Condition | undefined, input: { mapId: ID; regionId: ID }) =>
+    some(getConditionRefs(condition).mapRegions, (ref) => ref.mapId === input.mapId && ref.regionId === input.regionId),
 };

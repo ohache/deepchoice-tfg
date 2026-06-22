@@ -14,28 +14,26 @@ type SceneMusicFieldProps = {
 export function SceneMusicField({ label = "Música", active, onToggle, layerId }: SceneMusicFieldProps) {
   const project = useEditorStore((s) => s.project);
   const nodeDraft = useEditorStore((s) => s.nodeDraft);
+  const activeLayerId = useEditorStore((s) => s.activeLayerId);
   const setLayerMusicTrackId = useEditorStore((s) => s.setLayerMusicTrackId);
   const setNodeMusicTrackId = useEditorStore((s) => s.setNodeMusicTrackId);
 
+  const isEditingActiveLayer = !layerId || layerId === activeLayerId;
+
   const musicTracks = useMemo<MusicTrackDef[]>(() => project?.musicTracks ?? [], [project?.musicTracks]);
 
-  const trackOptions = useMemo<Option<ID>[]>(() =>
-    musicTracks.map((track) => ({ id: track.id, label: track.name?.trim() || track.id })), [musicTracks]
-  );
+  const trackOptions = useMemo<Option<ID>[]>(() =>musicTracks.map((track) => ({ id: track.id, label: track.name?.trim() || track.id })), [musicTracks]);
 
-  const editingLayer = useMemo(() =>
-    layerId ? (nodeDraft?.layers ?? []).find((layer) => layer.id === layerId) ?? null : null,
-    [nodeDraft?.layers, layerId]
-  );
+  const editingLayer = useMemo(() => layerId ? (nodeDraft?.layers ?? []).find((layer) => layer.id === layerId) ?? null : null, [nodeDraft?.layers, layerId]);
 
-  const selectedTrackId = layerId
-    ? (editingLayer?.musicTrackId ?? "")
-    : (nodeDraft?.musicTrackId ?? "");
+  const selectedTrackId = layerId ? (editingLayer?.musicTrackId ?? "") : (nodeDraft?.musicTrackId ?? "");
 
   const handleChange = (nextTrackId: string) => {
     const nextMusicTrackId = nextTrackId || undefined;
 
     if (layerId) {
+      if (!editingLayer || !isEditingActiveLayer) return;
+
       setLayerMusicTrackId(nextMusicTrackId);
       return;
     }
@@ -56,6 +54,7 @@ export function SceneMusicField({ label = "Música", active, onToggle, layerId }
             onChange={(value) => handleChange(String(value ?? ""))}
             options={trackOptions}
             placeholder="— Sin música —"
+            disabled={!musicTracks.length || Boolean(layerId && (!editingLayer || !isEditingActiveLayer))}
             className="w-full"
           />
 

@@ -1,20 +1,14 @@
-import type { ID, Node, NodeLayout } from "@/domain/types";
-import { type TileCell, HISTORY_VIEW_COLUMNS } from "@/features/editor/history/view/historyViewTypes";
+import type { ID, Node, NodeLayout, NodeMeta } from "@/domain/types";
+import { type TileCell, GRID_TILE_SIZE, HISTORY_VIEW_COLUMNS, NODE_SLOT_OFFSET } from "@/features/editor/history/view/historyViewTypes";
 
 const cellKey = (cell: TileCell) => `${cell.cx},${cell.cy}`;
 
 function getTileCellFromLayout(pos: NodeLayout, tileSize: number, offset: number): TileCell {
-  return {
-    cx: Math.floor((pos.x - offset) / tileSize),
-    cy: Math.floor((pos.y - offset) / tileSize),
-  };
+  return { cx: Math.floor((pos.x - offset) / tileSize), cy: Math.floor((pos.y - offset) / tileSize) };
 }
 
 function layoutFromTileCell(cell: TileCell, tileSize: number, offset: number): NodeLayout {
-  return {
-    x: cell.cx * tileSize + offset,
-    y: cell.cy * tileSize + offset,
-  };
+  return { x: cell.cx * tileSize + offset, y: cell.cy * tileSize + offset };
 }
 
 function readNodeLayout(node: Node): NodeLayout | null {
@@ -67,6 +61,10 @@ export function computeLayoutForNewNode(args: { nodes: Node[]; tileSize: number;
   }
 }
 
+export function hasValidLayout(meta?: NodeMeta): boolean {
+  return Number.isFinite(meta?.layout?.x) && Number.isFinite(meta?.layout?.y);
+}
+
 export function ensureNodeHasLayoutPure(node: Node, fallback: NodeLayout): Node {
   return readNodeLayout(node) ? node : { ...node, meta: { ...(node.meta ?? {}), layout: fallback } };
 }
@@ -89,4 +87,17 @@ export function updateManyNodeMetaLayoutsPure(args: { nodes: Node[]; positionsBy
   });
 
   return changed ? nextNodes : nodes;
+}
+
+export function resolveDraftMetaWithFallback(draft: Node, fallback: NodeLayout): NodeMeta {
+  const meta = draft.meta ?? {};
+
+  if (hasValidLayout(meta)) return meta;
+
+  return {...meta, layout: fallback };
+}
+
+/* Calcula el fallback de layout para un nuevo nodo */
+export function computeNewNodeFallbackLayout(nodes: Node[]): NodeLayout {
+  return computeLayoutForNewNode({ nodes, tileSize: GRID_TILE_SIZE, offset: NODE_SLOT_OFFSET, start: { x: NODE_SLOT_OFFSET, y: NODE_SLOT_OFFSET }, rowScan: HISTORY_VIEW_COLUMNS });
 }

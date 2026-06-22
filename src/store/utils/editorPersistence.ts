@@ -1,6 +1,7 @@
 import JSZip from "jszip";
-import type { AssetDef, ConditionalTextEntry, Dialogue, DialogueNode, Hotspot, ID, ItemDef, MapRegion, MapVisualSource, MusicTrackDef, Node, NodeMapLocation, NpcDef, RulePhrase, 
-  InventoryItemInstance, PlacedItem, PlacedNpc, PlacedPlayer, PlaceableState, PlayerDef, PlayerImage, Project, RegionShape, SceneImageLayer, SoundEffectDef, VarDef, WorldMap} from "@/domain/types";
+import type { AssetDef, ConditionalTextEntry, Dialogue, DialogueNode, Hotspot, ID, ItemDef, MapRegion, MapVisualSource, MusicTrackDef,
+  Node, NodeMapLocation, NpcDef, RulePhrase, ItemInstance, PlacedNpc, PlacedPlayer, PlaceableState, PlayerDef, PlayerImage, Project, 
+  RegionShape, SceneImageLayer, SoundEffectDef, VarDef, WorldMap, InteractionRules} from "@/domain/types";
 import { toast } from "@/shared/toast/toastStore";
 
 /* Paths y nombres */
@@ -79,11 +80,18 @@ function serializeVarDef(variable: VarDef) {
   };
 }
 
-function serializeInventoryItemInstance(item: InventoryItemInstance) {
+function serializeItemInstance(item: ItemInstance) {
   return {
     itemInstanceId: item.itemInstanceId,
     itemId: item.itemId,
     label: item.label,
+    rules: item.rules ? serializeInteractionRules(item.rules) : undefined,
+    placement: item.placement
+      ? {
+          shape: serializeRegionShape(item.placement.shape),
+          initialState: serializePlaceableState(item.placement.initialState),
+        }
+      : undefined,
   };
 }
 
@@ -101,7 +109,7 @@ function serializeNpc(npc: NpcDef) {
     name: npc.name,
     description: npc.description,
     vars: npc.vars?.map(serializeVarDef),
-    initialInventory: npc.initialInventory?.map(serializeInventoryItemInstance),
+    initialInventory: npc.initialInventory?.map(serializeItemInstance),
   };
 }
 
@@ -120,7 +128,7 @@ function serializePlayer(player: PlayerDef) {
     images: player.images.map(serializePlayerImage),
     defaultImageId: player.defaultImageId,
     vars: player.vars?.map(serializeVarDef),
-    initialInventory: player.initialInventory?.map(serializeInventoryItemInstance),
+    initialInventory: player.initialInventory?.map(serializeItemInstance),
   };
 }
 
@@ -165,7 +173,9 @@ function serializeRulePhrase(phrase?: RulePhrase) {
   };
 }
 
-function serializeInteractionRules(rules: Hotspot["rules"] | PlacedItem["rules"] | PlacedNpc["rules"]) {
+function serializeInteractionRules(rules?: InteractionRules) {
+  if (!rules) return undefined;
+
   return {
     onClick: rules.onClick?.map((rule) => ({
       id: rule.id,
@@ -191,17 +201,6 @@ function serializeHotspot(hotspot: Hotspot) {
     initialState: serializePlaceableState(hotspot.initialState),
     vars: hotspot.vars.map(serializeVarDef),
     rules: serializeInteractionRules(hotspot.rules),
-  };
-}
-
-function serializePlacedItem(item: PlacedItem) {
-  return {
-    id: item.id,
-    shape: serializeRegionShape(item.shape),
-    initialState: serializePlaceableState(item.initialState),
-    itemId: item.itemId,
-    label: item.label,
-    rules: serializeInteractionRules(item.rules),
   };
 }
 
@@ -321,7 +320,7 @@ function serializeSceneImageLayer(layer: SceneImageLayer) {
     dock: layer.dock,
     text: layer.text.map(serializeConditionalTextEntry),
     hotspots: layer.hotspots?.map(serializeHotspot),
-    placedItems: layer.placedItems?.map(serializePlacedItem),
+    placedItems: layer.placedItems?.map(serializeItemInstance),
     placedNpcs: layer.placedNpcs?.map(serializePlacedNpc),
     placedPlayers: layer.placedPlayers?.map(serializePlacedPlayer),
     musicTrackId: layer.musicTrackId,
@@ -365,8 +364,10 @@ export function downloadProjectJsonFile(project: Project): void {
     const blob = new Blob([JSON.stringify(serializedProject, null, 2)], { type: "application/json" });
 
     downloadBlob(blob, `${baseName}.json`);
-  } catch {
+  } catch (error){
     toast.error("No se pudo exportar el JSON", "Ha ocurrido un error al generar/descargar el archivo del proyecto.");
+
+    throw error;
   }
 }
 
@@ -398,7 +399,9 @@ export async function exportProjectAsZip(project: Project, assetFiles: Record<ID
 
     const blob = await zip.generateAsync({ type: "blob" });
     downloadBlob(blob, `${baseName}.zip`);
-  } catch {
+  } catch (error) {
     toast.error("No se pudo exportar el ZIP", "Ha ocurrido un error al empaquetar el proyecto y sus assets.");
+
+    throw error;
   }
 }

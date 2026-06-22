@@ -1,4 +1,4 @@
-import type { Dialogue, Hotspot, ID, Node, PlacedItem, PlacedNpc, PlacedPlayer, Project, SceneImageLayer, VarDef } from "@/domain/types";
+import type { Dialogue, Hotspot, ID, Node, ItemInstance, PlacedNpc, PlacedPlayer, Project, SceneImageLayer, VarDef } from "@/domain/types";
 import type { SceneTestBuildIndexes, SceneTestDialogueEntry, SceneTestHotspotEntry, SceneTestInitialStateSummary, SceneTestLayerEntry,
   SceneTestMapSummary, SceneTestPlacedItemEntry, SceneTestPlacedNpcEntry, SceneTestPlacedPlayerEntry, SceneTestResolvedMusicSummary,
   SceneTestSceneEntry, SceneTestTextVariantEntry, SceneTestVarEntry, SceneTestViewModel } from "@/features/editor/scene/test/sceneTestTypes";
@@ -57,7 +57,7 @@ function collectPlacedItemNames(project: Project): Record<ID, string> {
   for (const node of project.nodes ?? []) {
     for (const layer of node.layers ?? []) {
       for (const placedItem of layer.placedItems ?? []) {
-        entries.push([placedItem.id, normalizeText(placedItem.label) || "Item colocado"]);
+        entries.push([placedItem.itemInstanceId, normalizeText(placedItem.label) || "Item colocado"]);
       }
     }
   }
@@ -164,18 +164,14 @@ function buildVarEntry(variable: VarDef): SceneTestVarEntry {
     id: variable.id,
     name: normalizeText(variable.name) || "Variable",
     type: variable.type,
-    initialText: variable.type === "boolean" ? String(variable.initial) : `${variable.initial}. Mínimo: ${variable.min}. Máximo: ${variable.max}`,
+    initialText: variable.type === "boolean" ? variable.initial ? "Sí" : "No" : `${variable.initial}. Mínimo: ${variable.min}. Máximo: ${variable.max}`,
   };
 }
 
 function buildInitialStateSummary(state: { visible?: boolean; reachable?: boolean; notReachableText?: string } | undefined): SceneTestInitialStateSummary {
   if (!state) return {};
 
-  return {
-    visible: state.visible,
-    reachable: state.reachable,
-    notReachableText: normalizeText(state.notReachableText) || undefined,
-  };
+  return { visible: state.visible, reachable: state.reachable, notReachableText: normalizeText(state.notReachableText) || undefined };
 }
 
 /* Variantes de texto */
@@ -207,15 +203,15 @@ function buildHotspotEntry(hotspot: Hotspot, indexes: SceneTestBuildIndexes): Sc
   };
 }
 
-function buildPlacedItemEntry(placedItem: PlacedItem, indexes: SceneTestBuildIndexes): SceneTestPlacedItemEntry {
+function buildPlacedItemEntry(placedItem: ItemInstance, indexes: SceneTestBuildIndexes): SceneTestPlacedItemEntry {
   return {
     type: "placedItem",
-    id: placedItem.id,
+    id: placedItem.itemInstanceId,
     label: normalizeText(placedItem.label) || "Item colocado",
     raw: placedItem,
     itemId: placedItem.itemId,
     itemName: indexes.itemNameById[placedItem.itemId] ?? unknownLabel("Item"),
-    initialState: buildInitialStateSummary(placedItem.initialState),
+    initialState: buildInitialStateSummary(placedItem.placement?.initialState),
     rules: formatRules(placedItem.rules, indexes),
   };
 }
@@ -281,41 +277,25 @@ function buildMapSummary(project: Project, node: Node): SceneTestMapSummary | un
   };
 }
 
-/* Música */
-function resolveMusicForScene(node: Node, activeLayer: SceneImageLayer | undefined, project: Project, indexes: SceneTestBuildIndexes): SceneTestResolvedMusicSummary | undefined {
-  if (activeLayer?.musicTrackId) {
-    return {
-      trackId: activeLayer.musicTrackId,
-      trackName: indexes.musicNameById[activeLayer.musicTrackId] ?? unknownLabel("Pista"),
-      source: "variante",
-    };
-  }
+/* Música efectiva de la capa inspeccionada */
+function resolveMusicForLayer(node: Node, layer: SceneImageLayer, project: Project, indexes: SceneTestBuildIndexes): SceneTestResolvedMusicSummary | undefined {
+  if (layer.musicTrackId) return { trackId: layer.musicTrackId, trackName: indexes.musicNameById[layer.musicTrackId] ?? unknownLabel("Pista"), source: "capa"  };
 
-  if (node.musicTrackId) {
-    return {
-      trackId: node.musicTrackId,
-      trackName: indexes.musicNameById[node.musicTrackId] ?? unknownLabel("Pista"),
-      source: "escena",
-    };
-  }
+  if (node.musicTrackId) return { trackId: node.musicTrackId, trackName: indexes.musicNameById[node.musicTrackId] ?? unknownLabel("Pista"), source: "escena" };
 
   const location = node.mapLocation;
   if (!location) return undefined;
 
-  const map = (project.maps ?? []).find((entry) => entry.id === location.mapId);
+  const map = project.maps.find((entry) => entry.id === location.mapId);
   const region = map?.regions.find((entry) => entry.id === location.regionId);
 
   if (!region?.musicTrackId) return undefined;
 
-  return {
-    trackId: region.musicTrackId,
-    trackName: indexes.musicNameById[region.musicTrackId] ?? unknownLabel("Pista"),
-    source: "mapa",
-  };
+  return { trackId: region.musicTrackId, trackName: indexes.musicNameById[region.musicTrackId] ?? unknownLabel("Pista"), source: "región"  };
 }
 
 /* Capa */
-function buildLayerEntry(layer: SceneImageLayer, layerIndex: number, layerCount: number,
+function buildLayerEntry(node: Node, layer: SceneImageLayer, layerIndex: number, layerCount: number,
   project: Project, indexes: SceneTestBuildIndexes): SceneTestLayerEntry {
   const textVariants = buildTextVariants(layer, indexes);
 
@@ -333,13 +313,14 @@ function buildLayerEntry(layer: SceneImageLayer, layerIndex: number, layerCount:
     placedPlayers: (layer.placedPlayers ?? []).map((entry) => buildPlacedPlayerEntry(entry, project, indexes)),
     musicTrackId: layer.musicTrackId,
     musicTrackName: layer.musicTrackId ? indexes.musicNameById[layer.musicTrackId] ?? unknownLabel("Pista") : undefined,
+    resolvedMusic: resolveMusicForLayer(node, layer, project, indexes),
   };
 }
 
 /* Escena */
 function buildSceneEntry(node: Node, sceneIndex: number, sceneCount: number, project: Project, indexes: SceneTestBuildIndexes): SceneTestSceneEntry {
   const layers = node.layers ?? [];
-  const layerEntries = layers.map((layer, index) => buildLayerEntry(layer, index, layers.length, project, indexes));
+  const layerEntries = layers.map((layer, index) =>  buildLayerEntry(node, layer, index, layers.length, project, indexes));
 
   const textVariantCount = layerEntries.reduce((acc, layer) => acc + layer.textVariants.length, 0);
 
@@ -354,7 +335,6 @@ function buildSceneEntry(node: Node, sceneIndex: number, sceneCount: number, pro
     textVariantCount,
     dialogueCount: (node.dialogues ?? []).length,
     map: buildMapSummary(project, node),
-    music: resolveMusicForScene(node, layers[0], project, indexes),
     layers: layerEntries,
     dialogues: (node.dialogues ?? []).map((dialogue) => buildDialogueEntry(dialogue, indexes)),
   };
@@ -367,9 +347,5 @@ export function buildSceneTestViewModel(project: Project | null): SceneTestViewM
   const indexes = buildIndexes(project);
   const scenes = (project.nodes ?? []).map((node, index) => buildSceneEntry(node, index, project.nodes.length, project, indexes));
 
-  return {
-    projectId: project.id,
-    projectTitle: normalizeText(project.title) || "Proyecto",
-    scenes,
-  };
+  return { projectId: project.id, projectTitle: normalizeText(project.title) || "Proyecto", scenes };
 }

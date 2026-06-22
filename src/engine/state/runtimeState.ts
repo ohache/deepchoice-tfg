@@ -1,50 +1,58 @@
-import type { Project, ID, PlaceableState, PlacedPlayerState, EndGameContent } from "@/domain/types";
+import type { ID, Project, PlaceableState, PlacedPlayerState, EndGameContent } from "@/domain/types";
 import { createInitialMusicRuntime, type MusicRuntimeState } from "@/engine/state/slices/musicSlice";
 
 export type DialoguePhase = "speaking" | "choosing";
 
+type RuntimeVarDef = {
+  id: ID;
+  type: "number" | "boolean";
+  initial: number | boolean;
+};
+
+type RuntimeVars = Record<ID, boolean | number>;
+
 /* Estado runtime del mapa durante la partida */
-export interface WorldMapRuntime {
+export type WorldMapRuntime = {
   isOpen: boolean;
   activeMapId?: ID;
   selectedRegionId?: ID;
   visibleRegionIdsByMap: Record<ID, ID[]>;
   unlockedRegionIdsByMap: Record<ID, ID[]>;
   currentRegionIdByMap: Record<ID, ID | undefined>;
-}
+};
 
 /* Entrada concreta del inventario */
-export interface InventoryEntry {
+export type InventoryEntry = {
   itemInstanceId: ID;
   itemId: ID;
   label?: string;
-}
+};
 
 /* Diálogo actualmente activo en el player */
-export interface ActiveDialogueState {
+export type ActiveDialogueState = {
   nodeId: ID;
   dialogueId: ID;
   currentNodeId: ID;
   phase: DialoguePhase;
-}
+};
 
 /* Estado runtime persistente de una escena concreta */
-export interface NodeRuntimeState {
+export type NodeRuntimeState = {
   hotspots: Record<ID, PlaceableState>;
   placedItems: Record<ID, PlaceableState>;
   placedNpcs: Record<ID, PlaceableState>;
   placedPlayers: Record<ID, PlacedPlayerState>;
-  placedPlayerImageId?: Record<ID, ID | undefined>;
-}
+  placedPlayerImageId: Record<ID, ID>;
+};
 
 /* Estado global de una partida en ejecución */
-export interface GameState {
+export type GameState = {
   project: Project;
   nodes: Record<ID, NodeRuntimeState>;
   currentNodeId: ID;
   visitedNodes: Record<ID, boolean>;
   activeDialogue?: ActiveDialogueState;
-  inventory: InventoryEntry[];
+  playerInventory: Record<ID, InventoryEntry[]>;
   hotspotVars: Record<ID, Record<ID, boolean | number>>;
   playerVars: Record<ID, Record<ID, boolean | number>>;
   npcInventory: Record<ID, InventoryEntry[]>;
@@ -54,15 +62,7 @@ export interface GameState {
   gameEnded: boolean;
   ending?: EndGameContent;
   endingLineIndex?: number;
-}
-
-type RuntimeVarDef = {
-  id: ID;
-  type: "number" | "boolean";
-  initial: number | boolean;
 };
-
-type RuntimeVars = Record<ID, boolean | number>;
 
 function createInitialMapRuntime(): WorldMapRuntime {
   return {
@@ -86,11 +86,25 @@ function initInventoryFromDefs(items?: { itemInstanceId: ID; itemId: ID; label?:
 function initVarsFromDefs(defs?: RuntimeVarDef[]): RuntimeVars {
   const vars: RuntimeVars = {};
 
-  for (const def of defs ?? []) {
-    vars[def.id] = def.initial;
-  }
+  for (const def of defs ?? []) vars[def.id] = def.initial;
 
   return vars;
+}
+
+function initPlayerInventory(project: Project): GameState["playerInventory"] {
+  const inventory: GameState["playerInventory"] = {};
+
+  for (const player of project.players ?? []) inventory[player.id] = initInventoryFromDefs(player.initialInventory);
+
+  return inventory;
+}
+
+function initNpcInventory(project: Project): GameState["npcInventory"] {
+  const inventory: GameState["npcInventory"] = {};
+
+  for (const npc of project.npcs ?? []) inventory[npc.id] = initInventoryFromDefs(npc.initialInventory);
+
+  return inventory;
 }
 
 /* Selecciona la escena inicial de la partida */
@@ -101,7 +115,7 @@ function pickStartNodeId(project: Project): ID {
 
   if (startNodes.length > 1) throw new Error("El proyecto tiene más de un nodo marcado como inicio.");
 
-  return (startNodes[0] ?? project.nodes[0]).id;
+  return startNodes[0]?.id ?? project.nodes[0]!.id;
 }
 
 /* Inicializa el runtime del mapa a partir de la localización de la escena inicial */
@@ -126,28 +140,18 @@ export function createInitialGameState(project: Project): GameState {
   const currentNodeId = pickStartNodeId(project);
 
   const playerVars: GameState["playerVars"] = {};
-  for (const player of project.players ?? []) {
-    playerVars[player.id] = initVarsFromDefs(player.vars);
-  }
-
-  const initialPlayerInventory = (project.players ?? []).flatMap((player) => initInventoryFromDefs(player.initialInventory));
+  for (const player of project.players ?? []) playerVars[player.id] = initVarsFromDefs(player.vars);
+  const playerInventory = initPlayerInventory(project);
 
   const npcVars: GameState["npcVars"] = {};
-  for (const npc of project.npcs ?? []) {
-    npcVars[npc.id] = initVarsFromDefs(npc.vars);
-  }
-
-  const npcInventory: GameState["npcInventory"] = {};
-
-  for (const npc of project.npcs ?? []) {
-    npcInventory[npc.id] = initInventoryFromDefs(npc.initialInventory);
-  }
+  for (const npc of project.npcs ?? []) npcVars[npc.id] = initVarsFromDefs(npc.vars);
+  const npcInventory = initNpcInventory(project);
 
   return {
     project,
     currentNodeId,
     activeDialogue: undefined,
-    inventory: initialPlayerInventory,
+    playerInventory,
     npcInventory,
     visitedNodes: { [currentNodeId]: true },
     hotspotVars: {},
@@ -183,7 +187,7 @@ export function ensureNodeRuntime(state: GameState, nodeId: ID): GameState {
   const placedItems: Record<ID, PlaceableState> = {};
   const placedNpcs: Record<ID, PlaceableState> = {};
   const placedPlayers: Record<ID, PlacedPlayerState> = {};
-  const placedPlayerImageId: Record<ID, ID | undefined> = {};
+  const placedPlayerImageId: Record<ID, ID> = {};
   const hotspotVarsForNode: GameState["hotspotVars"] = {};
 
   for (const layer of node.layers ?? []) {
@@ -193,7 +197,9 @@ export function ensureNodeRuntime(state: GameState, nodeId: ID): GameState {
     }
 
     for (const placedItem of layer.placedItems ?? []) {
-      placedItems[placedItem.id] = { ...placedItem.initialState };
+      if (!placedItem.placement) continue;
+
+      placedItems[placedItem.itemInstanceId] = { ...placedItem.placement.initialState };
     }
 
     for (const placedNpc of layer.placedNpcs ?? []) {
@@ -202,16 +208,11 @@ export function ensureNodeRuntime(state: GameState, nodeId: ID): GameState {
 
     for (const placedPlayer of layer.placedPlayers ?? []) {
       placedPlayers[placedPlayer.playerId] = { ...placedPlayer.initialState };
+      placedPlayerImageId[placedPlayer.playerId] = placedPlayer.initialImageId;
     }
   }
 
-  const nodeRuntime: NodeRuntimeState = {
-    hotspots,
-    placedItems,
-    placedNpcs,
-    placedPlayers,
-    placedPlayerImageId,
-  };
+  const nodeRuntime: NodeRuntimeState = { hotspots, placedItems, placedNpcs, placedPlayers, placedPlayerImageId };
 
   return {
     ...state,

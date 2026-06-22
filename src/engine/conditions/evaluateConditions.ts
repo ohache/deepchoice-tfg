@@ -1,5 +1,5 @@
-import type { BoolOp, Condition, NumberOp } from "@/domain/conditions";
 import type { ID } from "@/domain/types";
+import type { BoolOp, Condition, NumberOp } from "@/domain/conditions";
 import type { GameState, NodeRuntimeState } from "@/engine/state/runtimeState";
 
 function compareBool(actual: boolean, op: BoolOp, expected: boolean): boolean {
@@ -8,20 +8,19 @@ function compareBool(actual: boolean, op: BoolOp, expected: boolean): boolean {
 
 function compareNumber(actual: number, op: NumberOp, expected: number): boolean {
   switch (op) {
-    case "==":
-      return actual === expected;
-    case "!=":
-      return actual !== expected;
-    case ">":
-      return actual > expected;
-    case ">=":
-      return actual >= expected;
-    case "<":
-      return actual < expected;
-    case "<=":
-      return actual <= expected;
-    default:
-      return false;
+    case "==": return actual === expected;
+
+    case "!=": return actual !== expected;
+
+    case ">": return actual > expected;
+
+    case ">=": return actual >= expected;
+
+    case "<": return actual < expected;
+
+    case "<=": return actual <= expected;
+
+    default: return false;
   }
 }
 
@@ -64,6 +63,10 @@ function getPlacedItemRuntime(state: GameState, placedItemId: ID) {
   return findInMaterializedNodes(state, (nodeRuntime) => nodeRuntime.placedItems?.[placedItemId]);
 }
 
+function isMusicPlaying(state: GameState, trackId: ID): boolean {
+  return state.music.currentTrackId === trackId && state.music.status === "playing";
+}
+
 export function evaluateCondition(state: GameState, condition?: Condition): boolean {
   if (!condition) return true;
 
@@ -83,19 +86,12 @@ export function evaluateCondition(state: GameState, condition?: Condition): bool
     }
 
     case "hasItem": {
-      // Actualmente el motor mantiene un único inventario global del jugador.
-      // condition.playerId se conserva para coherencia con el editor, pero no se usa
-      // hasta que el runtime soporte inventarios separados por player.
-      const actual = state.inventory.some((entry) => entry.itemInstanceId === condition.itemInstanceId);
-
+      const actual = (state.playerInventory[condition.playerId] ?? []).some((entry) => entry.itemInstanceId === condition.itemInstanceId);
       return compareBool(actual, condition.op, condition.value);
     }
 
     case "npcHasItem": {
-      const actual = (state.npcInventory[condition.npcId] ?? []).some(
-        (entry) => entry.itemInstanceId === condition.itemInstanceId
-      );
-
+      const actual = (state.npcInventory[condition.npcId] ?? []).some((entry) => entry.itemInstanceId === condition.itemInstanceId);
       return compareBool(actual, condition.op, condition.value);
     }
 
@@ -131,12 +127,12 @@ export function evaluateCondition(state: GameState, condition?: Condition): bool
     }
 
     case "placedItemVisible": {
-      const actual = getPlacedItemRuntime(state, condition.placedItemId)?.visible ?? false;
+      const actual = getPlacedItemRuntime(state, condition.itemInstanceId)?.visible ?? false;
       return compareBool(actual, condition.op, condition.value);
     }
 
     case "placedItemReachable": {
-      const actual = getPlacedItemRuntime(state, condition.placedItemId)?.reachable ?? false;
+      const actual = getPlacedItemRuntime(state, condition.itemInstanceId)?.reachable ?? false;
       return compareBool(actual, condition.op, condition.value);
     }
 
@@ -156,9 +152,14 @@ export function evaluateCondition(state: GameState, condition?: Condition): bool
     }
 
     case "placedPlayerImage": {
-      const actualImageId = getNodeRuntime(state, condition.nodeId)?.placedPlayerImageId?.[condition.playerId];
+      const actualImageId = getNodeRuntime(state, condition.nodeId)?.placedPlayerImageId[condition.playerId];
       const actual = actualImageId === condition.imageId;
 
+      return compareBool(actual, condition.op, condition.value);
+    }
+
+    case "musicPlaying": {
+      const actual = isMusicPlaying(state, condition.trackId);
       return compareBool(actual, condition.op, condition.value);
     }
 
@@ -169,8 +170,5 @@ export function evaluateCondition(state: GameState, condition?: Condition): bool
 
       return compareBool(actual, condition.op, condition.value);
     }
-
-    default:
-      return false;
   }
 }

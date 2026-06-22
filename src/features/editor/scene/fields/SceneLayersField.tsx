@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ID, SceneImageLayer } from "@/domain/types";
+import { type Condition } from "@/domain/conditions";
 import { useEditorStore } from "@/store/editorStore";
 import { ToggleFieldBlock } from "@/features/editor/scene/SceneFieldBlocks";
 import { SceneVariantLabelField } from "@/features/editor/scene/fields/SceneVariantLabelField";
@@ -7,14 +8,15 @@ import { SceneImageField } from "@/features/editor/scene/fields/SceneImageField"
 import { SceneTextField } from "@/features/editor/scene/fields/SceneTextField";
 import { SceneHotspotField } from "@/features/editor/scene/hotspots/SceneHotspotField";
 import { ScenePlacedItemField } from "@/features/editor/scene/placedItems/ScenePlacedItemField";
-import { type LayerToggleFieldId } from "@/features/editor/scene/SceneCommon";
-import { SceneVariantList } from "@/components/SceneVariantsSection";
-import { isEmptyCondition } from "@/features/editor/core/editorGenericSlice";
-import { ConditionBuilder, type Condition } from "@/domain/conditions";
-import { ConditionBuilderModal } from "@/features/editor/scene/rules/conditions/ConditionBuilderModal";
 import { ScenePlacedPlayerField } from "@/features/editor/scene/placedPlayers/ScenePlacedPlayerField";
 import { ScenePlacedNpcField } from "@/features/editor/scene/placedNpcs/ScenePlacedNpcField";
 import { SceneMusicField } from "@/features/editor/scene/music/SceneMusicField";
+import type { LayerToggleFieldId } from "@/features/editor/scene/SceneCommon";
+import { SceneVariantList } from "@/components/SceneVariantsSection";
+import { buildVariantItems, cloneLayer, emptyCondition, findLayerById, getPendingField, hasDuplicateLayerLabel, hasRealLayerCondition,
+  isBaseLayer, layerSnapshotPatch, pendingTargetExists, sameId } from "@/features/editor/scene/fields/layerHelpers";
+import { isEmptyCondition } from "@/shared/helpers";
+import { ConditionBuilderModal } from "@/features/editor/scene/rules/conditions/ConditionBuilderModal";
 import { commitActiveInteractiveDrafts } from "@/features/editor/scene/interactiveComponents/interactiveDraftGuards";
 import { toast } from "@/shared/toast/toastStore";
 
@@ -24,63 +26,6 @@ type SceneLayersFieldProps = {
   onTextPreview?: (text: string | null) => void;
   onClearTextPreview?: () => void;
 };
-
-/* Clonado seguro del snapshot de una capa para restaurarla al cancelar */
-function cloneLayer(layer: SceneImageLayer): SceneImageLayer {
-  return JSON.parse(JSON.stringify(layer));
-}
-
-/* Busca una capa por id dentro de la lista actual */
-function findLayerById(layers: SceneImageLayer[], layerId: ID | null): SceneImageLayer | null {
-  if (!layerId) return null;
-  return layers.find((layer) => String(layer.id) === String(layerId)) ?? null;
-}
-
-function normalizeLayerLabel(label: string | null | undefined): string {
-  return (label ?? "").trim().toLowerCase();
-}
-
-function isBaseLayer(layerId: ID | null, baseLayerId: ID | null): boolean {
-  return Boolean(layerId && baseLayerId && String(layerId) === String(baseLayerId));
-}
-
-function hasRealLayerCondition(layer: SceneImageLayer | null): boolean {
-  return Boolean(layer?.when && !isEmptyCondition(layer.when));
-}
-
-/* Convierte capas guardadas a items para la lista visual */
-function buildVariantItems(layers: SceneImageLayer[]) {
-  return layers.map((layer) => ({ id: layer.id, label: layer.label ?? "" }));
-}
-
-/* Detecta duplicados de nombre excluyendo la capa que se está editando */
-function hasDuplicateLayerLabel(layers: SceneImageLayer[], currentLabel: string, editingLayerId: ID | null): boolean {
-  const normalizedCurrentLabel = normalizeLayerLabel(currentLabel);
-  if (!normalizedCurrentLabel) return false;
-
-  return layers.some((layer) => {
-    if (editingLayerId && String(layer.id) === String(editingLayerId)) return false;
-    return normalizeLayerLabel(layer.label) === normalizedCurrentLabel;
-  });
-}
-
-function getPendingField(kind: "hotspot" | "placedItem" | "placedNpc" | "placedPlayer"): LayerToggleFieldId {
-  switch (kind) {
-    case "hotspot": return "hotspots";
-    case "placedItem": return "placedItems";
-    case "placedNpc": return "placedNpcs";
-    case "placedPlayer": return "placedPlayers";
-  }
-}
-
-function pendingTargetExists(layer: SceneImageLayer, pending: { kind: "hotspot" | "placedItem" | "placedNpc" | "placedPlayer"; id: ID }): boolean {
-  switch (pending.kind) {
-    case "hotspot": return (layer.hotspots ?? []).some((item) => String(item.id) === String(pending.id));
-    case "placedItem": return (layer.placedItems ?? []).some((item) => String(item.id) === String(pending.id));
-    case "placedNpc": return (layer.placedNpcs ?? []).some((item) => String(item.npcId) === String(pending.id));
-    case "placedPlayer": return (layer.placedPlayers ?? []).some((item) => String(item.playerId) === String(pending.id));
-  }
-}
 
 export function SceneLayersField({ active, onToggle, onTextPreview, onClearTextPreview }: SceneLayersFieldProps) {
   const nodeDraft = useEditorStore((state) => state.nodeDraft);
@@ -129,71 +74,93 @@ export function SceneLayersField({ active, onToggle, onTextPreview, onClearTextP
   const setSelectedInteractionId = useEditorStore((state) => state.setSelectedInteractionId);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const layerLabelInputRef = useRef<HTMLInputElement | null>(null);
+  const layerTextAreaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const [creating, setCreating] = useState(false);
   const [draftLabel, setDraftLabel] = useState("");
 
   const [openLayerCondModal, setOpenLayerCondModal] = useState(false);
-  const [layerCondDraft, setLayerCondDraft] = useState<Condition>(ConditionBuilder.and());
+  const [layerCondDraft, setLayerCondDraft] = useState<Condition>(emptyCondition);
 
   const layers = useMemo<SceneImageLayer[]>(() => nodeDraft?.layers ?? [], [nodeDraft?.layers]);
-
   const baseLayerId = layers[0]?.id ?? null;
 
   const isEditing = layerEditSession.mode === "editing";
   const isNewEditing = isEditing && layerEditSession.isNew;
-  const editingLayerId = layerEditSession.mode === "editing" ? layerEditSession.layerId : null;
+  const editingLayerId = isEditing ? layerEditSession.layerId : null;
 
   const editingLayer = useMemo(() => findLayerById(layers, editingLayerId), [layers, editingLayerId]);
-
-  const activeLayer = useMemo(() => findLayerById(layers, activeLayerId), [layers, activeLayerId]);
 
   const editorOpen = creating || isEditing;
   const isLocked = editorOpen;
 
-  const currentLayer = editorOpen ? editingLayer : activeLayer;
-  const layerLabelInputRef = useRef<HTMLInputElement | null>(null);
-  const layerTextAreaRef = useRef<HTMLTextAreaElement | null>(null);
-
-  const currentLabel = creating ? draftLabel : editingLayer?.label ?? "";
-  const canShowRest = Boolean(editingLayer?.assetId);
+  const currentLabel = creating ? draftLabel : (editingLayer?.label ?? "");
+  const canShowLayerContent = Boolean(editingLayer?.assetId);
   const variantItems = useMemo(() => buildVariantItems(layers), [layers]);
 
-  const currentLayerIsBase = isBaseLayer(currentLayer?.id ?? null, baseLayerId);
+  const editingLayerIsBase = isBaseLayer(editingLayer?.id ?? null, baseLayerId);
   const editingLayerHasCondition = hasRealLayerCondition(editingLayer);
 
   const hasDuplicateCurrentLabel = useMemo(() => hasDuplicateLayerLabel(layers, currentLabel, editingLayerId), [layers, currentLabel, editingLayerId]);
 
+  const liveProject = useMemo(() => {
+    if (!project) return null;
+    if (!nodeDraft) return project;
+
+    const nodes = project.nodes ?? [];
+    const index = nodes.findIndex((node) => sameId(node.id, nodeDraft.id));
+
+    if (index < 0) return { ...project, nodes: [...nodes, nodeDraft] };
+
+    const nextNodes = [...nodes];
+    nextNodes[index] = nodeDraft;
+
+    return { ...project, nodes: nextNodes };
+  }, [project, nodeDraft]);
+
   /* Mantiene una capa activa válida al cambiar la lista */
   useEffect(() => {
-    if (!active) return;
-    if (editorOpen) return;
+    if (!active || editorOpen) return;
 
     if (!layers.length) {
       if (activeLayerId) setActiveLayerId(null);
       return;
     }
 
-    const exists = activeLayerId && layers.some((layer) => String(layer.id) === String(activeLayerId));
+    const activeLayerStillExists = layers.some((layer) => sameId(layer.id, activeLayerId));
 
-    if (!exists) {
+    if (!activeLayerStillExists) {
       setActiveLayerId(layers[0]!.id);
       setActiveLayerField(null);
     }
   }, [active, editorOpen, layers, activeLayerId, setActiveLayerId, setActiveLayerField]);
 
+  /* Mientras se edita una capa, esa capa debe ser la activa */
   useEffect(() => {
-    if (!active) return;
-    if (!isEditing) return;
-    if (!editingLayerId) return;
-
-    if (String(activeLayerId) !== String(editingLayerId)) setActiveLayerId(editingLayerId);
+    if (!active || !isEditing || !editingLayerId) return;
+    if (!sameId(activeLayerId, editingLayerId)) setActiveLayerId(editingLayerId);
   }, [active, isEditing, editingLayerId, activeLayerId, setActiveLayerId]);
 
-  /* Al abrir el editor de capa, foco al nombre */
+  /* Si una capa en edición desaparece tras confirmar su borrado, cierra la sesión de edición */
   useEffect(() => {
-    if (!active || !editorOpen) return;
-    if (activeLayerField !== "name") return;
+    if (!active || !isEditing || !editingLayerId) return;
+
+    const stillExists = layers.some((layer) => sameId(layer.id, editingLayerId));
+    if (stillExists) return;
+
+    setCreating(false);
+    setDraftLabel("");
+    clearLayerEditSession();
+    setActiveLayerField(null);
+    onClearTextPreview?.();
+
+    const nextActiveLayerId = layers[0]?.id ?? null;
+    setActiveLayerId(nextActiveLayerId);
+  }, [active, isEditing, editingLayerId, layers, clearLayerEditSession, setActiveLayerField, setActiveLayerId, onClearTextPreview]);
+
+  useEffect(() => {
+    if (!active || !editorOpen || activeLayerField !== "name") return;
 
     requestAnimationFrame(() => {
       layerLabelInputRef.current?.focus();
@@ -201,10 +168,8 @@ export function SceneLayersField({ active, onToggle, onTextPreview, onClearTextP
     });
   }, [active, editorOpen, activeLayerField]);
 
-  /* Al abrir el bloque de texto, foco al textarea */
   useEffect(() => {
-    if (!active || !editorOpen) return;
-    if (activeLayerField !== "text") return;
+    if (!active || !editorOpen || activeLayerField !== "text") return;
 
     requestAnimationFrame(() => {
       layerTextAreaRef.current?.focus();
@@ -215,19 +180,12 @@ export function SceneLayersField({ active, onToggle, onTextPreview, onClearTextP
   /* Sincroniza el draft de condición con la capa en edición */
   useEffect(() => {
     if (!editorOpen) return;
-
-    if (editingLayer) {
-      setLayerCondDraft(editingLayer.when ?? ConditionBuilder.and());
-      return;
-    }
-
-    setLayerCondDraft(ConditionBuilder.and());
+    setLayerCondDraft(editingLayer?.when ?? emptyCondition());
   }, [editorOpen, editingLayer?.id, editingLayer?.when]);
 
+  /* Abrir un subpanel de una capa guardada entra automáticamente en edición */
   useEffect(() => {
-    if (!active) return;
-    if (!activeLayerId) return;
-    if (!activeLayerField) return;
+    if (!active || !activeLayerId || !activeLayerField) return;
     if (creating || isEditing) return;
 
     const targetLayer = findLayerById(layers, activeLayerId);
@@ -236,13 +194,11 @@ export function SceneLayersField({ active, onToggle, onTextPreview, onClearTextP
     setLayerEditSession({ mode: "editing", layerId: activeLayerId, isNew: false, snapshot: cloneLayer(targetLayer) });
   }, [active, activeLayerId, activeLayerField, creating, isEditing, layers, setLayerEditSession]);
 
+  /* Tras crear un elemento interactivo, abre su editor dentro del subpanel correspondiente */
   useEffect(() => {
-    if (!active) return;
-    if (!pendingInteractiveOpen) return;
-    if (!activeLayerId) return;
-    if (!editorOpen || !isEditing) return;
-    if (!editingLayer) return;
-    if (String(editingLayer.id) !== String(activeLayerId)) return;
+    if (!active || !pendingInteractiveOpen || !activeLayerId) return;
+    if (!editorOpen || !isEditing || !editingLayer) return;
+    if (!sameId(editingLayer.id, activeLayerId)) return;
 
     const targetField = getPendingField(pendingInteractiveOpen.kind);
     if (activeLayerField !== targetField) return;
@@ -251,44 +207,34 @@ export function SceneLayersField({ active, onToggle, onTextPreview, onClearTextP
     clearPendingInteractiveOpen();
     if (!exists) return;
 
+    setSelectedInteractionKind(pendingInteractiveOpen.kind);
+    setSelectedInteractionId(pendingInteractiveOpen.id);
+
     switch (pendingInteractiveOpen.kind) {
       case "hotspot":
-        setSelectedInteractionKind("hotspot");
-        setSelectedInteractionId(pendingInteractiveOpen.id);
         editHotspot(pendingInteractiveOpen.id);
         return;
-
       case "placedItem":
-        setSelectedInteractionKind("placedItem");
-        setSelectedInteractionId(pendingInteractiveOpen.id);
         editPlacedItem(pendingInteractiveOpen.id);
         return;
-
       case "placedNpc":
-        setSelectedInteractionKind("placedNpc");
-        setSelectedInteractionId(pendingInteractiveOpen.id);
         editPlacedNpc(pendingInteractiveOpen.id);
         return;
-
       case "placedPlayer":
-        setSelectedInteractionKind("placedPlayer");
-        setSelectedInteractionId(pendingInteractiveOpen.id);
         editPlacedPlayer(pendingInteractiveOpen.id);
         return;
     }
-  }, [active, pendingInteractiveOpen, activeLayerId, editorOpen, isEditing, activeLayerField, editingLayer, setSelectedInteractionKind,
-    setSelectedInteractionId, editHotspot, editPlacedItem, editPlacedNpc, editPlacedPlayer, clearPendingInteractiveOpen]);
+  }, [active, pendingInteractiveOpen, activeLayerId, editorOpen, isEditing, activeLayerField, editingLayer, setSelectedInteractionKind, setSelectedInteractionId,
+    editHotspot, editPlacedItem, editPlacedNpc, editPlacedPlayer, clearPendingInteractiveOpen]);
 
-  /* Limpieza segura de asset huérfano */
-  function cleanupAssetSafe(assetId: ID | null | undefined) {
+  function cleanupBackgroundAssetSafe(assetId: ID | null | undefined): void {
     if (!assetId) return;
 
     try { removeBackgroundAsset(assetId) }
     catch { }
   }
 
-  /* Intenta consolidar drafts interactivos antes de cambiar de subpanel */
-  function commitActiveInteractiveDraft(): boolean {
+  function commitCurrentInteractiveDraft(): boolean {
     return commitActiveInteractiveDrafts({
       hotspotEditorMode: hotspotEditor.mode,
       placedItemEditorMode: placedItemEditor.mode,
@@ -307,35 +253,34 @@ export function SceneLayersField({ active, onToggle, onTextPreview, onClearTextP
     });
   }
 
-  /* En capas no-base la condición es obligatoria */
   function ensureLayerConditionIfRequired(): boolean {
-    if (!editingLayer) return true;
-    if (isBaseLayer(editingLayer.id, baseLayerId)) return true;
+    if (!editingLayer || isBaseLayer(editingLayer.id, baseLayerId)) return true;
 
-    const when = editingLayer.when ?? null;
-    if (when && !isEmptyCondition(when)) return true;
+    if (editingLayer.when && !isEmptyCondition(editingLayer.when)) return true;
 
     toast.error("Falta condición", "En capas no-base necesitas añadir al menos una condición para poder guardar.");
     return false;
   }
 
-  /* Valida si se puede abandonar el subpanel actual */
+  function ensureCurrentLayerHasImage(): boolean {
+    if (!editingLayer || editingLayer.assetId) return true;
+
+    toast.error("Falta imagen", "La capa necesita una imagen.");
+    return false;
+  }
+
   function canLeaveCurrentLayerField(): boolean {
     if (!editingLayer) return true;
 
     switch (activeLayerField) {
       case "image":
-        if (!editingLayer.assetId) {
-          toast.error("Falta imagen", "La capa necesita una imagen.");
-          return false;
-        }
-        return true;
+        return ensureCurrentLayerHasImage();
 
       case "hotspots":
       case "placedItems":
       case "placedNpcs":
       case "placedPlayers":
-        return commitActiveInteractiveDraft();
+        return commitCurrentInteractiveDraft();
 
       case "name":
       case "text":
@@ -345,22 +290,13 @@ export function SceneLayersField({ active, onToggle, onTextPreview, onClearTextP
     }
   }
 
-  /* Valida si se puede abandonar el editor local de capa */
   function canLeaveCurrentLayerEditor(): boolean {
     if (!editorOpen) return true;
-    if (!commitActiveInteractiveDraft()) return false;
-
-    if (editingLayer && !editingLayer.assetId) {
-      toast.error("Falta imagen", "La capa necesita una imagen.");
-      return false;
-    }
-
-    if (editingLayer && !ensureLayerConditionIfRequired()) return false;
-
-    return true;
+    if (!commitCurrentInteractiveDraft()) return false;
+    if (!ensureCurrentLayerHasImage()) return false;
+    return ensureLayerConditionIfRequired();
   }
 
-  /* Toggle seguro de subpaneles internos */
   function handleToggleLayerField(nextField: LayerToggleFieldId) {
     if (!editorOpen) {
       setActiveLayerField(activeLayerField === nextField ? null : nextField);
@@ -377,25 +313,24 @@ export function SceneLayersField({ active, onToggle, onTextPreview, onClearTextP
     setActiveLayerField(nextField);
   }
 
-  /* Entra en edición de una capa ya existente */
   function enterEdit(layerId: ID, isNew: boolean) {
     const layer = findLayerById(layers, layerId);
     if (!layer) return;
 
     setActiveLayerId(layerId);
     if (!activeLayerField) setActiveLayerField("name");
+
     setLayerEditSession({ mode: "editing", layerId, isNew, snapshot: cloneLayer(layer) });
   }
 
-  /* Cierra el editor local y limpia estado efímero */
   function exitEdit() {
     setCreating(false);
     setDraftLabel("");
     clearLayerEditSession();
     setActiveLayerField(null);
+    onClearTextPreview?.();
   }
 
-  /* Arranca creación de nueva capa */
   function handleAdd() {
     if (isLocked) return;
 
@@ -404,20 +339,18 @@ export function SceneLayersField({ active, onToggle, onTextPreview, onClearTextP
     setActiveLayerField("name");
   }
 
-  /* Cancela edición local y restaura snapshot si procede */
-  function handleCancel() {
-    if (creating) {
-      setCreating(false);
-      setDraftLabel("");
-      setActiveLayerField(null);
-      return;
-    }
+  function handleCancelCreation() {
+    setCreating(false);
+    setDraftLabel("");
+    setActiveLayerField(null);
+    onClearTextPreview?.();
+  }
 
-    if (!isEditing) {
-      exitEdit();
-      return;
-    }
+  function restoreExistingLayerSnapshot(layerId: ID, snapshot: SceneImageLayer) {
+    updateNodeLayer(layerId, layerSnapshotPatch(snapshot));
+  }
 
+  function handleCancelExistingEdit() {
     if (layerEditSession.mode !== "editing") {
       exitEdit();
       return;
@@ -425,8 +358,7 @@ export function SceneLayersField({ active, onToggle, onTextPreview, onClearTextP
 
     if (layerEditSession.isNew) {
       const current = findLayerById(layers, layerEditSession.layerId);
-      cleanupAssetSafe(current?.assetId);
-
+      cleanupBackgroundAssetSafe(current?.assetId);
       removeNodeLayer(layerEditSession.layerId, { withConfirmation: false });
       exitEdit();
       return;
@@ -438,29 +370,30 @@ export function SceneLayersField({ active, onToggle, onTextPreview, onClearTextP
     const currentAssetId = current?.assetId ?? null;
     const snapshotAssetId = snapshot.assetId ?? null;
 
-    if (currentAssetId && currentAssetId !== snapshotAssetId) cleanupAssetSafe(currentAssetId);
+    if (currentAssetId && currentAssetId !== snapshotAssetId) cleanupBackgroundAssetSafe(currentAssetId);
 
-    updateNodeLayer(layerEditSession.layerId, {
-      assetId: snapshot.assetId,
-      label: snapshot.label,
-      when: snapshot.when,
-      dock: snapshot.dock,
-      text: snapshot.text,
-      hotspots: snapshot.hotspots,
-      placedItems: snapshot.placedItems,
-      placedNpcs: snapshot.placedNpcs,
-      placedPlayers: snapshot.placedPlayers,
-      musicTrackId: snapshot.musicTrackId,
-    });
-
+    restoreExistingLayerSnapshot(layerEditSession.layerId, snapshot);
     exitEdit();
   }
 
-  /* Guarda la capa actual */
-  function handleSave() {
-    if (!commitActiveInteractiveDraft()) return;
+  function handleCancel() {
+    if (creating) {
+      handleCancelCreation();
+      return;
+    }
 
-    const nextLabel = (creating ? draftLabel : editingLayer?.label ?? "").trim();
+    if (!isEditing) {
+      exitEdit();
+      return;
+    }
+
+    handleCancelExistingEdit();
+  }
+
+  function handleSave() {
+    if (!commitCurrentInteractiveDraft()) return;
+
+    const nextLabel = currentLabel.trim();
 
     if (!nextLabel) {
       toast.error("Falta etiqueta", "La capa necesita una etiqueta.");
@@ -477,33 +410,31 @@ export function SceneLayersField({ active, onToggle, onTextPreview, onClearTextP
       return;
     }
 
-    if (editingLayer && !ensureLayerConditionIfRequired()) return;
+    if (!ensureCurrentLayerHasImage()) return;
+    if (!ensureLayerConditionIfRequired()) return;
 
     exitEdit();
   }
 
-  /* Borra la capa actualmente editada */
-function handleDelete() {
-  if (layerEditSession.mode !== "editing") return;
+  function handleDelete() {
+    if (layerEditSession.mode !== "editing") return;
+    removeNodeLayer(layerEditSession.layerId, { withConfirmation: true });
+  }
 
-  removeNodeLayer(layerEditSession.layerId, { withConfirmation: true });
-}
+  function getFreshLayer(layerId: ID): SceneImageLayer | null {
+    return findLayerById(useEditorStore.getState().nodeDraft?.layers ?? [], layerId);
+  }
 
-  /* Recibe un asset ya subido/seleccionado para la capa */
   function handleCommitAssetId(nextAssetId: ID) {
     if (creating) {
       const label = draftLabel.trim() || `Capa ${layers.length + 1}`;
       const createdId = addNodeLayer({ assetId: nextAssetId, label });
       if (!createdId) return;
 
-      setActiveLayerId(createdId);
-
-      const freshLayer = findLayerById(
-        useEditorStore.getState().nodeDraft?.layers ?? [],
-        createdId
-      );
+      const freshLayer = getFreshLayer(createdId);
       if (!freshLayer) return;
 
+      setActiveLayerId(createdId);
       setLayerEditSession({ mode: "editing", layerId: createdId, isNew: true, snapshot: cloneLayer(freshLayer) });
 
       setCreating(false);
@@ -515,20 +446,14 @@ function handleDelete() {
     if (!editingLayer) return;
 
     const prevAssetId = editingLayer.assetId ?? null;
+    const snapshotAssetId = isEditing ? (layerEditSession.snapshot.assetId ?? null) : null;
+    const prevWasSnapshotAsset = Boolean(snapshotAssetId && prevAssetId === snapshotAssetId);
 
-    if (isNewEditing && prevAssetId && prevAssetId !== nextAssetId) cleanupAssetSafe(prevAssetId);
-
-    if (!isNewEditing && prevAssetId && prevAssetId !== nextAssetId) {
-      const snapshotAssetId = layerEditSession.mode === "editing" ? layerEditSession.snapshot.assetId ?? null : null;
-      const prevIsSnapshot = snapshotAssetId && prevAssetId === snapshotAssetId;
-
-      if (!prevIsSnapshot) cleanupAssetSafe(prevAssetId);
-    }
+    if (prevAssetId && prevAssetId !== nextAssetId && (isNewEditing || !prevWasSnapshotAsset)) cleanupBackgroundAssetSafe(prevAssetId);
 
     setLayerAssetId(nextAssetId);
   }
 
-  /* Reordena capas, manteniendo la base fijada en primera posición */
   function handleReorderLayers(fromIndex: number, toIndex: number) {
     if (fromIndex === 0 || toIndex === 0) return;
     if (fromIndex < 0 || toIndex < 0) return;
@@ -536,6 +461,39 @@ function handleDelete() {
 
     reorderNodeLayers(fromIndex, toIndex);
     toast.success("Orden actualizado", "Se ha actualizado la prioridad de las capas.");
+  }
+
+  function handleSelectVariant(id: ID) {
+    if (!canLeaveCurrentLayerEditor()) return;
+    setActiveLayerId(id);
+    setActiveLayerField(null);
+    onClearTextPreview?.();
+  }
+
+  function handleEditVariant(id: ID) {
+    if (!canLeaveCurrentLayerEditor()) return;
+    enterEdit(id, false);
+  }
+
+  function handleSaveLayerCondition(nextCondition: Condition) {
+    if (!editingLayer) {
+      toast.error("No se pudo guardar", "No hay capa activa.");
+      setOpenLayerCondModal(false);
+      return;
+    }
+
+    const whenToSave = isEmptyCondition(nextCondition) ? undefined : nextCondition;
+    updateNodeLayer(editingLayer.id, { when: whenToSave });
+
+    setLayerCondDraft(nextCondition);
+    setOpenLayerCondModal(false);
+
+    toast.success("Condición guardada", "La condición se ha aplicado a la capa.");
+  }
+
+  function handleLabelChange(next: string) {
+    if (creating) setDraftLabel(next);
+    else setLayerLabel(next);
   }
 
   return (
@@ -565,15 +523,8 @@ function handleDelete() {
               variants={variantItems}
               isItemDraggable={(id) => !isBaseLayer(id, baseLayerId)}
               onReorder={handleReorderLayers}
-              onSelectVariant={(id) => {
-                if (!canLeaveCurrentLayerEditor()) return;
-                setActiveLayerId(id);
-                setActiveLayerField(null);
-              }}
-              onEditVariant={(id) => {
-                if (!canLeaveCurrentLayerEditor()) return;
-                enterEdit(id, false);
-              }}
+              onSelectVariant={handleSelectVariant}
+              onEditVariant={handleEditVariant}
             />
           ) : null}
 
@@ -585,13 +536,7 @@ function handleDelete() {
                 active={activeLayerField === "name"}
                 onToggle={() => handleToggleLayerField("name")}
                 inputRef={layerLabelInputRef}
-                onChange={(next) => {
-                  if (creating) {
-                    setDraftLabel(next);
-                    return;
-                  }
-                  setLayerLabel(next);
-                }}
+                onChange={handleLabelChange}
                 onEnterDone={() => handleToggleLayerField("image")}
               />
 
@@ -604,13 +549,13 @@ function handleDelete() {
                 onCommitAssetId={handleCommitAssetId}
                 dock={editingLayer?.dock ?? "bottom"}
                 onDockChange={setLayerDock}
-                showAddCondition={Boolean(canShowRest && editingLayer && !currentLayerIsBase)}
+                showAddCondition={Boolean(canShowLayerContent && editingLayer && !editingLayerIsBase)}
                 addConditionLabel={editingLayerHasCondition ? "Editar condición" : "+ Añadir condición"}
                 addConditionTitle={editingLayerHasCondition ? "Editar condición de la capa" : "Añadir condición (obligatoria en capas no-base)"}
                 onAddCondition={() => setOpenLayerCondModal(true)}
               />
 
-              {canShowRest && editingLayer ? (
+              {canShowLayerContent && editingLayer ? (
                 <>
                   <SceneTextField
                     active={activeLayerField === "text"}
@@ -688,30 +633,14 @@ function handleDelete() {
             </div>
           ) : null}
         </div>
-
-
       </ToggleFieldBlock>
 
       <ConditionBuilderModal
         open={openLayerCondModal}
-        project={project}
+        project={liveProject}
         value={layerCondDraft}
         onClose={() => setOpenLayerCondModal(false)}
-        onSave={(nextCondition) => {
-          if (!editingLayer) {
-            toast.error("No se pudo guardar", "No hay capa activa.");
-            setOpenLayerCondModal(false);
-            return;
-          }
-
-          const whenToSave = isEmptyCondition(nextCondition) ? undefined : nextCondition;
-          updateNodeLayer(editingLayer.id, { when: whenToSave });
-
-          setLayerCondDraft(nextCondition);
-          setOpenLayerCondModal(false);
-
-          toast.success("Condición guardada", "La condición se ha aplicado a la capa.");
-        }}
+        onSave={handleSaveLayerCondition}
       />
     </>
   );

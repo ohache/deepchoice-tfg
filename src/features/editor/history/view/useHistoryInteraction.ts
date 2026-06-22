@@ -1,22 +1,42 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import type { ID, NodeLayout } from "@/domain/types";
 import { NODE_SIZE } from "@/features/editor/history/view/historyViewTypes";
 import { ORIGIN, VIEW_CONFIG, MIN_WORLD_X, MIN_WORLD_Y, nodeRectWorld, rectsIntersect, shareSameTile, snapToNodeSlotNearest } from "@/features/editor/history/view/historyViewGeometry";
 
 type GraphNodeRef = { id: ID; pos: NodeLayout };
 
+type Viewport = { w: number; h: number };
+
+type ScreenPoint = { x: number; y: number };
+
+type SelectionBox = { x: number; y: number; w: number; h: number };
+
+type NodeLayoutBatchItem = {
+  id: ID;
+  pos: NodeLayout;
+};
+
+type UseHistoryInteractionArgs = {
+  graphNodes: GraphNodeRef[];
+  scale: number;
+  projectId: string | undefined;
+  primaryMode: string;
+  secondaryMode: string;
+  updateNodeLayoutsBatch: (items: NodeLayoutBatchItem[]) => void;
+};
+
 type DragState = {
   pointerId: number;
-  startClient: { x: number; y: number };
+  startClient: ScreenPoint;
   startPosWorldById: Map<ID, NodeLayout>;
   lastRawById: Map<ID, NodeLayout>;
   dragging: boolean;
-  lastClient: { x: number; y: number };
+  lastClient: ScreenPoint;
 };
 
 type SelectionState = {
   pointerId: number;
-  startScreen: { x: number; y: number };
+  startScreen: ScreenPoint;
   active: boolean;
 };
 
@@ -33,13 +53,13 @@ type AutoScrollState = {
   lastTs: number;
 };
 
-function buildSnappedNodePosMap(graphNodes: GraphNodeRef[]) {
+function buildSnappedNodePosMap(graphNodes: GraphNodeRef[]): Map<ID, NodeLayout> {
   const map = new Map<ID, NodeLayout>();
   for (const n of graphNodes) map.set(n.id, snapToNodeSlotNearest(n.pos));
   return map;
 }
 
-function computeEdgeSpeed(client: number, min: number, max: number, margin: number, maxSpeed: number) {
+function computeEdgeSpeed(client: number, min: number, max: number, margin: number, maxSpeed: number): number {
   if (client < min + margin) {
     const t = (min + margin - client) / margin;
     return -maxSpeed * Math.min(1, t * t);
@@ -53,7 +73,7 @@ function computeEdgeSpeed(client: number, min: number, max: number, margin: numb
   return 0;
 }
 
-function hasInvalidDrop(args: { finalById: Map<ID, NodeLayout>; nodePos: Map<ID, NodeLayout> }) {
+function hasInvalidDrop(args: { finalById: Map<ID, NodeLayout>; nodePos: Map<ID, NodeLayout> }): boolean {
   const { finalById, nodePos } = args;
 
   let invalid = false;
@@ -78,21 +98,28 @@ function hasInvalidDrop(args: { finalById: Map<ID, NodeLayout>; nodePos: Map<ID,
   return invalid;
 }
 
-export function useHistoryInteraction(args: { graphNodes: GraphNodeRef[]; scale: number; projectId: string | undefined; primaryMode: string;
-  secondaryMode: string; updateNodeLayoutsBatch: (items: Array<{ id: ID; pos: { x: number; y: number } }>) => void }) {
+function setPointerCaptureSafely(target: Element, pointerId: number): void {
+  try { target.setPointerCapture(pointerId) }
+  catch {}
+}
+
+function releasePointerCaptureSafely(target: Element, pointerId: number): void {
+  try { target.releasePointerCapture(pointerId) }
+  catch { }
+}
+
+export function useHistoryInteraction(args: UseHistoryInteractionArgs) {
   const { graphNodes, scale, projectId, primaryMode, secondaryMode, updateNodeLayoutsBatch } = args;
 
   const scrollHostRef = useRef<HTMLElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
 
-  const [viewport, setViewport] = useState({ w: 1200, h: 800 });
+  const [viewport, setViewport] = useState<Viewport>({ w: 1200, h: 800 });
 
   const [selected, setSelected] = useState<Set<ID>>(() => new Set());
   const selectedRef = useRef<Set<ID>>(new Set());
 
-  useEffect(() => {selectedRef.current = selected;}, [selected]);
-
-  const [selectionBox, setSelectionBox] = useState<null | { x: number; y: number; w: number; h: number }>(null);
+  const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null);
 
   const [nodePos, setNodePos] = useState(() => buildSnappedNodePosMap(graphNodes));
   const [isPanning, setIsPanning] = useState(false);
@@ -103,7 +130,9 @@ export function useHistoryInteraction(args: { graphNodes: GraphNodeRef[]; scale:
 
   const autoScrollRef = useRef<AutoScrollState>({ raf: null, vx: 0, vy: 0, lastTs: 0 });
 
-  const getScrollEl = () => scrollHostRef.current;
+  const getScrollEl = (): HTMLElement | null => scrollHostRef.current;
+
+  useEffect(() => {selectedRef.current = selected;}, [selected]);
 
   const clearSelectionInteraction = () => {
     selectStateRef.current = null;
@@ -139,7 +168,7 @@ export function useHistoryInteraction(args: { graphNodes: GraphNodeRef[]; scale:
     };
   };
 
-  const clientToSvgScreen = (clientX: number, clientY: number) => {
+  const clientToSvgScreen = (clientX: number, clientY: number): ScreenPoint => {
     const svgEl = svgRef.current;
     if (!svgEl) return { x: 0, y: 0 };
 
@@ -147,13 +176,12 @@ export function useHistoryInteraction(args: { graphNodes: GraphNodeRef[]; scale:
     return { x: clientX - rect.left, y: clientY - rect.top };
   };
 
-  const screenToWorld = (pScreen: { x: number; y: number }, originWorld: NodeLayout) => ({
+  const screenToWorld = (pScreen: ScreenPoint, originWorld: NodeLayout): NodeLayout => ({
     x: pScreen.x / scale + originWorld.x,
     y: pScreen.y / scale + originWorld.y,
   });
 
-  useLayoutEffect(() => {
-    scrollHostRef.current = (svgRef.current?.closest?.("[data-editor-scroll='true']") as HTMLElement | null) ?? null;}, []);
+  useLayoutEffect(() => {scrollHostRef.current = (svgRef.current?.closest?.("[data-editor-scroll='true']") as HTMLElement | null) ?? null;}, []);
 
   useLayoutEffect(() => {
     const host = scrollHostRef.current;
@@ -172,7 +200,7 @@ export function useHistoryInteraction(args: { graphNodes: GraphNodeRef[]; scale:
     if (selectStateRef.current) return;
 
     setNodePos(buildSnappedNodePosMap(graphNodes));
-  }, [projectId, graphNodes.length]);
+  }, [projectId, graphNodes]);
 
   const applyDragFromClient = (clientX: number, clientY: number) => {
     const drag = dragStateRef.current;
@@ -187,10 +215,7 @@ export function useHistoryInteraction(args: { graphNodes: GraphNodeRef[]; scale:
     let minX = Infinity;
     let minY = Infinity;
 
-    drag.startPosWorldById.forEach((p) => {
-      minX = Math.min(minX, p.x);
-      minY = Math.min(minY, p.y);
-    });
+    drag.startPosWorldById.forEach((p) => { minX = Math.min(minX, p.x); minY = Math.min(minY, p.y) });
 
     if (minX + dxWorld < MIN_WORLD_X) dxWorld = MIN_WORLD_X - minX;
     if (minY + dyWorld < MIN_WORLD_Y) dyWorld = MIN_WORLD_Y - minY;
@@ -198,10 +223,7 @@ export function useHistoryInteraction(args: { graphNodes: GraphNodeRef[]; scale:
     const nextRawById = new Map<ID, NodeLayout>();
 
     drag.startPosWorldById.forEach((startPos, id) => {
-      nextRawById.set(id, {
-        x: Math.max(MIN_WORLD_X, startPos.x + dxWorld),
-        y: Math.max(MIN_WORLD_Y, startPos.y + dyWorld),
-      });
+      nextRawById.set(id, { x: Math.max(MIN_WORLD_X, startPos.x + dxWorld), y: Math.max(MIN_WORLD_Y, startPos.y + dyWorld) });
     });
 
     drag.lastRawById = nextRawById;
@@ -213,7 +235,7 @@ export function useHistoryInteraction(args: { graphNodes: GraphNodeRef[]; scale:
     });
   };
 
-  const beginNodeDrag = (nodeId: ID, e: React.PointerEvent<SVGGElement>) => {
+  const beginNodeDrag = (nodeId: ID, e: PointerEvent<SVGGElement>) => {
     if (e.button === 2) return;
     e.stopPropagation();
 
@@ -245,11 +267,10 @@ export function useHistoryInteraction(args: { graphNodes: GraphNodeRef[]; scale:
       lastClient: { x: e.clientX, y: e.clientY },
     };
 
-    try {e.currentTarget.setPointerCapture(e.pointerId);}
-    catch {}
+    setPointerCaptureSafely(e.currentTarget, e.pointerId);
   };
 
-  const updateNodeDrag = (e: React.PointerEvent<SVGSVGElement>) => {
+  const updateNodeDrag = (e: PointerEvent<SVGSVGElement>) => {
     const drag = dragStateRef.current;
     if (!drag) return;
     if (drag.pointerId !== e.pointerId) return;
@@ -309,10 +330,7 @@ export function useHistoryInteraction(args: { graphNodes: GraphNodeRef[]; scale:
             const realDx = scrollEl2.scrollLeft - prevLeft;
             const realDy = scrollEl2.scrollTop - prevTop;
 
-            drag2.startClient = {
-              x: drag2.startClient.x - realDx,
-              y: drag2.startClient.y - realDy,
-            };
+            drag2.startClient = { x: drag2.startClient.x - realDx, y: drag2.startClient.y - realDy };
 
             applyDragFromClient(drag2.lastClient.x, drag2.lastClient.y);
           };
@@ -327,7 +345,7 @@ export function useHistoryInteraction(args: { graphNodes: GraphNodeRef[]; scale:
     applyDragFromClient(e.clientX, e.clientY);
   };
 
-  const endNodeDrag = (e: React.PointerEvent<SVGSVGElement>) => {
+  const endNodeDrag = (e: PointerEvent<SVGSVGElement>) => {
     const drag = dragStateRef.current;
     if (!drag) return;
     if (drag.pointerId !== e.pointerId) return;
@@ -360,7 +378,7 @@ export function useHistoryInteraction(args: { graphNodes: GraphNodeRef[]; scale:
       return next;
     });
 
-    const batchItems: Array<{ id: ID; pos: { x: number; y: number } }> = [];
+    const batchItems: NodeLayoutBatchItem[] = [];
     finalById.forEach((pFinal, id) => batchItems.push({ id, pos: pFinal }));
     updateNodeLayoutsBatch(batchItems);
 
@@ -414,14 +432,14 @@ export function useHistoryInteraction(args: { graphNodes: GraphNodeRef[]; scale:
     host.scrollTop = top;
   }, [projectId, primaryMode, secondaryMode, scale, contentBounds.minX, contentBounds.minY]);
 
-  const beginBackgroundPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+  const beginBackgroundPointerDown = (e: PointerEvent<SVGSVGElement>) => {
     const host = scrollHostRef.current;
     if (!host) return;
 
     if (e.button === 2 || e.button === 1) {
       if (e.button === 2) e.preventDefault();
 
-      (e.currentTarget as SVGSVGElement).setPointerCapture(e.pointerId);
+      setPointerCaptureSafely(e.currentTarget, e.pointerId);
       startPan(e.pointerId, e.clientX, e.clientY, host);
       return;
     }
@@ -444,7 +462,7 @@ export function useHistoryInteraction(args: { graphNodes: GraphNodeRef[]; scale:
     }
   };
 
-  const updatePan = (e: React.PointerEvent<SVGSVGElement>) => {
+  const updatePan = (e: PointerEvent<SVGSVGElement>) => {
     if (!isPanning) return;
 
     const pan = panStateRef.current;
@@ -460,7 +478,7 @@ export function useHistoryInteraction(args: { graphNodes: GraphNodeRef[]; scale:
     host.scrollTop = pan.startScroll.top - dy;
   };
 
-  const updateSelectionBox = (e: React.PointerEvent<SVGSVGElement>) => {
+  const updateSelectionBox = (e: PointerEvent<SVGSVGElement>) => {
     const sel = selectStateRef.current;
     if (!sel) return;
     if (sel.pointerId !== e.pointerId) return;
@@ -484,12 +502,7 @@ export function useHistoryInteraction(args: { graphNodes: GraphNodeRef[]; scale:
     setSelectionBox({ x: x1, y: y1, w, h });
 
     const boxWorldTopLeft = screenToWorld({ x: x1, y: y1 }, ORIGIN);
-    const boxWorld = {
-      x: boxWorldTopLeft.x,
-      y: boxWorldTopLeft.y,
-      w: w / scale,
-      h: h / scale,
-    };
+    const boxWorld = { x: boxWorldTopLeft.x, y: boxWorldTopLeft.y, w: w / scale, h: h / scale };
 
     const nextSel = new Set<ID>();
     graphNodes.forEach((n) => {
@@ -502,7 +515,7 @@ export function useHistoryInteraction(args: { graphNodes: GraphNodeRef[]; scale:
     selectedRef.current = nextSel;
   };
 
-  const endBackgroundPointerUp = (e: React.PointerEvent<SVGSVGElement>) => {
+  const endBackgroundPointerUp = (e: PointerEvent<SVGSVGElement>) => {
     if (isPanning) {
       clearPanInteraction();
       try {(e.currentTarget as SVGSVGElement).releasePointerCapture(e.pointerId);} 
@@ -513,20 +526,19 @@ export function useHistoryInteraction(args: { graphNodes: GraphNodeRef[]; scale:
     const sel = selectStateRef.current;
     if (sel && sel.pointerId === e.pointerId) {
       clearSelectionInteraction();
-      try {(e.currentTarget as SVGSVGElement).releasePointerCapture(e.pointerId);} 
-      catch {}
+      releasePointerCaptureSafely(e.currentTarget, e.pointerId);
     }
   };
 
-  const onPointerCancel = (e: React.PointerEvent<SVGSVGElement>) => {
+  const onPointerCancel = (e: PointerEvent<SVGSVGElement>) => {
     clearSelectionInteraction();
     clearDragInteraction();
     clearPanInteraction();
-
-    endBackgroundPointerUp(e);
-    endNodeDrag(e);
+    releasePointerCaptureSafely(e.currentTarget, e.pointerId);
   };
 
-  return { svgRef, svgWidth, svgHeight, selectionBox, selected, nodePos, viewport, isPanning, beginBackgroundPointerDown, updatePan,
-    updateSelectionBox, updateNodeDrag, endBackgroundPointerUp, endNodeDrag, onPointerCancel, beginNodeDrag, stopAutoScroll };
+  return {
+    svgRef, svgWidth, svgHeight, selectionBox, selected, nodePos, viewport, isPanning, beginBackgroundPointerDown, updatePan,
+    updateSelectionBox, updateNodeDrag, endBackgroundPointerUp, endNodeDrag, onPointerCancel, beginNodeDrag, stopAutoScroll
+  };
 }

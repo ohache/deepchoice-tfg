@@ -1,13 +1,14 @@
 import { toast } from "@/shared/toast/toastStore";
 
-type EditorMode =
-  | { type: "idle" }
-  | { type: "drawing" }
-  | { type: "editing";[key: string]: unknown };
+type EditorMode = {
+  type: "idle" | "drawing" | "editing";
+};
+
+type CommitFailureCode = "missing_draft" | "invalid_draft";
 
 type CommitResult =
-  | { ok: true;[key: string]: unknown }
-  | { ok: false; code?: string; error?: string };
+  | { ok: true; [key: string]: unknown }
+  | { ok: false; code?: CommitFailureCode; error?: string };
 
 type InteractiveDraftGuardArgs = {
   hotspotEditorMode: EditorMode;
@@ -38,12 +39,12 @@ function shouldCommit(mode: EditorMode, hasDraft: boolean): boolean {
   return mode.type !== "idle" && hasDraft;
 }
 
-function handleCommitFailure(title: string, noun: string, result: CommitResult): boolean {
+function handleCommitFailure(title: string, fallbackNoun: string, result: CommitResult): boolean {
   if (result.ok) return true;
 
   if (result.code === "missing_draft") return true;
 
-  toast.error(title, result.error ?? `Revisa el ${noun} antes de continuar.`);
+  toast.error(title, result.error ?? `Revisa el ${fallbackNoun} antes de continuar.`);
   return false;
 }
 
@@ -58,22 +59,22 @@ export function commitActiveInteractiveDrafts(args: InteractiveDraftGuardArgs): 
       commit: args.commitHotspotDraft,
     },
     {
-      title: "Item incompleto",
-      noun: "item",
+      title: "Objeto incompleto",
+      noun: "objeto",
       mode: args.placedItemEditorMode,
       hasDraft: args.hasPlacedItemDraft,
       commit: args.commitPlacedItemDraft,
     },
     {
-      title: "NPC incompleto",
-      noun: "NPC",
+      title: "PNJ",
+      noun: "PNJ",
       mode: args.placedNpcEditorMode,
       hasDraft: args.hasPlacedNpcDraft,
       commit: args.commitPlacedNpcDraft,
     },
     {
-      title: "Player incompleto",
-      noun: "player",
+      title: "Jugador incompleto",
+      noun: "jugador",
       mode: args.placedPlayerEditorMode,
       hasDraft: args.hasPlacedPlayerDraft,
       commit: args.commitPlacedPlayerDraft,

@@ -1,16 +1,16 @@
-import type React from "react";
+import type { PointerEvent } from "react";
 import type { NodeLayout } from "@/domain/types";
 import { NODE_SIZE, type SceneNodeVM } from "@/features/editor/history/view/historyViewTypes";
 
-interface Props {
+type Props = {
   node: SceneNodeVM;
   pos: NodeLayout;
   scale: number;
-  onPointerDown: (e: React.PointerEvent<SVGGElement>) => void;
+  onPointerDown: (e: PointerEvent<SVGGElement>) => void;
   onDoubleClick: () => void;
 }
 
-function truncateForNodeTitle(title: string, scale: number) {
+function truncateForNodeTitle(title: string, scale: number): string {
   const paddingX = 10;
   const usablePx = NODE_SIZE * scale - paddingX * 2 * scale;
   const approxCharPx = 6 * scale;
@@ -41,6 +41,12 @@ function getNodeTone(node: SceneNodeVM) {
     stroke: "stroke-slate-200",
     fill: "fill-slate-800/35",
   };
+}
+
+function getIssueBadgeTitle(node: SceneNodeVM, hasErrors: boolean): string {
+  if (hasErrors) return `${node.errorCount} error${node.errorCount === 1 ? "" : "es"} en esta escena`;
+
+  return `${node.warningCount} aviso${node.warningCount === 1 ? "" : "s"} en esta escena`;
 }
 
 export function SceneNodeCard({ node, pos, scale, onPointerDown, onDoubleClick }: Props) {
@@ -86,11 +92,7 @@ export function SceneNodeCard({ node, pos, scale, onPointerDown, onDoubleClick }
 
       {showIssueBadge && (
         <g transform={`translate(${w - 6 * scale} ${6 * scale})`}>
-          <title>
-            {hasErrors
-              ? `${node.errorCount} error${node.errorCount === 1 ? "" : "es"} en esta escena`
-              : `${node.warningCount} aviso${node.warningCount === 1 ? "" : "s"} en esta escena`}
-          </title>
+          <title>{getIssueBadgeTitle(node, hasErrors)}</title>
 
           <circle
             r={9 * scale}
@@ -98,19 +100,13 @@ export function SceneNodeCard({ node, pos, scale, onPointerDown, onDoubleClick }
           />
 
           <path
-            d={`
-        M ${-4 * scale} ${-4 * scale}
-        L ${4 * scale} ${4 * scale}
-        M ${4 * scale} ${-4 * scale}
-        L ${-4 * scale} ${4 * scale}
-      `}
+            d={`M ${-4 * scale} ${-4 * scale} L ${4 * scale} ${4 * scale} M ${4 * scale} ${-4 * scale} L ${-4 * scale} ${4 * scale}`}
             stroke="white"
             strokeWidth={2 * scale}
             strokeLinecap="round"
           />
         </g>
       )}
-
     </g>
   );
 }

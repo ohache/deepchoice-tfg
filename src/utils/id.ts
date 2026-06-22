@@ -7,34 +7,21 @@ const PREFIX = {
   layer: "layer",
   background: "background",
   hotspot: "hs",
-  hotspotAction: "hs-act",
-  hotspotInteraction: "hs-int",
   rule: "rule",
   player: "player",
   playerImage: "player-img",
-  playerVariable: "player-var",
-  playerPlaced: "player-placed",
   item: "item",
-  itemPlaced: "item-placed",
-  itemAction: "item-act",
-  itemInteraction: "item-int",
+  itemInstance: "item-instance",
   npc: "npc",
-  npcPlaced: "npc-placed",
-  npcAction: "npc-act",
-  npcInteraction: "npc-int",
   var: "var",
   music: "music",
   sfx: "sfx",
   map: "map",
   mapRegion: "map-region",
-  asset: "asset",
   text: "text",
-  base: "base",
-  variant: "variant",
   condition: "condition",
-  conditionGroup: "condgroup",
+  conditionGroup: "condition-group",
   effect: "effect",
-  interactionLayer: "int-layer",
   dialogue: "dialogue",
   dialogueRoot: "dialogue-root",
   dialogueLine: "dialogue-line",
@@ -50,12 +37,12 @@ function uuid(): string {
 }
 
 /* Genera un id completo usando el prefijo semántico correspondiente */
-function generateIdGeneral(key: PrefixKey): ID {
+function generatePrefixedId(key: PrefixKey): ID {
   return `${PREFIX[key]}-${uuid()}`;
 }
 
 export const generateId = Object.freeze(
-  Object.fromEntries(Object.keys(PREFIX).map((k) => [k, () => generateIdGeneral(k as PrefixKey)])) as {
+  Object.fromEntries(Object.keys(PREFIX).map((k) => [k, () => generatePrefixedId(k as PrefixKey)])) as {
     [K in PrefixKey]: () => ID;
   }
 );

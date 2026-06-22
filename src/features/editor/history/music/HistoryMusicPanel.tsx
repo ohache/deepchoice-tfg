@@ -3,17 +3,12 @@ import type { MusicTrackDef } from "@/domain/types";
 import { useEditorStore } from "@/store/editorStore";
 import { validateMusicDraft } from "@/features/editor/history/music/musicValidator";
 import { hasDuplicateFileByLinkedAssetId } from "@/validation/genericValidator";
+import { getDraftPanelTitle } from "@/features/editor/history/shared/genericHelpers";
 import { type AssetDraftFieldErrors } from "@/validation/validateAssetBackedDraft";
 import { useAssetDraftPanel } from "@/features/editor/history/shared/useAssetDraftPanel";
 import { useAudioFileDraft } from "@/features/editor/history/shared/useAudioFileDraft";
 import { PlayIcon, StopIcon } from "@heroicons/react/24/solid";
 import { toast } from "@/shared/toast/toastStore";
-
-function getModeTitle(mode: "none" | "new" | "edit") {
-  if (mode === "new") return "Nueva pista";
-  if (mode === "edit") return "Editar pista";
-  return "Detalle de pista";
-}
 
 export function HistoryMusicPanel() {
   const project = useEditorStore((s) => s.project);
@@ -36,6 +31,7 @@ export function HistoryMusicPanel() {
   const audio = useAudioFileDraft({
     mode: inferredMode,
     selectedId: selectedTrackId,
+    getLoop: () => true,
     isDuplicateFile: (file, ctx) => {
       if (!project) return false;
 
@@ -56,8 +52,10 @@ export function HistoryMusicPanel() {
     },
   });
 
+  /* Al entrar en el panel se limpia la selección previa */
   useEffect(() => setSelectedTrackId(null), [setSelectedTrackId]);
 
+  /* Carga el draft desde la pista seleccionada */
   const loadDraftFromSelectedTrack = (track: MusicTrackDef) => {
     setDraftName(track.name);
     setFieldErrors({});
@@ -69,12 +67,14 @@ export function HistoryMusicPanel() {
     audio.loadPreviewFromExistingFile(assetFiles?.[track.id]);
   };
 
+  /* Limpia el formulario */
   const resetDraftFields = () => {
     setDraftName("");
     setFieldErrors({});
     audio.resetAudioDraft();
   };
 
+  /* Comportamiento común de selección / edición / creación */
   const panel = useAssetDraftPanel<MusicTrackDef>({
     hasProject: !!project,
     selectedId: selectedTrackId,
@@ -85,9 +85,15 @@ export function HistoryMusicPanel() {
     onResetDraftFields: resetDraftFields,
   });
 
+  /* Estado visual actual del panel */
   const mode = panel.mode;
-  const rightTitle = getModeTitle(mode);
+  const rightTitle = getDraftPanelTitle(mode, {
+    detail: "Detalle de pista",
+    create: "Nueva pista",
+    edit: "Editar pista",
+  });
 
+  /* Validación del formulario */
   const validateDraft = (): boolean => {
     if (!project) return false;
 
@@ -107,6 +113,7 @@ export function HistoryMusicPanel() {
     return ok;
   };
 
+  /* Alta de una nueva pista de música */
   const handleCreate = () => {
     if (!audio.draftFile) {
       toast.error("Falta archivo", "Selecciona un archivo de audio antes de guardar.");
@@ -117,7 +124,7 @@ export function HistoryMusicPanel() {
     const id = addMusicTrack(audio.draftFile, displayName);
 
     if (!id) {
-      toast.error("No se pudo crear", "Puede que el archivo ya esté en uso por otra pista.");
+      toast.error("Error inesperado", "No se pudo crear la pista.");
       return;
     }
 
@@ -125,34 +132,30 @@ export function HistoryMusicPanel() {
     panel.reset();
   };
 
+  /* Actualización de una pista existente */
   const handleUpdate = () => {
     if (!selectedTrackId) return;
 
     const displayName = draftName.trim();
     const replacingFile = !!audio.draftFile;
 
-    updateMusicTrack(selectedTrackId, {
-      name: displayName,
-      file: audio.draftFile ?? undefined,
-    });
+    updateMusicTrack(selectedTrackId, { name: displayName, file: audio.draftFile ?? undefined });
 
     toast.success(replacingFile ? "Música actualizada (archivo reemplazado)" : "Música actualizada", `“${displayName}”`);
 
     panel.reset();
   };
 
+  /* Punto único de guardado */
   const handleSave = () => {
     if (!project) return;
     if (!validateDraft()) return;
 
-    if (mode === "new") {
-      handleCreate();
-      return;
-    }
-
-    if (mode === "edit") handleUpdate();
+    if (mode === "new") handleCreate();
+    else if (mode === "edit") handleUpdate();
   };
 
+  /* Solicita la eliminación de la pista seleccionada */
   const handleDeleteMusicTrack = () => {
     if (!selectedTrackId) return;
     removeMusicTrack(selectedTrackId);
@@ -302,7 +305,6 @@ export function HistoryMusicPanel() {
                 <audio
                   ref={audio.audioRef}
                   src={audio.previewUrl ?? undefined}
-                  loop={true}
                   className="hidden"
                 />
 

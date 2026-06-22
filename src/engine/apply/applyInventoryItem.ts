@@ -1,92 +1,43 @@
-import type { ID, InteractionRules, RulePhrase } from "@/domain/types";
-import type { GameState } from "@/engine/state/runtimeState";
-import { applyEffect, applyEffects, type ApplyEffectCtx } from "@/engine/apply/applyEffect";
+import type { ID } from "@/domain/types";
+import type { GameState, InventoryEntry } from "@/engine/state/runtimeState";
+import { applyEffects, type ApplyEffectCtx } from "@/engine/apply/applyEffect";
+import { applyBlockedPhrase, applyMessageEffect, findInventorySourceRules } from "@/engine/apply/applyHelpers";
 import { pickUseItemRule } from "@/engine/rules";
 
 const DEFAULT_CANNOT_USE_MESSAGE = "No puedes usar eso ahí.";
 
-function showMessage(state: GameState, text: string, ctx: ApplyEffectCtx): GameState {
-  return applyEffect(state, { type: "showMessage", text, speakerKind: "narrator" }, ctx);
-}
+type PlayerInventoryMatch = {
+  playerId: ID;
+  entry: InventoryEntry;
+};
 
-function showBlockedPhrase(state: GameState, phrase: RulePhrase, ctx: ApplyEffectCtx): GameState {
-  return applyEffect(
-    state,
-    {
-      type: "showMessage",
-      text: phrase.text,
-      speakerKind: phrase.speaker?.kind ?? "narrator",
-      speakerId: phrase.speaker?.kind === "player" ? phrase.speaker.playerId : phrase.speaker?.kind === "npc" ? phrase.speaker.npcId : undefined,
-    },
-    ctx,
-  );
-}
+function findPlayerInventoryEntry(state: GameState, itemInstanceId: ID): PlayerInventoryMatch | null {
+  for (const [playerId, inventory] of Object.entries(state.playerInventory)) {
+    const entry = inventory.find((item) => item.itemInstanceId === itemInstanceId);
 
-function findInventorySourceRules(
-  state: GameState,
-  itemInstanceId: ID,
-): InteractionRules | null {
-  for (const node of state.project.nodes ?? []) {
-    for (const layer of node.layers ?? []) {
-      const placedItem = (layer.placedItems ?? []).find(
-        (candidate) => candidate.id === itemInstanceId,
-      );
-
-      if (placedItem) return placedItem.rules ?? {};
-    }
-  }
-
-  for (const player of state.project.players ?? []) {
-    const inventoryItem = (player.initialInventory ?? []).find(
-      (candidate) => candidate.itemInstanceId === itemInstanceId,
-    );
-
-    if (inventoryItem) return inventoryItem.rules ?? {};
-  }
-
-  for (const npc of state.project.npcs ?? []) {
-    const inventoryItem = (npc.initialInventory ?? []).find(
-      (candidate) => candidate.itemInstanceId === itemInstanceId,
-    );
-
-    if (inventoryItem) return inventoryItem.rules ?? {};
+    if (entry) return { playerId, entry };
   }
 
   return null;
 }
 
-export function applyInventoryItemUseItem(
-  state: GameState,
-  sourceInstanceId: ID,
-  targetInstanceId: ID,
-  ctx: ApplyEffectCtx = {},
-): GameState {
+export function applyInventoryItemUseItem(state: GameState, sourceInstanceId: ID, targetInstanceId: ID, ctx: ApplyEffectCtx = {}): GameState {
+  if (state.gameEnded) return state;
   if (state.activeDialogue) return state;
 
-  if (sourceInstanceId === targetInstanceId) {
-    return showMessage(state, DEFAULT_CANNOT_USE_MESSAGE, ctx);
-  }
+  if (sourceInstanceId === targetInstanceId) return applyMessageEffect(state, DEFAULT_CANNOT_USE_MESSAGE, ctx);
 
-  const sourceInInventory = state.inventory.some(
-    (entry) => entry.itemInstanceId === sourceInstanceId,
-  );
+  const source = findPlayerInventoryEntry(state, sourceInstanceId);
+  const target = findPlayerInventoryEntry(state, targetInstanceId);
 
-  const targetInInventory = state.inventory.some(
-    (entry) => entry.itemInstanceId === targetInstanceId,
-  );
+  if (!source || !target) return applyMessageEffect(state, DEFAULT_CANNOT_USE_MESSAGE, ctx);
 
-  if (!sourceInInventory || !targetInInventory) {
-    return showMessage(state, DEFAULT_CANNOT_USE_MESSAGE, ctx);
-  }
+  if (source.playerId !== target.playerId) return applyMessageEffect(state, DEFAULT_CANNOT_USE_MESSAGE, ctx);
 
   const sourceRules = findInventorySourceRules(state, sourceInstanceId);
 
   if (sourceRules) {
-    const sourceResult = pickUseItemRule(
-      state,
-      sourceRules,
-      targetInstanceId,
-    );
+    const sourceResult = pickUseItemRule(state, sourceRules, targetInstanceId);
 
     if (sourceResult.kind === "matched") {
       return applyEffects(state, sourceResult.rule.effects ?? [], {
@@ -98,19 +49,13 @@ export function applyInventoryItemUseItem(
       });
     }
 
-    if (sourceResult.kind === "blocked") {
-      return showBlockedPhrase(state, sourceResult.phrase, ctx);
-    }
+    if (sourceResult.kind === "blocked") return applyBlockedPhrase(state, sourceResult.phrase, ctx);
   }
 
   const targetRules = findInventorySourceRules(state, targetInstanceId);
 
   if (targetRules) {
-    const targetResult = pickUseItemRule(
-      state,
-      targetRules,
-      sourceInstanceId,
-    );
+    const targetResult = pickUseItemRule(state, targetRules, sourceInstanceId);
 
     if (targetResult.kind === "matched") {
       return applyEffects(state, targetResult.rule.effects ?? [], {
@@ -122,10 +67,8 @@ export function applyInventoryItemUseItem(
       });
     }
 
-    if (targetResult.kind === "blocked") {
-      return showBlockedPhrase(state, targetResult.phrase, ctx);
-    }
+    if (targetResult.kind === "blocked") return applyBlockedPhrase(state, targetResult.phrase, ctx);
   }
 
-  return showMessage(state, DEFAULT_CANNOT_USE_MESSAGE, ctx);
+  return applyMessageEffect(state, DEFAULT_CANNOT_USE_MESSAGE, ctx);
 }

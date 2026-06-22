@@ -1,12 +1,22 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ID } from "@/domain/types";
 import type { GameState } from "@/engine/state/runtimeState";
 
 const FADE_OUT_MS = 220;
 const BLACK_HOLD_MS = 60;
 
-export function usePlayerDisplayedNode(gameState: GameState | null, currentNodeId?: ID) {
-  const prevNodeIdRef = useRef<ID | null>(null);
+type DisplayedNodeState = {
+  isFading: boolean;
+  displayedNodeId: ID | null;
+  displayedGameState: GameState | null;
+};
+
+/* Mantiene separada la escena real de la escena visualmente mostrada */
+export function usePlayerDisplayedNode(gameState: GameState | null, currentNodeId?: ID): DisplayedNodeState {
+  const latestGameStateRef = useRef<GameState | null>(gameState ?? null);
+  const displayedNodeIdRef = useRef<ID | null>(currentNodeId ?? null);
+  const targetNodeIdRef = useRef<ID | null>(currentNodeId ?? null);
+
   const timeoutRef = useRef<number | null>(null);
 
   const [isFading, setIsFading] = useState(false);
@@ -14,79 +24,97 @@ export function usePlayerDisplayedNode(gameState: GameState | null, currentNodeI
   const [displayedGameState, setDisplayedGameState] = useState<GameState | null>(gameState ?? null);
 
   useEffect(() => {
-    if (!currentNodeId) return;
+    latestGameStateRef.current = gameState ?? null;
+  }, [gameState]);
 
-    // Primer render
-    if (displayedNodeId == null) {
-      setDisplayedNodeId(currentNodeId);
-      setDisplayedGameState(gameState ?? null);
-      prevNodeIdRef.current = currentNodeId;
-      return;
-    }
+  const clearTransitionTimeout = useCallback(() => {
+    if (!timeoutRef.current) return;
 
-    // Mismo nodo → nada
-    if (prevNodeIdRef.current === currentNodeId) return;
+    window.clearTimeout(timeoutRef.current);
+    timeoutRef.current = null;
+  }, []);
 
-    // Limpieza
-    if (timeoutRef.current) {
-      window.clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
+  const setDisplayedSnapshot = useCallback((nodeId: ID | null, state: GameState | null) => {
+    displayedNodeIdRef.current = nodeId;
+    setDisplayedNodeId(nodeId);
+    setDisplayedGameState(state);
+  }, []);
 
-    // 1. Fade OUT
-    setIsFading(true);
-
-    timeoutRef.current = window.setTimeout(() => {
-      // 2. Cambio de escena (ya en negro)
-      setDisplayedNodeId(currentNodeId);
-      setDisplayedGameState(gameState ?? null);
-
-      // Pequeño hold en negro para evitar “flash”
-      timeoutRef.current = window.setTimeout(() => {
-        // 3. Fade IN
-        setIsFading(false);
-      }, BLACK_HOLD_MS);
-
-    }, FADE_OUT_MS);
-
-    prevNodeIdRef.current = currentNodeId;
-
-  }, [currentNodeId, gameState]);
-
-  // Mantener sync del state mientras NO estamos cambiando escena
-  useEffect(() => {
-    if (!gameState) {
+  const syncDisplayedState = useCallback((state: GameState | null) => {
+    if (!state) {
       setDisplayedGameState(null);
       return;
     }
 
-    if (!isFading && displayedNodeId === gameState.currentNodeId) {
-      setDisplayedGameState(gameState);
+    if (!isFading && displayedNodeIdRef.current === state.currentNodeId) {
+      setDisplayedGameState(state);
     }
-  }, [gameState, displayedNodeId, isFading]);
+  }, [isFading]);
 
-  // Reset al cargar proyecto nuevo
-  useEffect(() => {
-    if (!gameState?.currentNodeId) return;
+  const resetDisplayedNode = useCallback(
+    (state: GameState) => {
+      clearTransitionTimeout();
 
-    if (timeoutRef.current) {
-      window.clearTimeout(timeoutRef.current);
+      targetNodeIdRef.current = state.currentNodeId;
+      setIsFading(false);
+      setDisplayedSnapshot(state.currentNodeId, state);
+    }, [clearTransitionTimeout, setDisplayedSnapshot]);
+
+  const finishTransitionTo = useCallback((targetNodeId: ID, targetState: GameState | null) => {
+    setDisplayedSnapshot(targetNodeId, targetState);
+
+    timeoutRef.current = window.setTimeout(() => {
+      setIsFading(false);
       timeoutRef.current = null;
+    }, BLACK_HOLD_MS);
+  }, [setDisplayedSnapshot]);
+
+  const startNodeTransition = useCallback((targetNodeId: ID, targetState: GameState | null) => {
+    clearTransitionTimeout();
+    setIsFading(true);
+
+    timeoutRef.current = window.setTimeout(() => {
+      finishTransitionTo(targetNodeId, targetState);
+    }, FADE_OUT_MS);
+  }, [clearTransitionTimeout, finishTransitionTo]);
+
+  /* Detecta cambios reales de nodo */
+  useEffect(() => {
+    if (!currentNodeId) return;
+
+    const isFirstDisplayedNode = displayedNodeIdRef.current == null;
+
+    if (isFirstDisplayedNode) {
+      targetNodeIdRef.current = currentNodeId;
+      setDisplayedSnapshot(currentNodeId, gameState ?? null);
+      return;
     }
 
-    setIsFading(false);
-    setDisplayedNodeId(gameState.currentNodeId);
-    setDisplayedGameState(gameState);
-    prevNodeIdRef.current = gameState.currentNodeId;
-  }, [gameState?.project?.id]);
+    const isSameTargetNode = targetNodeIdRef.current === currentNodeId;
+
+    if (isSameTargetNode) return;
+
+    targetNodeIdRef.current = currentNodeId;
+    startNodeTransition(currentNodeId, gameState ?? null);
+  }, [currentNodeId, gameState, setDisplayedSnapshot, startNodeTransition]);
+
+  useEffect(() => {
+    syncDisplayedState(gameState);
+  }, [gameState, syncDisplayedState]);
+
+  useEffect(() => {
+    const latestGameState = latestGameStateRef.current;
+
+    if (!latestGameState?.currentNodeId) return;
+
+    resetDisplayedNode(latestGameState);
+  }, [gameState?.project?.id, resetDisplayedNode]);
 
   useEffect(() => {
     return () => {
-      if (timeoutRef.current) {
-        window.clearTimeout(timeoutRef.current);
-      }
+      clearTransitionTimeout();
     };
-  }, []);
+  }, [clearTransitionTimeout]);
 
   return { isFading, displayedNodeId, displayedGameState };
 }

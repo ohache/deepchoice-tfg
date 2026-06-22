@@ -1,28 +1,12 @@
-import type { ID, PlacedNpc, PlaceableState, RulePhrase } from "@/domain/types";
-import { applyEffect, applyEffects, type ApplyEffectCtx } from "@/engine/apply/applyEffect";
+import type { ID, PlacedNpc, PlaceableState } from "@/domain/types";
+import { applyEffects, type ApplyEffectCtx } from "@/engine/apply/applyEffect";
+import { applyBlockedPhrase, applyMessageEffect, canInteractWithPlaceable } from "@/engine/apply/applyHelpers";
 import { pickClickRule, pickUseItemRule } from "@/engine/rules";
 import type { GameState } from "@/engine/state/runtimeState";
 import { ensureNodeRuntime } from "@/engine/state/runtimeState";
 
 const DEFAULT_NPC_NOT_REACHABLE_MESSAGE = "No puedes alcanzar al NPC.";
-const DEFAULT_CANNOT_USE_MESSSAGE = "No puedes hacer eso.";
-
-function showMessage(state: GameState, text: string, ctx: ApplyEffectCtx): GameState {
-  return applyEffect(state, { type: "showMessage", text, speakerKind: "narrator" }, ctx);
-}
-
-function showBlockedPhrase(state: GameState, phrase: RulePhrase, ctx: ApplyEffectCtx): GameState {
-  return applyEffect(
-    state,
-    {
-      type: "showMessage",
-      text: phrase.text,
-      speakerKind: phrase.speaker?.kind ?? "narrator",
-      speakerId: phrase.speaker?.kind === "player" ? phrase.speaker.playerId : phrase.speaker?.kind === "npc" ? phrase.speaker.npcId : undefined,
-    },
-    ctx,
-  );
-}
+const DEFAULT_CANNOT_USE_MESSAGE = "No puedes hacer eso.";
 
 function getPreparedPlacedNpcState(state: GameState, nodeId: ID, npcId: ID): { state: GameState; runtimeState: PlaceableState | null } {
   const preparedState = ensureNodeRuntime(state, nodeId);
@@ -31,30 +15,13 @@ function getPreparedPlacedNpcState(state: GameState, nodeId: ID, npcId: ID): { s
   return { state: preparedState, runtimeState };
 }
 
-function canInteractWithNpc(state: GameState, runtimeState: PlaceableState | null, ctx: ApplyEffectCtx):
-  { allowed: true; state: GameState } | { allowed: false; state: GameState } {
-  if (!runtimeState) return { allowed: false, state };
-
-  const visible = runtimeState.visible !== false;
-  const reachable = runtimeState.reachable !== false;
-
-  if (!visible) return { allowed: false, state };
-
-  if (!reachable) {
-    const message = runtimeState.notReachableText?.trim() || DEFAULT_NPC_NOT_REACHABLE_MESSAGE;
-    return { allowed: false, state: showMessage(state, message, ctx) };
-  }
-
-  return { allowed: true, state };
-}
-
 export function applyPlacedNpcInteraction(state: GameState, placedNpc: PlacedNpc, ctx: ApplyEffectCtx = {}): GameState {
   if (state.gameEnded) return state;
   if (state.activeDialogue) return state;
 
   const nodeId = state.currentNodeId;
   const prepared = getPreparedPlacedNpcState(state, nodeId, placedNpc.npcId);
-  const interaction = canInteractWithNpc(prepared.state, prepared.runtimeState, ctx);
+  const interaction = canInteractWithPlaceable(prepared.state, prepared.runtimeState, ctx, DEFAULT_NPC_NOT_REACHABLE_MESSAGE);
 
   if (!interaction.allowed) return interaction.state;
 
@@ -62,7 +29,7 @@ export function applyPlacedNpcInteraction(state: GameState, placedNpc: PlacedNpc
 
   if (result.kind === "none") return interaction.state;
 
-  if (result.kind === "blocked") return showBlockedPhrase(interaction.state, result.phrase, ctx);
+  if (result.kind === "blocked") return applyBlockedPhrase(interaction.state, result.phrase, ctx);
 
   return applyEffects(interaction.state, result.rule.effects ?? [], ctx);
 }
@@ -73,15 +40,15 @@ export function applyPlacedNpcUseItem(state: GameState, placedNpc: PlacedNpc, it
 
   const nodeId = state.currentNodeId;
   const prepared = getPreparedPlacedNpcState(state, nodeId, placedNpc.npcId);
-  const interaction = canInteractWithNpc(prepared.state, prepared.runtimeState, ctx);
+  const interaction = canInteractWithPlaceable(prepared.state, prepared.runtimeState, ctx, DEFAULT_NPC_NOT_REACHABLE_MESSAGE);
 
   if (!interaction.allowed) return interaction.state;
 
   const result = pickUseItemRule(interaction.state, placedNpc.rules ?? {}, itemInstanceId);
 
-  if (result.kind === "none") return showMessage(interaction.state, DEFAULT_CANNOT_USE_MESSSAGE, ctx);
+  if (result.kind === "none") return applyMessageEffect(interaction.state, DEFAULT_CANNOT_USE_MESSAGE, ctx);
 
-  if (result.kind === "blocked") return showBlockedPhrase(interaction.state, result.phrase, ctx);
+  if (result.kind === "blocked") return applyBlockedPhrase(interaction.state, result.phrase, ctx);
 
   return applyEffects(interaction.state, result.rule.effects ?? [], ctx);
 }

@@ -1,19 +1,28 @@
-import type { GameState } from "@/engine/state/runtimeState";
 import type { Project } from "@/domain/types";
+import type { GameState } from "@/engine/state/runtimeState";
+
+
+export type SavedGameState = Omit<GameState, "project">;
 
 export type SaveGameData = {
   projectId: string;
   projectTitle: string;
   savedAt: number;
-  gameState: GameState;
+  gameState: SavedGameState;
 };
+
+function createGameStateSnapshot(gameState: GameState): SavedGameState {
+  const { project: _project, ...snapshot } = gameState;
+
+  return snapshot;
+}
 
 export function buildSaveGameData(project: Project, gameState: GameState): SaveGameData {
   return {
     projectId: project.id,
     projectTitle: project.title ?? "adventure",
     savedAt: Date.now(),
-    gameState,
+    gameState: createGameStateSnapshot(gameState),
   };
 }
 
@@ -36,9 +45,7 @@ export function downloadSaveFile(save: SaveGameData, customName?: string) {
 
   const timestamp = buildTimestamp(new Date(save.savedAt));
 
-  const filename = customName?.trim()
-    ? `${sanitizeFilename(customName)}.json`
-    : `${sanitizeFilename(save.projectTitle)}_save_${timestamp}.json`;
+  const filename = customName?.trim() ? `${sanitizeFilename(customName)}.json` : `${sanitizeFilename(save.projectTitle)}_save_${timestamp}.json`;
 
   const anchor = document.createElement("a");
   anchor.href = url;

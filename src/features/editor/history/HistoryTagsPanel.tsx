@@ -45,9 +45,8 @@ function TagColumn({ title, items, emptyMessage, onActivate, headerClassName }: 
   );
 }
 
-function toTagItems<T extends { id: ID; name: string }>(list?: T[]) {
-  return list?.map((item) => ({ id: item.id, label: item.name })) ?? [];
-}
+const toTagItems = (list?: { id: ID; name: string }[]) => list?.map((item) => ({ id: item.id, label: item.name })) ?? [];
+
 
 export function HistoryTagsPanel() {
   const project = useEditorStore((s) => s.project);
@@ -62,12 +61,12 @@ export function HistoryTagsPanel() {
   const setSelectedSfxId = useEditorStore((s) => s.setSelectedSfxId);
   const setSelectedMapId = useEditorStore((s) => s.setSelectedMapId);
 
-const openHistoryResource = useCallback(( secondaryMode: "jugador" | "pnjs" | "items" | "musica" | "sfx" | "mapa",
+const openHistoryResource = useCallback(( secondaryMode: "jugador" | "pnj" | "objeto" | "musica" | "sfx" | "mapa",
     selectResource: () => void) => {
     setPrimaryMode("historia");
     setSecondaryMode(secondaryMode);
 
-    requestAnimationFrame(() => selectResource());
+    selectResource();
   }, [setPrimaryMode, setSecondaryMode],
 );
 
@@ -77,12 +76,12 @@ const openHistoryResource = useCallback(( secondaryMode: "jugador" | "pnjs" | "i
 );
 
 const handleNpcActivate = useCallback((id: ID) => {
-    openHistoryResource("pnjs", () => {setSelectedNpcId(id)});
+    openHistoryResource("pnj", () => {setSelectedNpcId(id)});
   }, [openHistoryResource, setSelectedNpcId],
 );
 
 const handleItemActivate = useCallback((id: ID) => {
-    openHistoryResource("items", () => {setSelectedItemId(id)});
+    openHistoryResource("objeto", () => {setSelectedItemId(id)});
   }, [openHistoryResource, setSelectedItemId],
 );
 
@@ -131,7 +130,7 @@ const handleMapActivate = useCallback((id: ID) => {
           title="Jugador"
           headerClassName="bg-emerald-800"
           items={playerItems}
-          emptyMessage="No hay personajes creados"
+          emptyMessage="No hay jugadores creados"
           onActivate={handlePlayerActivate}
         />
 
@@ -139,15 +138,15 @@ const handleMapActivate = useCallback((id: ID) => {
           title="PNJ"
           headerClassName="bg-lime-800"
           items={npcItems}
-          emptyMessage="No hay personajes creados"
+          emptyMessage="No hay pnjs creados"
           onActivate={handleNpcActivate}
         />
 
         <TagColumn
-          title="Ítems"
+          title="Objeto"
           headerClassName="bg-red-800"
           items={itemItems}
-          emptyMessage="No hay ítems creados"
+          emptyMessage="No hay objetos creados"
           onActivate={handleItemActivate}
         />
 
@@ -168,7 +167,7 @@ const handleMapActivate = useCallback((id: ID) => {
         />
 
         <TagColumn
-          title="Mapas"
+          title="Mapa"
           headerClassName="bg-amber-800"
           items={mapItems}
           emptyMessage="No hay mapas creados"

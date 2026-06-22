@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ID, Project } from "@/domain/types";
-import type { TextTokenKind } from "@/features/editor/scene/textTokens/tokenFormat";
-import { buildMapRegionToken, buildNameToken, buildVarToken } from "@/features/editor/scene/textTokens/tokenFormat";
-import { buildTokenCatalog } from "@/features/editor/scene/textTokens/tokenCatalog";
+import type { TextTokenKind } from "@/shared/textTokens/tokenFormat";
+import { buildMapRegionToken, buildNameToken, buildVarToken } from "@/shared/textTokens/tokenFormat";
+import { buildTokenCatalog } from "@/shared/textTokens/tokenCatalog";
 
 type Props = {
   open: boolean;
@@ -27,7 +27,7 @@ export function InsertTextTokenModal({ open, project, onClose, onInsert }: Props
 
   const entities = catalog[kind] ?? [];
 
-  const selected = useMemo(() => (entityId ? entities.find((entity) => entity.id === entityId) ?? null : null), [entities, entityId]);
+  const selected = entities.find((entity) => entity.id === entityId) ?? null;
 
   const canUseVars = kind === "players" || kind === "npcs";
   const vars = selected && canUseVars ? selected.vars ?? [] : [];
@@ -152,21 +152,33 @@ export function InsertTextTokenModal({ open, project, onClose, onInsert }: Props
                 </div>
               ) : (
                 <div className="flex h-full min-h-0 flex-col gap-3">
-                  {/* Nombre de la entidad */}
-                  <button
-                    type="button"
-                    onClick={handleInsertName}
-                    className="w-full rounded-md border border-cyan-600 bg-cyan-900/30 px-3 py-2 text-[13px] text-white hover:bg-cyan-900"
-                  >
-                    Nombre
-                  </button>
+                    {/* Nombre de la entidad */}
+                    <button
+                      type="button"
+                      onClick={handleInsertName}
+                      className="w-full rounded-md border border-cyan-600 bg-cyan-900/30 px-3 py-2 text-[13px] text-white hover:bg-cyan-900"
+                    >
+                      Nombre
+                    </button>
 
-                  {/* Variables: solo players y npcs */}
-                  {showVarsBlock ? (
-                    <div className="flex min-h-0 flex-1 flex-col gap-2">
-                      <div className="text-[13px] font-semibold text-whtite">Variables</div>
+                    {canUseVars && hasSelectedEntity && vars.length === 0 ? (
+                      <div className="text-xs text-slate-300 mt-2">
+                        Este elemento no tiene variables
+                      </div>
+                    ) : null}
 
-                      <div className="editor-scroll flex-1 min-h-0 space-y-2 overflow-auto">
+                    {canUseRegions && hasSelectedEntity && regions.length === 0 ? (
+                      <div className="text-xs text-slate-300 mt-2">
+                        Este mapa no tiene regiones
+                      </div>
+                    ) : null}
+
+                    {/* Variables: solo players y npcs */}
+                    {showVarsBlock ? (
+                      <div className="flex min-h-0 flex-1 flex-col gap-2">
+                        <div className="text-[13px] font-semibold text-white">Variables</div>
+
+                        <div className="editor-scroll flex-1 min-h-0 space-y-2 overflow-auto">
                         {vars.map((variable) => (
                           <button
                             key={variable.id}
@@ -185,7 +197,6 @@ export function InsertTextTokenModal({ open, project, onClose, onInsert }: Props
                   {showRegionsBlock ? (
                     <div className="flex min-h-0 flex-1 flex-col gap-2">
                       <div className="text-[12px] text-white font-semibold">Regiones</div>
-
                       <div className="editor-scroll flex-1 min-h-0 space-y-2 overflow-auto">
                         {regions.map((region) => (
                           <button

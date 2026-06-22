@@ -1,114 +1,86 @@
 import { useCallback } from "react";
-import type { Hotspot, ID, PlacedItem, PlacedNpc } from "@/domain/types";
+import type { Hotspot, ID, ItemInstance, PlacedNpc } from "@/domain/types";
 import type { GameState } from "@/engine/state/runtimeState";
-import type { AudioAdapter } from "@/engine/adapters/audioAdapter";
+import type { AudioAdapter } from "@/engine/adapters/SfxAdapter";
 import type { InventoryItemView } from "@/features/player/components/InventoryOverlay";
+import type { ApplyEffectCtx } from "@/engine/apply/applyEffect";
 import { applyHotspotUseItem } from "@/engine/apply/applyHotspot";
 import { applyInventoryItemUseItem } from "@/engine/apply/applyInventoryItem";
 import { applyPlacedItemUseItem } from "@/engine/apply/applyPlacedItem";
 import { applyPlacedNpcUseItem } from "@/engine/apply/applyPlacedNpc";
-import { useUiMessageStore } from "@/engine/messages/uiMessageStore";
+import { pushBubbleMessage } from "@/engine/messages/uiMessageStore";
 import { useGameStore } from "@/store/gameStore";
 
-type PrepareGameState = (state: GameState) => GameState;
+type ItemUseCtx = Pick<ApplyEffectCtx, "audio" | "emitMessage">;
+
+type UseSelectedItemTarget<TTarget> = {
+  target: TTarget;
+  apply: (state: GameState, target: TTarget, selectedItemId: ID, ctx: ItemUseCtx) => GameState;
+};
 
 function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
 }
 
-export function usePlayerItemInteractions(gameState: GameState | null, selectedItemId: ID | null, audioAdapter: AudioAdapter,
-  prepareGameState: PrepareGameState, clearInteractionMode: () => void) {
-  const pushUiMessage = useUiMessageStore((state) => state.push);
+function emitBubbleMessage(text: string, speaker?: { kind: "narrator" | "player" | "npc"; speakerId?: ID }) {
+  pushBubbleMessage(text, speaker);
+}
 
-  const applyPreparedState = useCallback(
-    (nextState: GameState) => {
-      useGameStore.setState({ gameState: prepareGameState(nextState) });
+/* Hook que centraliza el uso de un item seleccionado con hotspots, items colocados, NPCs colocados y otros items del inventario */
+export function usePlayerItemInteractions(gameState: GameState | null, selectedItemId: ID | null, audioAdapter: AudioAdapter, clearInteractionMode: () => void) {
+  const setPreparedGameState = useGameStore((state) => state.setPreparedGameState);
 
-      clearInteractionMode();
-    }, [prepareGameState, clearInteractionMode]
-  );
+  const buildItemUseCtx = useCallback((): ItemUseCtx => ({ audio: audioAdapter, emitMessage: emitBubbleMessage }), [audioAdapter]);
 
-  const emitBubbleMessage = useCallback(
-  (
-    text: string,
-    speaker?: {
-      kind: "narrator" | "player" | "npc";
-      speakerId?: ID;
-    },
-  ) => {
-    pushUiMessage({
-      text,
-      preferredChannel: "bubble",
-      speaker:
-        speaker?.kind === "player" && speaker.speakerId
-          ? { kind: "player", playerId: speaker.speakerId }
-          : speaker?.kind === "npc" && speaker.speakerId
-            ? { kind: "npc", npcId: speaker.speakerId }
-            : speaker?.kind === "narrator"
-              ? { kind: "narrator" }
-              : undefined,
-    });
+  const applyPreparedState = useCallback((nextState: GameState) => {
+    setPreparedGameState(nextState);
+    clearInteractionMode();
   },
-  [pushUiMessage],
-);
-
-  const useOnHotspot = useCallback(
-    (hotspot: Hotspot) => {
-      if (!gameState || !selectedItemId) return;
-
-      try {
-        const nextState = applyHotspotUseItem(gameState, hotspot, selectedItemId, { audio: audioAdapter, emitMessage: emitBubbleMessage });
-
-        applyPreparedState(nextState);
-      } catch (error) {
-        emitBubbleMessage(getErrorMessage(error, "No se ha podido usar el objeto."));
-      }
-    }, [gameState, selectedItemId, audioAdapter, emitBubbleMessage, applyPreparedState]
+    [setPreparedGameState, clearInteractionMode],
   );
 
-  const useOnPlacedItem = useCallback(
-    (placedItem: PlacedItem) => {
-      if (!gameState || !selectedItemId) return;
+  /* Helper común para usar el item seleccionado sobre un objetivo de escena */
+  const applySelectedItemOnTarget = useCallback(<TTarget,>({ target, apply }: UseSelectedItemTarget<TTarget>) => {
+    if (!gameState || !selectedItemId) return;
 
-      try {
-        const nextState = applyPlacedItemUseItem(gameState, placedItem, selectedItemId, { audio: audioAdapter, emitMessage: emitBubbleMessage });
-
-        applyPreparedState(nextState);
-      } catch (error) {
-        emitBubbleMessage(getErrorMessage(error, "No se ha podido usar el objeto."));
-      }
-    }, [gameState, selectedItemId, audioAdapter, emitBubbleMessage, applyPreparedState]
+    try {
+      const nextState = apply(gameState, target, selectedItemId, buildItemUseCtx());
+      applyPreparedState(nextState);
+    } catch (error) {
+      emitBubbleMessage(getErrorMessage(error, "No se ha podido usar el objeto."));
+    }
+  },
+    [gameState, selectedItemId, buildItemUseCtx, applyPreparedState],
   );
 
-  const useOnPlacedNpc = useCallback(
-    (placedNpc: PlacedNpc) => {
-      if (!gameState || !selectedItemId) return;
+  const useOnHotspot = useCallback((hotspot: Hotspot) => {
+    applySelectedItemOnTarget({ target: hotspot, apply: applyHotspotUseItem });
+  }, [applySelectedItemOnTarget]);
 
-      try {
-        const nextState = applyPlacedNpcUseItem(gameState, placedNpc, selectedItemId, { audio: audioAdapter, emitMessage: emitBubbleMessage });
+  const useOnPlacedItem = useCallback((placedItem: ItemInstance) => {
+    applySelectedItemOnTarget({ target: placedItem, apply: applyPlacedItemUseItem });
+  }, [applySelectedItemOnTarget]);
 
-        applyPreparedState(nextState);
-      } catch (error) {
-        emitBubbleMessage(getErrorMessage(error, "No se ha podido usar el objeto."));
-      }
-    }, [gameState, selectedItemId, audioAdapter, emitBubbleMessage, applyPreparedState]
+  const useOnPlacedNpc = useCallback((placedNpc: PlacedNpc) => {
+    applySelectedItemOnTarget({ target: placedNpc, apply: applyPlacedNpcUseItem});
+  }, [applySelectedItemOnTarget]);
+
+  /* Uso item-item dentro del inventario */
+  const useOnInventoryItem = useCallback((sourceItem: InventoryItemView, targetItem: InventoryItemView) => {
+    if (!gameState) return;
+
+    try {
+      const nextState = applyInventoryItemUseItem(gameState, sourceItem.itemInstanceId, targetItem.itemInstanceId, buildItemUseCtx());
+
+      applyPreparedState(nextState);
+    } catch (error) {
+      emitBubbleMessage(getErrorMessage(error, "No se ha podido usar el objeto."));
+    }
+  },
+    [gameState, buildItemUseCtx, applyPreparedState],
   );
 
-  const useOnInventoryItem = useCallback(
-    (sourceItem: InventoryItemView, targetItem: InventoryItemView) => {
-      if (!gameState) return;
-
-      try {
-        const nextState = applyInventoryItemUseItem(gameState, sourceItem.itemInstanceId, targetItem.itemInstanceId,
-          { audio: audioAdapter, emitMessage: emitBubbleMessage }
-        );
-
-        applyPreparedState(nextState);
-      } catch (error) {
-        emitBubbleMessage(getErrorMessage(error, "No se ha podido usar el objeto."));
-      }
-    }, [gameState, audioAdapter, emitBubbleMessage, applyPreparedState]
-  );
-
-  return { useOnHotspot, useOnPlacedItem, useOnPlacedNpc, useOnInventoryItem };
+  return {
+    useOnHotspot, useOnPlacedItem, useOnPlacedNpc, useOnInventoryItem,
+  };
 }

@@ -1,18 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { RegionShape } from "@/domain/types";
-import { isValidRect01 } from "@/features/editor/hooks/regionShape";
-import { formatCollisionSummary, validateNoCollisions01Rect, type ClickableRegion } from "@/features/editor/scene/clickableCollisions";
-
-type CollisionIgnoreTarget =
-  | { kind: "hotspot"; id: string }
-  | { kind: "item"; id: string }
-  | { kind: "npc"; id: string }
-  | { kind: "player"; id: string };
+import { DEFAULT_MIN_RECT_01, isValidRect01 } from "@/features/editor/hooks/regionShape";
+import { formatCollisionSummary, validateNoCollisions01Rect, type ClickableRegion, type IgnoreSelf } from "@/features/editor/scene/clickableCollisions";
 
 type UseEntityCollisionGuardArgs = {
   shape: RegionShape | null | undefined;
-  clickableRegions: ClickableRegion[];
-  ignore?: CollisionIgnoreTarget;
+  clickableRegions: readonly ClickableRegion[];
+  ignore?: IgnoreSelf;
   enabled?: boolean;
   isDrawing?: boolean;
   minRect?: number;
@@ -26,13 +20,17 @@ type CollisionLockState = {
   summary: string;
 };
 
-function shapeKey(shape: unknown): string {
-  try {return JSON.stringify(shape ?? null); }
-  catch { return String(shape ?? ""); }
+function shapeKey(shape: RegionShape | null | undefined): string {
+  if (!shape) return "none";
+
+  if (shape.type === "rect") return `rect:${shape.x}:${shape.y}:${shape.w}:${shape.h}`;
+
+  return shape.type;
+
 }
 
 /* Hook para vigilar colisiones de una shape editable contra regiones clicables */
-export function useEntityCollisionGuard({ shape, clickableRegions, ignore, enabled = true, isDrawing = false, minRect = 0.02,
+export function useEntityCollisionGuard({ shape, clickableRegions, ignore, enabled = true, isDrawing = false, minRect = DEFAULT_MIN_RECT_01,
   resetKey, onRejectShape, onCollision }: UseEntityCollisionGuardArgs) {
   const hasShape = isValidRect01(shape, { min: minRect });
 
@@ -74,11 +72,14 @@ export function useEntityCollisionGuard({ shape, clickableRegions, ignore, enabl
 
   useEffect(() => {
     if (!collisionLock.active) return;
-    if (!hasShape) return;
-    if (hasCollisions) return;
 
-    setCollisionLock({ active: false, summary: "" });
-  }, [collisionLock.active, hasShape, hasCollisions]);
+    if (!enabled) {
+      setCollisionLock({ active: false, summary: "" });
+      return;
+    }
+
+    if (hasShape && !hasCollisions) setCollisionLock({ active: false, summary: "" });
+  }, [collisionLock.active, enabled, hasShape, hasCollisions]);
 
   return { hasShape, collisionCheck, hasCollisions, collisionSummary, collisionLock, resetCollisionGuard };
 }

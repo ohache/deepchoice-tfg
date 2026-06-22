@@ -1,23 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { NpcDef, VarDef, ID, InventoryItemInstance } from "@/domain/types";
+import type { NpcDef, VarDef, ItemInstance } from "@/domain/types";
 import { useEditorStore } from "@/store/editorStore";
-import { NpcInventoryItemRulesEditor } from "@/features/editor/history/npcs/NpcInventoryItemRulesEditor";
+import { InventoryEditor } from "@/features/editor/history/shared/inventory/InventoryEditor";
 import { validateNpcDraft, type NpcFieldErrors } from "@/features/editor/history/npcs/npcValidator";
 import { hasDuplicateFileByLinkedAssetId } from "@/validation/genericValidator";
+import { getDraftPanelTitle } from "@/features/editor/history/shared/genericHelpers";
 import { useAssetDraftPanel, type DraftMode } from "@/features/editor/history/shared/useAssetDraftPanel";
 import { useImageFileDraft } from "@/features/editor/history/shared/useImageFileDraft";
 import { VarRowCard } from "@/shared/vars/varRowCard";
 import { useEntityVarsEditor } from "@/shared/vars/useEntityVarsEditor";
-import { hasDuplicatedItemInstanceLabel } from "@/validation/itemInstanceLabels";
-import { generateId } from "@/utils/id";
-import { Select } from "@/components/Select";
+import { InventoryItemRulesEditor } from "@/features/editor/history/shared/inventory/InventoryItemRulesEditor";
+import { useEntityInventoryEditor } from "@/features/editor/history/shared/inventory/useEntityInventoryEditor";
 import { toast } from "@/shared/toast/toastStore";
-
-function getModeTitle(mode: "none" | "new" | "edit") {
-  if (mode === "new") return "Nuevo PNJ";
-  if (mode === "edit") return "Editar PNJ";
-  return "Detalle de PNJ";
-}
 
 export function HistoryNpcsPanel() {
   const project = useEditorStore((s) => s.project);
@@ -25,8 +19,6 @@ export function HistoryNpcsPanel() {
 
   const selectedNpcId = useEditorStore((s) => s.selectedNpcId);
   const setSelectedNpcId = useEditorStore((s) => s.setSelectedNpcId);
-
-  const draftNpcId = selectedNpcId ?? "__draft_npc__";
 
   const addNpc = useEditorStore((s) => s.addNpc);
   const updateNpc = useEditorStore((s) => s.updateNpc);
@@ -42,9 +34,8 @@ export function HistoryNpcsPanel() {
 
   const [draftName, setDraftName] = useState("");
   const [draftDescription, setDraftDescription] = useState("");
-  const [draftInventory, setDraftInventory] = useState<InventoryItemInstance[]>([]);
-  const [openInventoryItemId, setOpenInventoryItemId] = useState<ID | null>(null);
   const [fieldErrors, setFieldErrors] = useState<NpcFieldErrors>({});
+
   const nameInputRef = useRef<HTMLInputElement | null>(null);
 
   const npcList = useMemo(() => project?.npcs ?? [], [project]);
@@ -54,13 +45,13 @@ export function HistoryNpcsPanel() {
     return npcList.find((npc) => npc.id === selectedNpcId) ?? null;
   }, [selectedNpcId, project, npcList]);
 
-  const selectedNpcVarIds = useMemo(
-    () => new Set((selectedNpc?.vars ?? []).map((variable) => variable.id)),
-    [selectedNpc],
-  );
+  const selectedNpcVarIds = useMemo(() => new Set((selectedNpc?.vars ?? []).map((variable) => variable.id)), [selectedNpc]);
+
+  const selectedNpcInitialInventory = useMemo(() => selectedNpc?.initialInventory ?? [], [selectedNpc]);
+
+  const itemOptions = useMemo(() => project?.items ?? [], [project]);
 
   const inferredMode: "none" | "edit" = selectedNpcId ? "edit" : "none";
-
 
   const image = useImageFileDraft({
     mode: inferredMode,
@@ -83,13 +74,13 @@ export function HistoryNpcsPanel() {
     },
   });
 
+  /* Al desmontar el panel se limpia la selección activa */
   useEffect(() => () => setSelectedNpcId(null), [setSelectedNpcId]);
 
+  /* Carga el draft desde el PNJ seleccionado */
   const loadDraftFromSelectedNpc = (npc: NpcDef) => {
     setDraftName(npc.name ?? "");
     setDraftDescription(npc.description ?? "");
-    setDraftInventory(npc.initialInventory ?? []);
-    setOpenInventoryItemId(null);
     setFieldErrors({});
     image.resetImageDraft();
 
@@ -99,15 +90,15 @@ export function HistoryNpcsPanel() {
     image.loadPreviewFromExistingFile(assetFiles?.[npc.id]);
   };
 
+  /* Limpia los campos del formulario */
   const resetDraftFields = () => {
     setDraftName("");
     setDraftDescription("");
-    setDraftInventory([]);
-    setOpenInventoryItemId(null);
     setFieldErrors({});
     image.resetImageDraft();
   };
 
+  /* Comportamiento común de selección / edición / creación */
   const panel = useAssetDraftPanel<NpcDef>({
     hasProject: !!project,
     selectedId: selectedNpcId,
@@ -119,92 +110,118 @@ export function HistoryNpcsPanel() {
   });
 
   const mode: DraftMode = panel.mode;
-  const canEdit = mode !== "none";
-  const rightTitle = getModeTitle(mode);
+  const rightTitle = getDraftPanelTitle(mode, {
+    detail: "Detalle de PNJ",
+    create: "Nuevo PNJ",
+    edit: "Editar PNJ",
+  });
 
-  const { draftVars, openVarId, varNameRefs, computeRowErrors, updateVarRow, switchVarType, addVarRow, toggleVarOpen, removeVarRow,
-    saveVarRow, syncFromVars } = useEntityVarsEditor({
+  /* Editor de variables del PNJ */
+  const { draftVars, openVarId, varNameRefs, computeRowErrors, updateVarRow, switchVarType, addVarRow, toggleVarOpen, removeVarRow, saveVarRow, syncFromVars }
+    = useEntityVarsEditor({
       initialVars: selectedNpc?.vars ?? [],
-      onPersistRemove: (varId) => {
-        if (mode === "edit" && selectedNpcId && selectedNpcVarIds.has(varId)) removeNpcVar(selectedNpcId, varId);
-      },
-      onPersistSave: (variable, meta) => {
+      onPersistRemove: (varId) => { if (mode === "edit" && selectedNpcId && selectedNpcVarIds.has(varId)) removeNpcVar(selectedNpcId, varId) },
+      onPersistSave: (variable, existedBefore) => {
         if (mode !== "edit" || !selectedNpcId) return;
 
-        if (!meta.existedBefore) addNpcVar(selectedNpcId, variable);
+        if (!existedBefore) addNpcVar(selectedNpcId, variable);
         else updateNpcVar(selectedNpcId, variable);
       },
     });
 
+  /* Editor del inventario inicial del PNJ */
+  const { draftInventory, openInventoryItemId, addInventoryRow, updateInventoryRow, removeInventoryRow, toggleInventoryItemOpen, saveInventoryRow, syncFromInventory }
+    = useEntityInventoryEditor({
+      project,
+      initialInventory: selectedNpcInitialInventory,
+      itemOptions,
+      onPersistRemove: (itemInstanceId) => { if (mode === "edit" && selectedNpcId) removeNpcInventoryItem(selectedNpcId, itemInstanceId) },
+      onPersistSave: (item, existedBefore) => {
+        if (mode !== "edit" || !selectedNpcId) return;
+
+        if (!existedBefore) addNpcInventoryItem(selectedNpcId, item);
+        else updateNpcInventoryItem(selectedNpcId, item);
+      },
+    });
+
+  /* Sincroniza variables e inventario al cambiar el PNJ seleccionado */
   useEffect(() => {
     syncFromVars(selectedNpc?.vars ?? []);
-  }, [selectedNpc?.id, syncFromVars]);
+    syncFromInventory(selectedNpc?.initialInventory ?? []);
+  }, [selectedNpc?.id, syncFromVars, syncFromInventory]);
 
-  const validateDraft = (): boolean => {
-    if (!project) return false;
+  /* Valida el formulario completo del PNJ */
+  const validateDraft = (input: { vars: VarDef[]; initialInventory: ItemInstance[] }): boolean => {
+    if (!project) {
+      toast.warning("No hay proyecto", "No se puede validar el PNJ porque no hay un proyecto cargado.");
+      return false;
+    }
 
     const descriptionTrim = draftDescription.trim();
 
     const { ok, errors } = validateNpcDraft(
-      {
-        name: draftName,
-        description: descriptionTrim || undefined,
-        file: image.draftFile ?? undefined,
-        vars: draftVars,
-        initialInventory: draftInventory,
-      },
-      {
-        mode: mode === "edit" ? "edit" : "new",
-        project,
-        currentNpcId: selectedNpcId ?? undefined
-      },
+      { name: draftName, description: descriptionTrim || undefined, file: image.draftFile ?? undefined, vars: input.vars, initialInventory: input.initialInventory },
+      { mode: mode === "edit" ? "edit" : "new", project, currentNpcId: selectedNpcId ?? undefined },
     );
 
     setFieldErrors(errors);
 
-    if (!ok) toast.warning("Revisa el formulario", "Hay campos con errores.");
+    if (!ok) toast.warning("Revisa el formulario", "Hay errores en alguno de los campos");
 
     return ok;
   };
 
+  /* Convierte las filas draft de variables en VarDef persistibles */
   const buildValidatedVars = (): VarDef[] | null => {
     const varsOut: VarDef[] = [];
 
     for (const row of draftVars) {
       const result = saveVarRow(row);
+
       if (!result.ok) {
         toast.warning("Variables con errores", "Corrige los errores de las variables antes de guardar el PNJ.");
         return null;
       }
+
       varsOut.push(result.variable);
     }
 
     return varsOut;
   };
 
-  const handleCreate = () => {
+  /* Convierte las filas draft de inventario en ItemInstance persistibles */
+  const buildValidatedInventory = (): ItemInstance[] | null => {
+    const inventoryOut: ItemInstance[] = [];
+
+    for (const item of draftInventory) {
+      const result = saveInventoryRow(item);
+
+      if (!result.ok) {
+        toast.warning("Inventario con errores", "Corrige los errores del inventario antes de guardar el PNJ.");
+        return null;
+      }
+
+      inventoryOut.push(result.item);
+    }
+
+    return inventoryOut;
+  };
+
+  /* Alta de un nuevo PNJ */
+  const handleCreate = (varsOut: VarDef[], inventoryOut: ItemInstance[]) => {
     if (!image.draftFile) {
       toast.error("Falta imagen", "Selecciona una imagen antes de guardar.");
       return;
     }
 
-    const varsOut = buildValidatedVars();
-    if (!varsOut) return;
-
     const nameTrim = draftName.trim();
     const descriptionTrim = draftDescription.trim();
     const description = descriptionTrim || undefined;
 
-    const id = addNpc({
-      name: nameTrim,
-      description,
-      file: image.draftFile,
-      vars: varsOut,
-      initialInventory: draftInventory,
-    });
+    const id = addNpc({ name: nameTrim, description, file: image.draftFile, vars: varsOut, initialInventory: inventoryOut });
 
     if (!id) {
-      toast.error("No se pudo crear", "Revisa si el nombre o el archivo ya están en uso.");
+      toast.error("Error inesperado", "No se pudo crear el PNJ.");
       return;
     }
 
@@ -212,191 +229,39 @@ export function HistoryNpcsPanel() {
     panel.reset();
   };
 
-  const itemOptions = project?.items ?? [];
-
-  const toggleInventoryItemOpen = (itemInstanceId: ID) => {
-    setOpenInventoryItemId((current) => current === itemInstanceId ? null : itemInstanceId);
-  };
-
-  const addInventoryRow = () => {
-    const item = itemOptions[0];
-
-    if (!item) {
-      toast.warning("No hay items", "Crea primero un item global.");
-      return;
-    }
-
-    const itemInstance: InventoryItemInstance = {
-      itemInstanceId: generateId.itemPlaced(),
-      itemId: item.id,
-      label: item.name,
-    };
-
-    setDraftInventory((prev) => [...prev, itemInstance]);
-    setOpenInventoryItemId(itemInstance.itemInstanceId);
-  };
-
-  const updateInventoryRow = (itemInstanceId: ID, patch: Partial<InventoryItemInstance>) => {
-    setDraftInventory((prev) =>
-      prev.map((item) =>
-        item.itemInstanceId === itemInstanceId ? { ...item, ...patch } : item,
-      ),
-    );
-  };
-
-  const removeInventoryRow = (itemInstanceId: ID) => {
-    setDraftInventory((prev) => prev.filter((item) => item.itemInstanceId !== itemInstanceId));
-    setOpenInventoryItemId((current) => current === itemInstanceId ? null : current);
-
-    if (mode === "edit" && selectedNpcId) {
-      removeNpcInventoryItem(selectedNpcId, itemInstanceId);
-    }
-  };
-
-  const setInventoryItemError = (itemInstanceId: ID, message: string) => {
-    setFieldErrors((prev) => ({
-      ...prev,
-      inventoryItemById: {
-        ...(prev.inventoryItemById ?? {}),
-        [itemInstanceId]: message,
-      },
-    }));
-  };
-
-  const clearInventoryItemError = (itemInstanceId: ID) => {
-    setFieldErrors((prev) => {
-      const nextById = { ...(prev.inventoryItemById ?? {}) };
-      delete nextById[itemInstanceId];
-
-      return {
-        ...prev,
-        inventoryItemById: Object.keys(nextById).length > 0 ? nextById : undefined,
-      };
-    });
-  };
-
-  const saveInventoryRow = (item: InventoryItemInstance) => {
-    if (!project) return;
-
-    clearInventoryItemError(item.itemInstanceId);
-
-    if (!item.itemId) {
-      setInventoryItemError(item.itemInstanceId, "Selecciona un tipo de item.");
-      toast.warning("Item incompleto", "Selecciona un tipo de item.");
-      return;
-    }
-
-    const label = item.label.trim();
-
-    if (!label) {
-      setInventoryItemError(item.itemInstanceId, "El item necesita una etiqueta.");
-      toast.warning("Etiqueta obligatoria", "El item necesita una etiqueta.");
-      return;
-    }
-
-    if (label.length > 60) {
-      toast.warning("Nombre demasiado largo", "La etiqueta no puede superar 60 caracteres.");
-      return;
-    }
-
-
-    const duplicatedInDraft = draftInventory.some(
-      (other) =>
-        other.itemInstanceId !== item.itemInstanceId &&
-        other.label.trim().toLowerCase() === label.toLowerCase(),
-    );
-
-    if (duplicatedInDraft) {
-      setInventoryItemError(item.itemInstanceId, "Ya hay otro item del inventario con ese nombre.");
-      toast.warning("Nombre repetido", "Ya hay otro item del inventario con ese nombre.");
-      return;
-    }
-
-    if (hasDuplicatedItemInstanceLabel(project, label, item.itemInstanceId)) {
-      setInventoryItemError(item.itemInstanceId, "Ya existe otro item instanciado con ese nombre.");
-      toast.warning("Nombre repetido", "Ya existe otro item instanciado con ese nombre.");
-      return;
-    }
-
-    const cleanItem: InventoryItemInstance = {
-      ...item,
-      label,
-    };
-
-    setDraftInventory((prev) =>
-      prev.map((current) =>
-        current.itemInstanceId === cleanItem.itemInstanceId ? cleanItem : current,
-      ),
-    );
-
-    if (mode === "edit" && selectedNpcId) {
-      const existedBefore = selectedNpc?.initialInventory?.some(
-        (existing) => existing.itemInstanceId === cleanItem.itemInstanceId,
-      );
-
-      if (existedBefore) updateNpcInventoryItem(selectedNpcId, cleanItem);
-      else addNpcInventoryItem(selectedNpcId, cleanItem);
-    }
-
-    setOpenInventoryItemId(null);
-    toast.success("Item guardado", `“${cleanItem.label}”`);
-  };
-
+  /* Actualización de un PNJ existente */
   const handleUpdate = () => {
     if (!selectedNpcId) return;
-
-    const varsOut = buildValidatedVars();
-    if (!varsOut) return;
 
     const nameTrim = draftName.trim();
     const descriptionTrim = draftDescription.trim();
     const description = descriptionTrim || undefined;
     const replacingFile = !!image.draftFile;
 
-    updateNpc(selectedNpcId, {
-      name: nameTrim,
-      description,
-      file: image.draftFile ?? undefined,
-    });
-
-    for (const item of draftInventory) {
-      const existedBefore = selectedNpc?.initialInventory?.some(
-        (existing) => existing.itemInstanceId === item.itemInstanceId,
-      );
-
-      if (existedBefore) updateNpcInventoryItem(selectedNpcId, item);
-      else addNpcInventoryItem(selectedNpcId, item);
-    }
-
-    const currentInventoryIds = new Set(
-      (selectedNpc?.initialInventory ?? []).map((item) => item.itemInstanceId),
-    );
-
-    const keptInventoryIds = new Set(draftInventory.map((item) => item.itemInstanceId));
-
-    for (const itemInstanceId of currentInventoryIds) {
-      if (!keptInventoryIds.has(itemInstanceId)) {
-        removeNpcInventoryItem(selectedNpcId, itemInstanceId);
-      }
-    }
+    updateNpc(selectedNpcId, { name: nameTrim, description, file: image.draftFile ?? undefined });
 
     toast.success(replacingFile ? "PNJ actualizado (imagen reemplazada)" : "PNJ actualizado", `“${nameTrim || "PNJ"}”`);
 
     panel.reset();
   };
 
+  /* Punto único de guardado */
   const handleSave = () => {
     if (!project) return;
-    if (!validateDraft()) return;
 
-    if (mode === "new") {
-      handleCreate();
-      return;
-    }
+    const varsOut = buildValidatedVars();
+    if (!varsOut) return;
 
-    if (mode === "edit") handleUpdate();
+    const inventoryOut = buildValidatedInventory();
+    if (!inventoryOut) return;
+
+    if (!validateDraft({ vars: varsOut, initialInventory: inventoryOut })) return;
+
+    if (mode === "new") handleCreate(varsOut, inventoryOut);
+    else if (mode === "edit") handleUpdate();
   };
 
+  /* Solicita la eliminación del PNJ seleccionado */
   const handleDeleteNpc = () => {
     if (!selectedNpcId) return;
     removeNpc(selectedNpcId);
@@ -404,7 +269,6 @@ export function HistoryNpcsPanel() {
 
   if (!project) return null;
 
-  const fileError = fieldErrors.file ?? image.fileError;
   const disableAddVar = mode === "none" || openVarId !== null;
 
   return (
@@ -512,12 +376,14 @@ export function HistoryNpcsPanel() {
                   <label className="block text-[14px] text-slate-100 mb-1 text-center">Imagen</label>
 
                   <div
-                    className={"group relative mt-1.5 px-3 py-3.5 rounded-md flex flex-col items-center justify-center text-[12px] " +
+                    className={
+                      "group relative mt-1.5 px-3 py-3.5 rounded-md flex flex-col items-center justify-center text-[12px] " +
                       "transition-colors duration-150 border-2 border-dashed cursor-pointer " +
                       (image.isDragging
                         ? "border-lime-400 bg-lime-800"
                         : "border-lime-800 bg-slate-900/40 " +
-                        (image.isHoveringSelectButton ? "" : "hover:bg-lime-900/60"))}
+                        (image.isHoveringSelectButton ? "" : "hover:bg-lime-900/60"))
+                    }
                     onDragOver={image.handleDragOver}
                     onDragLeave={image.handleDragLeave}
                     onDrop={image.handleDrop}
@@ -554,8 +420,6 @@ export function HistoryNpcsPanel() {
                     className="hidden"
                     onChange={image.handleFileChange}
                   />
-
-                  {fileError && <p className="form-field-error mt-1">{fileError}</p>}
                 </div>
 
                 {!!image.previewUrl && (
@@ -580,14 +444,14 @@ export function HistoryNpcsPanel() {
                       disabled={disableAddVar}
                       title={openVarId
                         ? "Termina la edición de la variable abierta (guarda o elimina)."
-                        : "Añadir variable"}
+                        : "Añadir variable"
+                      }
                     >
                       + Añadir variable
                     </button>
                   </div>
 
                   {fieldErrors.vars && <p className="form-field-error mt-2 text-center">{fieldErrors.vars}</p>}
-
 
                   <div className="space-y-2 mt-3">
                     {draftVars.map((row, idx) => {
@@ -607,10 +471,12 @@ export function HistoryNpcsPanel() {
                             onSwitchType={(nextType) => switchVarType(row.id, nextType)}
                             onSave={() => {
                               const result = saveVarRow(row);
+
                               if (!result.ok) {
                                 toast.warning("Revisa la variable", "Hay campos con errores.");
                                 return;
                               }
+
                               toast.success("Variable guardada", `“${result.variable.name}”`);
                             }}
                             onDelete={() => removeVarRow(row.id)}
@@ -625,127 +491,26 @@ export function HistoryNpcsPanel() {
                   </div>
                 </div>
 
-                <div className="mt-4 border-t border-slate-700 pt-4">
-                  <h5 className="text-[14px] text-slate-100 m-0 text-center">Inventario inicial</h5>
-
-                  <div className="mt-2 flex justify-center">
-                    <button
-                      type="button"
-                      onClick={addInventoryRow}
-                      className="btn btn-add-variant bg-rose-800 border-rose-600 text-[12px] disabled:opacity-40 disabled:cursor-not-allowed mt-1 mb-1"
-                      disabled={!canEdit || openInventoryItemId !== null}
-                      title={openInventoryItemId ? "Termina la edición del item abierto." : "Añadir item"}
-                    >
-                      + Añadir item
-                    </button>
-                  </div>
-
-                  {fieldErrors.initialInventory && (
-                    <p className="form-field-error mt-2 text-center">{fieldErrors.initialInventory}</p>
-                  )}
-
-                  <div className="space-y-2 mt-3">
-                    {draftInventory.map((item) => {
-                      const isOpen = item.itemInstanceId === openInventoryItemId;
-                      const itemDef = itemOptions.find((option) => option.id === item.itemId);
-
-                      return (
-                        <div
-                          key={item.itemInstanceId}
-                          className={
-                            "rounded-md border-2 border-slate-700 bg-slate-950 p-2 " +
-                            (!isOpen ? "hover:bg-slate-900" : "")
-                          }
-                        >
-                          <button
-                            type="button"
-                            onClick={() => toggleInventoryItemOpen(item.itemInstanceId)}
-                            className="w-full text-left text-[13px] text-slate-100"
-                          >
-                            <span className="ml-1 font-semibold">{item.label || "Item sin nombre"}</span>
-                            <span className="text-slate-300"> · {itemDef?.name ?? "Item desconocido"}</span>
-                          </button>
-
-                          {isOpen && (
-                            <div className="-mx-2 mt-3 border-t border-slate-600 px-2 pt-3 space-y-2">
-                              <div>
-                                <label className="block text-[12px] text-center text-slate-100 mt-2 mb-2">
-                                  Tipo de item
-                                </label>
-
-                                <Select<ID>
-                                  value={item.itemId}
-                                  placeholder="Selecciona item…"
-                                  options={itemOptions.map((option) => ({
-                                    id: option.id,
-                                    label: option.name,
-                                  }))}
-                                  onChange={(nextItemId) => {
-                                    if (!nextItemId) return;
-                                    updateInventoryRow(item.itemInstanceId, { itemId: nextItemId });
-                                  }}
-                                  buttonClassName="border-2 border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-slate-100 focus:ring-lime-500"
-                                  menuClassName="border-slate-700 bg-slate-900"
-                                  optionClassName="hover:bg-lime-900"
-                                />
-                              </div>
-
-                              <div>
-                                <label className="block text-[12px] text-center text-slate-100 mt-3 mb-2">
-                                  Nombre
-                                </label>
-
-                                <input
-                                  type="text"
-                                  value={item.label}
-                                  onChange={(e) => {
-                                    clearInventoryItemError(item.itemInstanceId);
-                                    updateInventoryRow(item.itemInstanceId, { label: e.target.value });
-                                  }}
-                                  className="w-full rounded-md bg-slate-950 border-2 border-slate-700 px-2 py-1.5 text-xs text-slate-100
-                    focus:outline-none focus:border-transparent focus:ring-2 focus:ring-lime-500 disabled:opacity-50"
-                                  placeholder="Ej: Objeto oxidado"
-                                />
-                              </div>
-
-                              {fieldErrors.inventoryItemById?.[item.itemInstanceId] && (
-                                <p className="form-field-error mt-1">
-                                  {fieldErrors.inventoryItemById[item.itemInstanceId]}
-                                </p>
-                              )}
-
-                              <NpcInventoryItemRulesEditor
-                                project={project}
-                                npcId={draftNpcId}
-                                item={item}
-                                canEdit={canEdit}
-                                onChange={(patch) => updateInventoryRow(item.itemInstanceId, patch)}
-                              />
-
-                              <div className="flex justify-end gap-2 panel--npcs">
-                                <button
-                                  type="button"
-                                  onClick={() => saveInventoryRow(item)}
-                                  className="btn btn-save text-[11px]"
-                                >
-                                  Guardar
-                                </button>
-
-                                <button
-                                  type="button"
-                                  onClick={() => removeInventoryRow(item.itemInstanceId)}
-                                  className="btn btn-danger text-[11px]"
-                                >
-                                  Eliminar
-                                </button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
+                  <InventoryEditor
+                    project={project}
+                    value={draftInventory}
+                    openInventoryItemId={openInventoryItemId}
+                    fieldErrors={fieldErrors}
+                    addInventoryRow={addInventoryRow}
+                    updateInventoryRow={updateInventoryRow}
+                    removeInventoryRow={removeInventoryRow}
+                    toggleInventoryItemOpen={toggleInventoryItemOpen}
+                    saveInventoryRow={saveInventoryRow}
+                    buttonGroupClassName="panel--npcs"
+                    renderRulesEditor={({ item, onChange }) => (
+                      <InventoryItemRulesEditor
+                        project={project}
+                        owner={{ kind: "npcInventoryItem", npcId: selectedNpcId ?? "__draft_npc__" }}
+                        item={item}
+                        onChange={onChange}
+                      />
+                    )}
+                  />
 
                 <div className="mt-auto flex justify-between pt-6">
                   <button

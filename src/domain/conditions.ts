@@ -15,44 +15,57 @@ export type VarPredicate = VarNumberPredicate | VarBoolPredicate;
 
 /* Árbol de condiciones */
 export type Condition =
+  /* Lógicas */
   | { type: "and"; all: Condition[] }
   | { type: "or"; any: Condition[] }
   | { type: "not"; cond: Condition }
 
+  /* Progreso */
   | { type: "nodeVisited"; nodeId: ID; op: BoolOp; value: boolean }
+
+  /* Inventario */
   | { type: "hasItem"; playerId: ID; itemInstanceId: ID; op: BoolOp; value: boolean }
   | { type: "npcHasItem"; npcId: ID; itemInstanceId: ID; op: BoolOp; value: boolean }
 
+  /* Variables */
   | ({ type: "playerVar"; playerId: ID; varId: ID } & VarPredicate)
   | ({ type: "npcVar"; npcId: ID; varId: ID } & VarPredicate)
   | ({ type: "hotspotVar"; hotspotId: ID; varId: ID } & VarPredicate)
 
+  /* Hotspots */
   | { type: "hotspotVisible"; hotspotId: ID; op: BoolOp; value: boolean }
   | { type: "hotspotReachable"; hotspotId: ID; op: BoolOp; value: boolean }
 
-  | { type: "placedItemVisible"; placedItemId: ID; op: BoolOp; value: boolean }
-  | { type: "placedItemReachable"; placedItemId: ID; op: BoolOp; value: boolean }
+  /* Objetos colocados */
+  | { type: "placedItemVisible"; itemInstanceId: ID; op: BoolOp; value: boolean }
+  | { type: "placedItemReachable"; itemInstanceId: ID; op: BoolOp; value: boolean }
 
+  /* PNJs colocados */
   | { type: "placedNpcVisible"; nodeId: ID; layerId: ID; npcId: ID; op: BoolOp; value: boolean }
   | { type: "placedNpcReachable"; nodeId: ID; layerId: ID; npcId: ID; op: BoolOp; value: boolean }
 
+  /* Jugador colocado */
   | { type: "placedPlayerVisible"; nodeId: ID; layerId: ID; playerId: ID; op: BoolOp; value: boolean }
   | { type: "placedPlayerImage"; nodeId: ID; layerId: ID; playerId: ID; imageId: ID; op: BoolOp; value: boolean }
 
+  /* Música */
+  | { type: "musicPlaying"; trackId: ID; op: BoolOp; value: boolean }
+
+  /* Mapa */
   | { type: "mapRegionVisited"; mapId: ID; regionId: ID; op: BoolOp; value: boolean };
 
-/* Builder para evitar árboles degenerados */
+/* Utilidades para construir condiciones lógicas evitando árboles degenerados */
 export const ConditionBuilder = {
   and: (...conds: Condition[]): Condition => {
     const flat = conds.flatMap(c => c.type === "and" ? c.all : [c]);
     return flat.length === 1 ? flat[0] : { type: "and", all: flat };
   },
-
+  
   or: (...conds: Condition[]): Condition => {
     const flat = conds.flatMap(c => c.type === "or" ? c.any : [c]);
     return flat.length === 1 ? flat[0] : { type: "or", any: flat };
   },
-
+  
   not: (cond: Condition): Condition => {
     if (cond.type === "not") return cond.cond;
     return { type: "not", cond };

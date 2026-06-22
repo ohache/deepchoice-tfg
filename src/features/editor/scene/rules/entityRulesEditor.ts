@@ -1,17 +1,19 @@
-import { useCallback, useMemo, useState } from "react";
-import type { ID, BaseInteractionRule, ClickRule, InteractionRules, UseItemRule, RulePhrase } from "@/domain/types";
-import type { Effect } from "@/domain/effects";
-import type { Condition } from "@/domain/conditions";
+import { useCallback, useMemo, useState, type Dispatch, type SetStateAction } from "react";
+import type {
+  BaseInteractionRule,
+  ClickRule,
+  ID,
+  InteractionRules,
+  RulePhrase,
+  UseItemRule,
+} from "@/domain/types";
+import type { RuleChannel } from "@/features/editor/scene/interactiveComponents/interactiveEditorTypes";
 import { generateId } from "@/utils/id";
 
-export type EntityRuleChannel =
-  | { type: "onClick" }
-  | { type: "onUseItem"; itemInstanceId: ID };
-
-export type EntityRuleEditingInfo =
+type EntityRuleEditingInfo =
   | null
-  | { channel: "onClick"; index: number }
-  | { channel: "onUseItem"; itemInstanceId: ID; index: number };
+  | { channel: "onClick"; index: number; draftRuleId?: ID }
+  | { channel: "onUseItem"; itemInstanceId: ID; index: number; draftRuleId?: ID };
 
 type UseEntityRulesEditorArgs = {
   rules?: InteractionRules;
@@ -19,16 +21,9 @@ type UseEntityRulesEditorArgs = {
   createId?: () => ID;
 };
 
-type RuleDraftValue = {
-  id: ID;
-  when?: Condition;
-  phrase?: RulePhrase;
-  effects: Effect[];
-};
-
 type UseEntityRulesEditorResult = {
-  activeChannel: EntityRuleChannel;
-  setActiveChannel: React.Dispatch<React.SetStateAction<EntityRuleChannel>>;
+  activeChannel: RuleChannel;
+  setActiveChannel: Dispatch<SetStateAction<RuleChannel>>;
 
   clickRules: ClickRule[];
   useItemRulesAll: UseItemRule[];
@@ -48,110 +43,170 @@ type UseEntityRulesEditorResult = {
   removeUseItemRule: (itemInstanceId: ID, indexInFiltered: number) => void;
 
   closeRuleModal: () => void;
-  saveRule: (rule: RuleDraftValue) => void;
+  saveRule: (rule: BaseInteractionRule) => void;
 };
 
-function ensureId(value: unknown): ID {
-  const normalized = String(value ?? "").trim();
-  return normalized || crypto.randomUUID();
+const EMPTY_RULES: InteractionRules = {};
+const EMPTY_CLICK_RULES: ClickRule[] = [];
+const EMPTY_USE_ITEM_RULES: UseItemRule[] = [];
+
+const defaultCreateId = () => generateId.rule();
+
+function getRulesForItem(rules: UseItemRule[], itemInstanceId: ID): UseItemRule[] {
+  return rules.filter((rule) => rule.itemInstanceId === itemInstanceId);
 }
 
-
-function createEmptyRule(createId: () => ID): BaseInteractionRule {
-  return { id: createId(), when: undefined, effects: [] };
+function createEmptyRule(id: ID): BaseInteractionRule {
+  return { id, effects: [] };
 }
 
-/* Convierte una regla persistida en el formato que consume el modal */
+function normalizePhrase(phrase: RulePhrase | undefined): RulePhrase | undefined {
+  const text = phrase?.text?.trim();
+
+  if (!phrase || !text) return undefined;
+
+  return { ...phrase, text };
+}
+
 function toBaseInteractionRule(rule: ClickRule | UseItemRule): BaseInteractionRule {
-  return { id: ensureId(rule.id), when: rule.when ?? undefined, phrase: rule.phrase ?? undefined, effects: rule.effects };
+  return {
+    id: rule.id,
+    ...(rule.when ? { when: rule.when } : {}),
+    ...(rule.phrase ? { phrase: rule.phrase } : {}),
+    effects: rule.effects ?? [],
+  };
+}
+
+function packClickRule(rule: BaseInteractionRule): ClickRule {
+  const phrase = normalizePhrase(rule.phrase);
+
+  return {
+    id: rule.id,
+    ...(rule.when ? { when: rule.when } : {}),
+    ...(phrase ? { phrase } : {}),
+    effects: rule.effects ?? [],
+  };
+}
+
+function packUseItemRule(rule: BaseInteractionRule, itemInstanceId: ID): UseItemRule {
+  const phrase = normalizePhrase(rule.phrase);
+
+  return {
+    id: rule.id,
+    itemInstanceId,
+    ...(rule.when ? { when: rule.when } : {}),
+    ...(phrase ? { phrase } : {}),
+    effects: rule.effects ?? [],
+  };
+}
+
+function removeUseItemRuleAt(rules: UseItemRule[], itemInstanceId: ID, indexInFiltered: number): UseItemRule[] {
+  let currentIndex = -1;
+
+  return rules.filter((rule) => {
+    if (rule.itemInstanceId !== itemInstanceId) return true;
+
+    currentIndex += 1;
+
+    return currentIndex !== indexInFiltered;
+  });
+}
+
+function replaceUseItemRuleAt(rules: UseItemRule[], itemInstanceId: ID, indexInFiltered: number, nextRule: UseItemRule): UseItemRule[] {
+  let currentIndex = -1;
+  let replaced = false;
+
+  const nextRules = rules.map((rule) => {
+    if (rule.itemInstanceId !== itemInstanceId) return rule;
+
+    currentIndex += 1;
+
+    if (currentIndex !== indexInFiltered) return rule;
+
+    replaced = true;
+    return nextRule;
+  });
+
+  return replaced ? nextRules : [...nextRules, nextRule];
 }
 
 /* Hook reutilizable para editar reglas de interacción de cualquier entidad */
-export function useEntityRulesEditor({ rules, onChangeRules, createId = () => generateId.rule() }: UseEntityRulesEditorArgs): UseEntityRulesEditorResult {
-  const normalizedRules: InteractionRules = rules ?? {};
-  const clickRules: ClickRule[] = normalizedRules.onClick ?? [];
-  const useItemRulesAll: UseItemRule[] = normalizedRules.onUseItem ?? [];
+export function useEntityRulesEditor({ rules, onChangeRules, createId = defaultCreateId }: UseEntityRulesEditorArgs): UseEntityRulesEditorResult {
+  const normalizedRules = useMemo<InteractionRules>(() => rules ?? EMPTY_RULES, [rules]);
 
-  const [activeChannel, setActiveChannel] = useState<EntityRuleChannel>({ type: "onClick" });
+  const clickRules = normalizedRules.onClick ?? EMPTY_CLICK_RULES;
+  const useItemRulesAll = normalizedRules.onUseItem ?? EMPTY_USE_ITEM_RULES;
+
+  const [activeChannel, setActiveChannel] = useState<RuleChannel>({ type: "onClick" });
   const [ruleModalOpen, setRuleModalOpen] = useState(false);
   const [editingInfo, setEditingInfo] = useState<EntityRuleEditingInfo>(null);
 
   const selectedUseItemId = activeChannel.type === "onUseItem" ? activeChannel.itemInstanceId : "";
 
   const useItemRulesForSelected = useMemo(() => {
-    if (activeChannel.type !== "onUseItem") return [];
+    if (activeChannel.type !== "onUseItem") return EMPTY_USE_ITEM_RULES;
 
-    return useItemRulesAll.filter((rule) => rule.itemInstanceId === activeChannel.itemInstanceId);
+    return getRulesForItem(useItemRulesAll, activeChannel.itemInstanceId);
   }, [activeChannel, useItemRulesAll]);
 
-  /* Valor actual que debe cargarse en el modal */
   const currentRuleValue = useMemo((): BaseInteractionRule | null => {
     if (!ruleModalOpen || !editingInfo) return null;
 
     if (editingInfo.channel === "onClick") {
-      if (editingInfo.index < 0) return createEmptyRule(createId);
+      if (editingInfo.index < 0) return createEmptyRule(editingInfo.draftRuleId ?? createId());
 
       const rule = clickRules[editingInfo.index];
-      return rule ? toBaseInteractionRule(rule) : createEmptyRule(createId);
+
+      return rule ? toBaseInteractionRule(rule) : createEmptyRule(editingInfo.draftRuleId ?? createId());
     }
 
-    const filteredRules = useItemRulesAll.filter((rule) => rule.itemInstanceId === editingInfo.itemInstanceId);
+    if (editingInfo.index < 0) return createEmptyRule(editingInfo.draftRuleId ?? createId());
 
-    if (editingInfo.index < 0) return createEmptyRule(createId);
+    const rule = getRulesForItem(useItemRulesAll, editingInfo.itemInstanceId)[editingInfo.index];
 
-    const rule = filteredRules[editingInfo.index];
-    return rule ? toBaseInteractionRule(rule) : createEmptyRule(createId);
+    return rule ? toBaseInteractionRule(rule) : createEmptyRule(editingInfo.draftRuleId ?? createId());
   }, [ruleModalOpen, editingInfo, clickRules, useItemRulesAll, createId]);
 
   const openAddClickRule = useCallback(() => {
-    setEditingInfo({ channel: "onClick", index: -1 });
+    setEditingInfo({ channel: "onClick", index: -1, draftRuleId: createId() });
+
     setRuleModalOpen(true);
     setActiveChannel({ type: "onClick" });
-  }, []);
+  }, [createId]);
 
   const openEditClickRule = useCallback((index: number) => {
     setEditingInfo({ channel: "onClick", index });
+
     setRuleModalOpen(true);
     setActiveChannel({ type: "onClick" });
   }, []);
 
   const openAddUseItemRule = useCallback((itemInstanceId: ID) => {
-    setEditingInfo({ channel: "onUseItem", itemInstanceId, index: -1 });
+    setEditingInfo({ channel: "onUseItem", itemInstanceId, index: -1, draftRuleId: createId() });
+
+    setRuleModalOpen(true);
+    setActiveChannel({ type: "onUseItem", itemInstanceId });
+  }, [createId]);
+
+  const openEditUseItemRule = useCallback((itemInstanceId: ID, indexInFiltered: number) => {
+    setEditingInfo({ channel: "onUseItem", itemInstanceId, index: indexInFiltered });
+
     setRuleModalOpen(true);
     setActiveChannel({ type: "onUseItem", itemInstanceId });
   }, []);
 
-  const openEditUseItemRule = useCallback(
-    (itemInstanceId: ID, indexInFiltered: number) => {
-      setEditingInfo({ channel: "onUseItem", itemInstanceId, index: indexInFiltered });
-      setRuleModalOpen(true);
-      setActiveChannel({ type: "onUseItem", itemInstanceId });
-    }, [],
+  const removeClickRule = useCallback((index: number) => {
+    const nextClickRules = clickRules.filter((_, currentIndex) => currentIndex !== index);
+
+    onChangeRules({ ...normalizedRules, onClick: nextClickRules });
+  }, [clickRules, normalizedRules, onChangeRules],
   );
 
-  const removeClickRule = useCallback(
-    (index: number) => {
-      const next = [...clickRules];
-      next.splice(index, 1);
+  const removeUseItemRule = useCallback((itemInstanceId: ID, indexInFiltered: number) => {
+    const nextUseItemRules = removeUseItemRuleAt(useItemRulesAll, itemInstanceId, indexInFiltered);
 
-      onChangeRules({ ...normalizedRules, onClick: next });
-    }, [clickRules, normalizedRules, onChangeRules],
-  );
-
-  const removeUseItemRule = useCallback(
-    (itemInstanceId: ID, indexInFiltered: number) => {
-      const filteredRules = useItemRulesAll.filter(
-        (rule) => rule.itemInstanceId === itemInstanceId
-      );
-
-      const targetRule = filteredRules[indexInFiltered];
-      if (!targetRule) return;
-
-      const nextAll = useItemRulesAll.filter((rule) => rule !== targetRule);
-
-      onChangeRules({ ...normalizedRules, onUseItem: nextAll });
-    },
-    [useItemRulesAll, normalizedRules, onChangeRules],
+    onChangeRules({ ...normalizedRules, onUseItem: nextUseItemRules });
+  }, [useItemRulesAll, normalizedRules, onChangeRules],
   );
 
   const closeRuleModal = useCallback(() => {
@@ -160,47 +215,27 @@ export function useEntityRulesEditor({ rules, onChangeRules, createId = () => ge
   }, []);
 
   const saveRule = useCallback(
-    (rule: RuleDraftValue) => {
+    (rule: BaseInteractionRule) => {
       if (!editingInfo) return;
 
       if (editingInfo.channel === "onClick") {
-        const next = [...clickRules];
+        const nextClickRules = [...clickRules];
+        const packedRule = packClickRule(rule);
 
-        const packed: ClickRule = {
-          id: rule.id,
-          ...(rule.when ? { when: rule.when } : {}),
-          ...(rule.phrase ? { phrase: rule.phrase } : {}),
-          effects: rule.effects,
-        };
+        if (editingInfo.index >= 0 && nextClickRules[editingInfo.index]) nextClickRules[editingInfo.index] = packedRule;
+        else nextClickRules.push(packedRule);
 
-        if (editingInfo.index >= 0) next[editingInfo.index] = packed;
-        else next.push(packed);
-
-        onChangeRules({ ...normalizedRules, onClick: next });
+        onChangeRules({ ...normalizedRules, onClick: nextClickRules });
 
         closeRuleModal();
         return;
       }
 
-      const itemInstanceId = editingInfo.itemInstanceId;
+      const packedRule = packUseItemRule(rule, editingInfo.itemInstanceId);
 
-      const packed: UseItemRule = {
-        id: rule.id,
-        itemInstanceId,
-        ...(rule.when ? { when: rule.when } : {}),
-        ...(rule.phrase ? { phrase: rule.phrase } : {}),
-        effects: rule.effects,
-      };
+      const nextUseItemRules = editingInfo.index >= 0 ? replaceUseItemRuleAt(useItemRulesAll, editingInfo.itemInstanceId, editingInfo.index, packedRule) : [...useItemRulesAll, packedRule];
 
-      const filteredRules = useItemRulesAll.filter((currentRule) => currentRule.itemInstanceId === itemInstanceId);
-
-      const targetRule = filteredRules[editingInfo.index];
-
-      const nextAll = editingInfo.index >= 0 && targetRule
-        ? useItemRulesAll.map((currentRule) => currentRule === targetRule ? packed : currentRule)
-        : [...useItemRulesAll, packed];
-
-      onChangeRules({ ...normalizedRules, onUseItem: nextAll });
+      onChangeRules({ ...normalizedRules, onUseItem: nextUseItemRules });
 
       closeRuleModal();
     }, [editingInfo, clickRules, useItemRulesAll, normalizedRules, onChangeRules, closeRuleModal],
@@ -209,5 +244,5 @@ export function useEntityRulesEditor({ rules, onChangeRules, createId = () => ge
   return {
     activeChannel, setActiveChannel, clickRules, useItemRulesAll, useItemRulesForSelected, selectedUseItemId, ruleModalOpen, editingInfo, currentRuleValue,
     openAddClickRule, openEditClickRule, openAddUseItemRule, openEditUseItemRule, removeClickRule, removeUseItemRule, closeRuleModal, saveRule
-  };
+  }
 }

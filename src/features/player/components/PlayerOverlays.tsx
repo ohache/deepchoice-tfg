@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import { PLAYER_CURSOR_DEFAULT_SIZE, type CursorSize } from "@/features/player/hooks/usePlayerCursor";
+import { publicPath } from "@/shared/helpers";
 
 type TextCursor = {
   visible: boolean;
@@ -50,7 +51,7 @@ export function PlayerTextPanel(props: { text: string; cursor: TextCursor; dock:
 
       {!disabled && cursor.visible && (
         <img
-          src="/cursor/idle.png"
+          src={publicPath("cursor/idle.png")}
           alt=""
           aria-hidden="true"
           draggable={false}

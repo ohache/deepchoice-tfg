@@ -1,20 +1,20 @@
 import type { Hotspot } from "@/domain/types";
+import { publicPath } from "@/shared/helpers";
 
 /* Tipos de cursor que puede mostrar el Player */
 export type InteractionKind = "idle" | "travelUp" | "travelDown" | "travelLeft" | "travelRight" | "inspect" | "take" | "talk" | "dialogue" | "map";
 
-/* Catálogo centralizado de iconos de cursor */
 const INTERACTION_ICONS: Record<InteractionKind, string> = {
-  idle: "/cursor/idle.png",
-  travelUp: "/cursor/goUp.png",
-  travelDown: "/cursor/goDown.png",
-  travelLeft: "/cursor/goLeft.png",
-  travelRight: "/cursor/goRight.png",
-  inspect: "/cursor/look.png",
-  take: "/cursor/take.png",
-  talk: "/cursor/talk.png",
-  dialogue: "/cursor/dialogue.png",
-  map: "/cursor/map.png",
+  idle: publicPath("cursor/idle.png"),
+  travelUp: publicPath("cursor/goUp.png"),
+  travelDown: publicPath("cursor/goDown.png"),
+  travelLeft: publicPath("cursor/goLeft.png"),
+  travelRight: publicPath("cursor/goRight.png"),
+  inspect: publicPath("cursor/look.png"),
+  take: publicPath("cursor/take.png"),
+  talk: publicPath("cursor/talk.png"),
+  dialogue: publicPath("cursor/dialogue.png"),
+  map: publicPath("cursor/map.png"),
 };
 
 /* Determina si un hotspot puede llegar a provocar navegación */

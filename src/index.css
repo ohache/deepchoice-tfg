@@ -1,8 +1,6 @@
 @import "tailwindcss";
 
-/* =========================
-           BASE GLOBAL
-   ========================= */
+/* ------- BASE GLOBAL ------- */
 html, body, #root {
   min-height: 100%;
   background: #020617;
@@ -12,59 +10,44 @@ body {
   margin: 0;
   min-height: 100vh;
   overflow-x: hidden;
-}
-
-
-body {
   font-family: "Merriweather", serif;
   font-weight: 300;
 }
 
-/* SOLO para el contenedor que scrollea (recomendado) */
+/* ------- SCROLL ------- */
 .editor-scroll {
   scrollbar-gutter: stable both-edges;
-  /* evita saltos al aparecer/desaparecer */
 }
 
 /* WebKit */
 .editor-scroll::-webkit-scrollbar {
   width: 12px;
   height: 12px;
-  /* horizontal */
 }
 
 .editor-scroll::-webkit-scrollbar-track {
   background: rgba(15, 23, 42, 0.6);
-  /* slate-900 */
   border-radius: 999px;
 }
 
 .editor-scroll::-webkit-scrollbar-thumb {
   background: rgba(148, 163, 184, 0.35);
-  /* slate-400 */
   border-radius: 999px;
   border: 3px solid rgba(15, 23, 42, 0.6);
-  /* crea “padding” visual */
 }
 
 .editor-scroll::-webkit-scrollbar-thumb:hover {
   background: rgba(148, 163, 184, 0.55);
 }
 
-/* =========================
-   COMPONENTES / UTILIDADES
-   ========================= */
-
+/* ------- COMPONENTES/UTILIDADES ------- */
 @layer components {
-
   /* Errores de validación */
   .form-field-error {
     @apply mt-3 text-xs text-red-400 flex items-center gap-1 justify-center;
   }
 
-  /* ---- Layout genérico ---- */
-
-  /* Página a pantalla completa centrada (pantallas de error / sin partida) */
+  /* Página a pantalla completa centrada */
   .page-fullscreen-center {
     @apply min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-center gap-4 px-4;
   }
@@ -79,18 +62,18 @@ body {
     @apply fixed inset-0 bg-black/60 flex items-center justify-center z-50;
   }
 
-  /* Contenedor base de los modales (Create, Manual, etc.) */
+  /* Contenedor base de los modales */
   .modal-card {
     @apply max-w-lg w-full mx-4 bg-slate-900 rounded-2xl shadow-xl border-4 border-slate-500 p-6;
   }
 
-  /* Botón de cierre "X" en la cabecera de los modales */
+  /* Botón de cierre en modales */
   .modal-close-btn {
     @apply text-slate-300 hover:text-slate-100 text-sm;
   }
 
-  /* ---- Botones genéricos ---- */
-  /* Base para botones pequeños (modales, acciones secundarias, etc.) */
+  /* ------- BOTONES ------- */
+  /* Base para botones pequeños */
   .btn {
     @apply px-2 py-1 rounded-md border text-sm transition;
     cursor: pointer;
@@ -99,21 +82,34 @@ body {
     -ms-user-select: none;
   }
 
-  /* Botón primario genérico (por ejemplo, "Volver al inicio" en PlayerShell) */
+  .btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    pointer-events: none;
+    transform: none !important;
+  }
+
+  .btn:disabled:hover {
+    background: inherit !important;
+    box-shadow: none !important;
+  }
+
+  /* Botón primario genérico del Player */
   .btn-primary-player {
     @apply px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm font-semibold;
   }
 
-  /* Botón primario específico para la aventura (por ejemplo, "Crear aventura" en el modal) */
+  /* Botón primario de creación */
   .btn-create {
     @apply bg-fuchsia-800 hover:bg-fuchsia-600 border-fuchsia-600 text-slate-100 font-semibold;
   }
 
+  /* Botón de guardado general */
   .btn-guardar {
     @apply bg-fuchsia-950 hover:bg-fuchsia-900 border-fuchsia-600 text-slate-100 font-semibold;
   }
 
-  /* Botón secundario genérico (por ejemplo, "Cancelar" en modales) */
+  /* Botón secundario */
   .btn-cancel {
     @apply border border-slate-400 bg-slate-700 hover:bg-slate-500 text-slate-200;
   }
@@ -128,13 +124,12 @@ body {
     @apply border-2 border-slate-700 bg-slate-900 hover:bg-slate-700 text-xs text-white;
   }
 
-  /* Botón seleccionar */
+  /* Botón JSON */
   .btn-json {
     @apply border-2 border-emerald-700 bg-emerald-900/50 hover:bg-emerald-800 text-xs text-white;
   }
 
-  /* Botón guardar */
-  /* base ya la tienes */
+  /* Botón guardar con tema */
   .btn-save {
     @apply border-2 text-[12px] text-white;
     border-color: var(--accent-border);
@@ -145,31 +140,25 @@ body {
     background-color: var(--accent-hover);
   }
 
-  /* PLAYER (emerald) */
   .btn-save--player {
-    --accent-border: #10b981; /* emerald-500 */
-    --accent-bg: #065f46; /* emerald-800 */
-    --accent-hover: #047857; /* emerald-700 */
+    --accent-border: #10b981;
+    --accent-bg: #065f46;
+    --accent-hover: #047857;
   }
 
-  /* NPC (lime) */
   .btn-save--npc {
-    --accent-border: #80c020; /* lime-500 */
-    --accent-bg: #365314; /* lime-800 */
-    --accent-hover: #4d7c0f; /* lime-700 */
+    --accent-border: #80c020;
+    --accent-bg: #365314;
+    --accent-hover: #4d7c0f;
   }
 
-  /* HOTSPOT (fuchsia) */
   .btn-save--hotspot {
-    --accent-border: #d946ef; /* fuchsia-500 */
-    --accent-bg: #4a044e; /* fuchsia-950 */
-    --accent-hover: #701a75; /* fuchsia-800 */
+    --accent-border: #d946ef;
+    --accent-bg: #4a044e;
+    --accent-hover: #701a75;
   }
 
-
-  /* ---- Botones específicos de la Home ---- */
-
-  /* Botón grande de la Home (Crear / Editar / Jugar) */
+  /* Botón grande de la Home */
   .btn-home {
     @apply relative mx-auto px-4 py-3 rounded-lg font-bold text-white text-[19px] border-3 border-black transition duration-200 shadow-sm hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 text-center;
     width: 270px;
@@ -180,31 +169,7 @@ body {
     @apply w-7 h-7 absolute left-8 top-1/2 -translate-y-1/2;
   }
 
-  /* ---- Enlaces / textos clicables ---- */
-
-  /* Enlace subrayado (por ejemplo, "Manual de usuario") */
-  .link-underline {
-    @apply inline-flex items-center gap-2 text-slate-200 hover:text-slate-100 underline underline-offset-4 text-sm;
-  }
-
-  /* ---- Lista de proyectos guardados (modal ProjectPicker) ---- */
-
-  .project-list-container {
-    @apply mb-4 max-h-64 overflow-y-auto border border-slate-800 rounded-lg;
-  }
-
-  .project-list-message {
-    @apply p-3 text-sm text-slate-400;
-  }
-
-  .project-list-item-btn {
-    @apply w-full text-left px-3 py-2 hover:bg-slate-800 focus:bg-slate-800 text-sm;
-  }
-
-  /* =========================
-   Panel themes
-   ========================= */
-
+  /* ------- PANEL THEMES ------- */
   .panel--music {
     --accent-border: theme(colors.cyan.500);
     --accent-bg: theme(colors.cyan.700);
@@ -229,26 +194,23 @@ body {
     --accent-hover: theme(colors.lime.500);
   }
 
-    .panel--players {
+  .panel--players {
     --accent-border: theme(colors.emerald.500);
     --accent-bg: theme(colors.emerald.700);
     --accent-hover: theme(colors.emerald.500);
   }
 
-  /* MAP (amber) */
   .panel--map {
     --accent-border: theme(colors.amber.500);
     --accent-bg: theme(colors.amber.800);
     --accent-hover: theme(colors.amber.500);
-} 
+  }
 
-  /** CONDITIONS */
-.input-conditions {
-  @apply w-full rounded-md bg-slate-950 border-2 border-slate-600 px-2 py-1 text-[13px] text-white
-    focus:outline-none focus:ring-2 focus:ring-fuchsia-500
-    focus:border-transparent
-    focus:bg-transparent active:bg-transparent;
-}
+  /* ------- CONDITIONS ------- */
+  .input-conditions {
+    @apply w-full rounded-md bg-slate-950 border-2 border-slate-600 px-2 py-1 text-[13px] text-white focus:outline-none focus:ring-2 focus:ring-fuchsia-500 focus:border-transparent focus:bg-transparent active:bg-transparent;
+  }
+
   .btn-add-condition {
     @apply border border-fuchsia-700 bg-fuchsia-950/30 text-white hover:bg-fuchsia-900/40;
   }
@@ -264,7 +226,7 @@ body {
   .btn-danger-condition {
     @apply border border-red-500 bg-red-950/40 hover:bg-red-950 text-white text-[11px];
   }
-  
+
   .btn-add-variant {
     @apply border-2 border-cyan-700 bg-cyan-900/60 hover:bg-cyan-800 text-xs text-white;
   }
@@ -273,20 +235,7 @@ body {
     @apply border-2 border-fuchsia-700 bg-fuchsia-900/40 hover:bg-fuchsia-900 text-xs text-white;
   }
 
-  .btn:disabled {
-    opacity: 0.35;
-    cursor: not-allowed;
-    pointer-events: none;
-    transform: none !important;
-  }
-
-  .btn:disabled:hover {
-    background: inherit !important;
-    box-shadow: none !important;
-  }
-
-
-  /** SCENE PREVIEW */
+  /* ------- SCENE PREVIEW ------- */
   .scene-preview-grid {
     display: grid;
     width: 100%;
@@ -325,41 +274,7 @@ body {
     grid-template-areas: "image text";
   }
 
-  /* =========================
-       DRAG AND DROP
-     ========================= */
-
-  /* Card draggable (lista variantes) */
-  .dnd-card {
-    @apply select-none rounded-md border px-2 py-2;
-    @apply border-slate-800 bg-slate-950/30 hover:bg-slate-950/45;
-    @apply transition;
-    /* cursor base (explicita) */
-    @apply cursor-grab;
-  }
-
-  /* Mientras arrastras (se añade con data / estado) */
-  .dnd-card--dragging {
-    @apply cursor-grabbing opacity-70;
-    @apply ring-2 ring-fuchsia-500/70;
-  }
-
-  /* Cuando un item es “drop target” (hover/dragover) */
-  .dnd-card--over {
-    @apply ring-2 ring-cyan-500/60;
-    @apply bg-slate-900/60;
-  }
-
-  /* “Handle” opcional si quieres agarrar desde un icono */
-  .dnd-handle {
-    @apply cursor-grab text-slate-300 hover:text-white;
-  }
-
-  .dnd-handle:active {
-    @apply cursor-grabbing;
-  }
-
-  /* Variante arrastrable */
+  /* ------- DRAG AND DROP ------- */
   .variant-draggable {
     @apply cursor-grab transition-all duration-150;
   }
@@ -368,143 +283,44 @@ body {
     @apply cursor-grabbing;
   }
 
-  /* Mientras se arrastra */
   .variant-dragging {
     @apply opacity-70 scale-[0.98] ring-2 ring-fuchsia-500/70;
   }
 
-  /* Cuando es target de drop */
   .variant-drop-target {
     @apply ring-2 ring-cyan-500/70 shadow-lg;
   }
 
-  .dnd-active,
-  .dnd-active * {
+  .dnd-active, .dnd-active * {
     cursor: grabbing !important;
   }
 
-  /* Si quieres que en reposo sea grab y no pointer */
-  .variant-draggable {
-    @apply cursor-grab transition-all duration-150;
-  }
-
-  .variant-draggable:active {
-    @apply cursor-grabbing;
-  }
-
-
-
-  /* =========================
-       EDITOR: SCENE CREATE
-     ========================= */
-
-  /* Contenedor principal izquierda/derecha */
+  /* ------- SCENE CREATE ------- */
   .scene-editor-layout {
     @apply flex flex-col md:flex-row gap-3 md:min-h-[600px] h-full min-h-0;
   }
 
-  /* Panel izquierdo */
   .scene-editor-panel-left {
     @apply w-full md:max-w-md bg-slate-800 border-3 border-cyan-700 rounded-lg md:h-full min-h-0 md:overflow-y-auto p-3 space-y-3 text-center;
   }
 
-  /* Panel derecho */
   .scene-editor-panel-right {
     @apply flex-1 bg-slate-800 border-2 border-cyan-700 rounded-lg p-3 flex flex-col min-h-0 overflow-hidden;
   }
 
-  /* Tarjeta de previsualización completa */
   .scene-preview-card {
     @apply w-full h-full min-h-0 rounded-md border border-slate-700 bg-slate-800 overflow-hidden flex flex-col gap-2;
   }
 
-  /* Contenedor de la imagen (aspect ratio video) */
   .scene-preview-image-wrapper {
     @apply relative w-full aspect-video bg-slate-900 overflow-hidden;
   }
 
-  /* Caja de texto de la escena en la preview */
   .scene-preview-text-box {
-    @apply w-full bg-slate-950/85  px-1 py-2 h-20 md:h-20 min-h-0 overflow-auto;
+    @apply w-full bg-slate-950/85 px-1 py-2 h-20 md:h-20 min-h-0 overflow-auto;
   }
 
-  /* Fila de hotspot en el editor */
-  .scene-hotspot-row {
-    @apply flex items-center gap-2 rounded-md border border-slate-700 bg-slate-900 px-2 py-1.5;
-  }
-
-  /* Botón para añadir hotspot */
-  .scene-hotspot-add-btn {
-    @apply mt-1 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-100;
-  }
-
-  /* Contenedor para Inicio / Final */
-  .scene-type-toggle-container {
-    @apply mt-2 border-2 border-black rounded-md bg-slate-950 px-3 py-2;
-  }
-
-  /* =========================
-       PLAYER: GAME SHELL
-     ========================= */
-
-  .game-root {
-    @apply min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center;
-  }
-
-  .game-frame {
-    @apply relative w-screen h-screen rounded-2xl border border-slate-800 bg-slate-900/80 shadow-2xl overflow-hidden flex flex-col;
-  }
-
-  .game-main {
-    @apply flex-1 flex flex-col px-4 py-4 gap-4 overflow-hidden;
-  }
-
-  .game-scene-panel {
-    @apply flex-1 rounded-xl border border-slate-800 bg-slate-900/70 overflow-hidden flex flex-col;
-  }
-
-  /* Parte superior: imagen de la escena */
-  .game-scene-image {
-    @apply relative w-full bg-slate-900 overflow-hidden;
-  }
-
-  /* Parte inferior: texto narrativo */
-  .game-scene-text {
-    @apply border-t border-slate-800 bg-slate-950/85 px-4 py-3 flex-1 overflow-y-auto;
-  }
-
-  /* Botones HUD redondos con iconos */
-  .game-hud-icon {
-    @apply inline-flex items-center justify-center rounded-full border border-slate-700 bg-slate-900/80 p-2 hover:bg-slate-800;
-  }
-
-  .game-hud-icon-img {
-    @apply w-10 h-10 object-contain;
-  }
-
-  /* Barra inferior de hotspots / mensajes sobre la imagen */
-  .game-hotspot-layer {
-    @apply absolute bottom-3 inset-x-4 z-20 flex flex-col gap-3;
-  }
-
-  .game-hotspot-buttons {
-    @apply flex flex-wrap justify-center gap-3 w-full;
-  }
-
-  .game-hotspot-btn {
-    @apply px-4 py-2 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 text-xs sm:text-sm min-w-32 text-center;
-  }
-
-  /* Título sobre la imagen */
-  .game-title-overlay {
-    @apply absolute top-3 inset-x-4 overflow-hidden text-center z-20 pointer-events-none opacity-50;
-  }
-
-  .game-title-text {
-    @apply inline-block whitespace-nowrap text-xl font-semibold text-white/80 drop-shadow;
-  }
-
-  /* Placeholder cuando no hay imagen */
+  /* ------- GAME SHELL ------- */
   .game-no-image {
     @apply w-full h-full flex items-center justify-center px-4;
   }
@@ -512,14 +328,9 @@ body {
   .game-no-image-text {
     @apply text-xs text-slate-500 text-center;
   }
-
 }
 
-/* =========================
-   MEDIA QUERIES ESPECÍFICAS
-   ========================= */
-
-/* Ajustes de ancho para los botones grandes de la Home en pantallas pequeñas */
+/* ------- MEDIA QUERIES ------- */
 @media (max-width: 768px) {
   .btn-home {
     width: 220px;
@@ -532,11 +343,14 @@ body {
   }
 }
 
-/* =========================
-         ANIMACIONES
-   ========================= */
+/* ------- INPUTS NATIVOS ------- */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
 
-/* Animación para títulos de escena en modo "marquee" */
+/* ------- ANIMACIONES ------- */
 @keyframes scene-title-marquee {
   0% {
     transform: translateX(0);
@@ -545,13 +359,6 @@ body {
   100% {
     transform: translateX(-50%);
   }
-}
-
-/* Oculta spinners nativos (Chrome/Safari/Edge) */
-input[type="number"]::-webkit-outer-spin-button,
-input[type="number"]::-webkit-inner-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
 }
 
 @keyframes bottomBarUp {

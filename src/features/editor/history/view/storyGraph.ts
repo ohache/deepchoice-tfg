@@ -1,23 +1,55 @@
-import type { Project, Node, ID, NodeLayout, InteractionRules, DialogueNode } from "@/domain/types";
+import type {
+  Project,
+  Node,
+  ID,
+  NodeLayout,
+  InteractionRules,
+  DialogueNode,
+} from "@/domain/types";
 import type { Effect } from "@/domain/effects";
 import { diagnoseProject } from "@/features/editor/delete/projectDiagnostics";
-import { GRID_TILE_SIZE, HISTORY_VIEW_COLUMNS, NODE_SLOT_OFFSET, type SceneEdgeVM, type SceneNodeVM, type StoryGraphVM, type DirectedEdge } from "@/features/editor/history/view/historyViewTypes";
+import {
+  GRID_TILE_SIZE,
+  HISTORY_VIEW_COLUMNS,
+  NODE_SLOT_OFFSET,
+  type SceneEdgeVM,
+  type SceneNodeVM,
+  type StoryGraphVM,
+  type DirectedEdge,
+} from "@/features/editor/history/view/historyViewTypes";
+
+type NodeIssueCount = {
+  errors: number;
+  warnings: number;
+};
 
 function clampToMinSlot(pos: NodeLayout): NodeLayout {
-  return { x: Math.max(NODE_SLOT_OFFSET, pos.x), y: Math.max(NODE_SLOT_OFFSET, pos.y) };
+  return {
+    x: Math.max(NODE_SLOT_OFFSET, pos.x),
+    y: Math.max(NODE_SLOT_OFFSET, pos.y),
+  };
 }
 
 function tileOriginFromLayout(pos: NodeLayout): NodeLayout {
-  return { x: Math.floor((pos.x - NODE_SLOT_OFFSET) / GRID_TILE_SIZE) * GRID_TILE_SIZE, y: Math.floor((pos.y - NODE_SLOT_OFFSET) / GRID_TILE_SIZE) * GRID_TILE_SIZE };
+  return {
+    x: Math.floor((pos.x - NODE_SLOT_OFFSET) / GRID_TILE_SIZE) * GRID_TILE_SIZE,
+    y: Math.floor((pos.y - NODE_SLOT_OFFSET) / GRID_TILE_SIZE) * GRID_TILE_SIZE,
+  };
 }
 
 function snapLayoutToSlot(pos: NodeLayout): NodeLayout {
   const tile = tileOriginFromLayout(pos);
-  return clampToMinSlot({ x: tile.x + NODE_SLOT_OFFSET, y: tile.y + NODE_SLOT_OFFSET });
+
+  return clampToMinSlot({
+    x: tile.x + NODE_SLOT_OFFSET,
+    y: tile.y + NODE_SLOT_OFFSET,
+  });
 }
 
 function normalizeLayout(layout: NodeLayout): NodeLayout {
-  const isAligned = (layout.x - NODE_SLOT_OFFSET) % GRID_TILE_SIZE === 0 && (layout.y - NODE_SLOT_OFFSET) % GRID_TILE_SIZE === 0;
+  const isAligned =
+    (layout.x - NODE_SLOT_OFFSET) % GRID_TILE_SIZE === 0 &&
+    (layout.y - NODE_SLOT_OFFSET) % GRID_TILE_SIZE === 0;
 
   return isAligned ? clampToMinSlot(layout) : snapLayoutToSlot(layout);
 }
@@ -25,7 +57,13 @@ function normalizeLayout(layout: NodeLayout): NodeLayout {
 function readStableNodePos(node: Node, fallback: NodeLayout): NodeLayout {
   const layout = node.meta?.layout;
 
-  if (layout && typeof layout.x === "number" && typeof layout.y === "number") return normalizeLayout(layout);
+  if (
+    layout &&
+    typeof layout.x === "number" &&
+    typeof layout.y === "number"
+  ) {
+    return normalizeLayout(layout);
+  }
 
   return fallback;
 }
@@ -34,32 +72,46 @@ function buildDefaultNodePos(index: number, baseOffsetX: number): NodeLayout {
   const col = index % HISTORY_VIEW_COLUMNS;
   const row = Math.floor(index / HISTORY_VIEW_COLUMNS);
 
-  return { x: baseOffsetX + NODE_SLOT_OFFSET + col * GRID_TILE_SIZE, y: NODE_SLOT_OFFSET + row * GRID_TILE_SIZE };
+  return {
+    x: baseOffsetX + NODE_SLOT_OFFSET + col * GRID_TILE_SIZE,
+    y: NODE_SLOT_OFFSET + row * GRID_TILE_SIZE,
+  };
 }
 
-function makeDirectedEdgeId(from: ID, to: ID) {
+function makeDirectedEdgeId(from: ID, to: ID): string {
   return `${from}-->${to}`;
 }
 
-function makeUndirectedPairKey(a: ID, b: ID) {
+function makeUndirectedPairKey(a: ID, b: ID): string {
   return [a, b].sort().join("<->");
 }
 
-function collectGoToTargetsFromEffects(effects: Effect[] | undefined, addTarget: (targetNodeId: ID) => void): void {
+function collectGoToTargetsFromEffects(
+  effects: Effect[] | undefined,
+  addTarget: (targetNodeId: ID) => void,
+): void {
   for (const effect of effects ?? []) {
     if (effect.type === "goToNode") addTarget(effect.targetNodeId);
   }
 }
 
-function collectGoToTargetsFromRules(rules: InteractionRules | undefined, addTarget: (targetNodeId: ID) => void): void {
+function collectGoToTargetsFromRules(
+  rules: InteractionRules | undefined,
+  addTarget: (targetNodeId: ID) => void,
+): void {
   const ruleLists = [rules?.onClick, rules?.onUseItem] as const;
 
   for (const list of ruleLists) {
-    for (const rule of list ?? []) collectGoToTargetsFromEffects(rule.effects, addTarget);
+    for (const rule of list ?? []) {
+      collectGoToTargetsFromEffects(rule.effects, addTarget);
+    }
   }
 }
 
-function collectGoToTargetsFromDialogueNodes(nodes: DialogueNode[] | undefined, addTarget: (targetNodeId: ID) => void): void {
+function collectGoToTargetsFromDialogueNodes(
+  nodes: DialogueNode[] | undefined,
+  addTarget: (targetNodeId: ID) => void,
+): void {
   for (const dialogueNode of nodes ?? []) {
     if (dialogueNode.type !== "line") continue;
 
@@ -76,20 +128,31 @@ function collectGoToTargetsFromNode(node: Node): ID[] {
   };
 
   for (const layer of node.layers ?? []) {
-    for (const hotspot of layer.hotspots ?? []) collectGoToTargetsFromRules(hotspot.rules, addTarget);
+    for (const hotspot of layer.hotspots ?? []) {
+      collectGoToTargetsFromRules(hotspot.rules, addTarget);
+    }
 
-    for (const placedItem of layer.placedItems ?? []) collectGoToTargetsFromRules(placedItem.rules, addTarget);
+    for (const placedItem of layer.placedItems ?? []) {
+      collectGoToTargetsFromRules(placedItem.rules, addTarget);
+    }
 
-    for (const placedNpc of layer.placedNpcs ?? []) collectGoToTargetsFromRules(placedNpc.rules, addTarget);
+    for (const placedNpc of layer.placedNpcs ?? []) {
+      collectGoToTargetsFromRules(placedNpc.rules, addTarget);
+    }
   }
 
-  for (const dialogue of node.dialogues ?? []) collectGoToTargetsFromDialogueNodes(dialogue.nodes, addTarget);
+  for (const dialogue of node.dialogues ?? []) {
+    collectGoToTargetsFromDialogueNodes(dialogue.nodes, addTarget);
+  }
 
   return Array.from(targets);
 }
 
 function extractDirectedEdges(node: Node): DirectedEdge[] {
-  return collectGoToTargetsFromNode(node).map((to) => ({ from: node.id, to }));
+  return collectGoToTargetsFromNode(node).map((to) => ({
+    from: node.id,
+    to,
+  }));
 }
 
 function computeBaseOffsetX(nodes: Node[]): number {
@@ -98,9 +161,17 @@ function computeBaseOffsetX(nodes: Node[]): number {
 
   for (const node of nodes) {
     const layout = node.meta?.layout;
-    if (!layout || typeof layout.x !== "number" || typeof layout.y !== "number") continue;
+
+    if (
+      !layout ||
+      typeof layout.x !== "number" ||
+      typeof layout.y !== "number"
+    ) {
+      continue;
+    }
 
     hasAnyLayout = true;
+
     const stable = normalizeLayout(layout);
     maxTileX = Math.max(maxTileX, tileOriginFromLayout(stable).x);
   }
@@ -108,19 +179,42 @@ function computeBaseOffsetX(nodes: Node[]): number {
   return hasAnyLayout ? maxTileX + GRID_TILE_SIZE : 0;
 }
 
+function getNodeIssueCounts(project: Project): Map<ID, NodeIssueCount> {
+  const diagnostics = diagnoseProject(project);
+  const counts = new Map<ID, NodeIssueCount>();
+
+  for (const issue of [...diagnostics.errors, ...diagnostics.warnings]) {
+    const nodeId = issue.location.nodeId;
+    if (!nodeId) continue;
+
+    const current = counts.get(nodeId) ?? {
+      errors: 0,
+      warnings: 0,
+    };
+
+    if (issue.severity === "error") {
+      current.errors += 1;
+    }
+
+    if (issue.severity === "warning") {
+      current.warnings += 1;
+    }
+
+    counts.set(nodeId, current);
+  }
+
+  return counts;
+}
+
 function buildNodeVMs(project: Project): SceneNodeVM[] {
   const nodes = project.nodes ?? [];
   const baseOffsetX = computeBaseOffsetX(nodes);
-  const diagnostics = diagnoseProject(project);
-  const issues = [...diagnostics.errors, ...diagnostics.warnings];
+  const issueCountsByNodeId = getNodeIssueCounts(project);
 
   return nodes.map((node, index) => {
     const fallback = buildDefaultNodePos(index, baseOffsetX);
     const pos = readStableNodePos(node, fallback);
-
-    const nodeIssues = issues.filter((issue) =>
-      issue.location.nodeId === node.id
-    );
+    const issueCount = issueCountsByNodeId.get(node.id);
 
     return {
       id: node.id,
@@ -128,8 +222,8 @@ function buildNodeVMs(project: Project): SceneNodeVM[] {
       pos,
       isStart: !!node.isStart,
       isFinal: !!node.isFinal,
-      errorCount: nodeIssues.filter((issue) => issue.severity === "error").length,
-      warningCount: nodeIssues.filter((issue) => issue.severity === "warning").length,
+      errorCount: issueCount?.errors ?? 0,
+      warningCount: issueCount?.warnings ?? 0,
     };
   });
 }
@@ -140,6 +234,7 @@ function buildEdgeVMs(nodes: Node[], validNodeIds: Set<ID>): SceneEdgeVM[] {
   for (const node of nodes) {
     for (const edge of extractDirectedEdges(node)) {
       if (!validNodeIds.has(edge.to)) continue;
+
       directedIds.add(makeDirectedEdgeId(edge.from, edge.to));
     }
   }
@@ -150,9 +245,11 @@ function buildEdgeVMs(nodes: Node[], validNodeIds: Set<ID>): SceneEdgeVM[] {
   for (const key of directedIds) {
     const [from, to] = key.split("-->") as [ID, ID];
     const pairKey = makeUndirectedPairKey(from, to);
+
     if (seenPairs.has(pairKey)) continue;
 
     const [a, b] = [from, to].sort() as [ID, ID];
+
     const hasAB = directedIds.has(makeDirectedEdgeId(a, b));
     const hasBA = directedIds.has(makeDirectedEdgeId(b, a));
     const bidirectional = hasAB && hasBA;
@@ -160,7 +257,12 @@ function buildEdgeVMs(nodes: Node[], validNodeIds: Set<ID>): SceneEdgeVM[] {
     const edgeFrom = bidirectional ? a : hasAB ? a : b;
     const edgeTo = bidirectional ? b : hasAB ? b : a;
 
-    edges.push({ id: `edge:${pairKey}`, from: edgeFrom, to: edgeTo, bidirectional });
+    edges.push({
+      id: `edge:${pairKey}`,
+      from: edgeFrom,
+      to: edgeTo,
+      bidirectional,
+    });
 
     seenPairs.add(pairKey);
   }

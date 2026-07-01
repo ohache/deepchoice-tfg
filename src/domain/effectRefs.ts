@@ -32,8 +32,8 @@ const EXTRACT_REFS: ExtractorMap = {
   goToNode: (effect) => ({ nodeIds: [effect.targetNodeId] }),
 
   /* Inventario */
-  addItem: (effect) => ({ playerIds: [effect.playerId], itemInstanceIds: [effect.itemInstanceId] }),
-  removeItem: (effect) => ({ playerIds: [effect.playerId], itemInstanceIds: [effect.itemInstanceId] }),
+  addItem: (effect) => ({ itemInstanceIds: [effect.itemInstanceId] }),
+  removeItem: (effect) => ({ itemInstanceIds: [effect.itemInstanceId] }),
 
   /* Diálogo / PNJ */
   startDialogue: (effect) => ({ dialogueIds: [effect.nodeDialogueId] }),
@@ -152,7 +152,7 @@ const EXTRACT_REFS: ExtractorMap = {
 type EffectLeaf = Effect;
 type EffectLeafType = EffectLeaf["type"];
 
-function getEffectRefs(effect: Effect): EffectRefs {
+export function extractEffectRefs(effect: Effect): EffectRefs {
   const extractor = EXTRACT_REFS[effect.type as EffectLeafType] as (value: typeof effect) => EffectRefs;
 
   return extractor(effect);
@@ -167,53 +167,53 @@ function some<T>(values: readonly T[] | undefined, predicate: (value: T) => bool
 }
 
 export function effectReferencesNpc(effect: Effect, npcId: ID): boolean {
-  return includes(getEffectRefs(effect).npcIds, npcId);
+  return includes(extractEffectRefs(effect).npcIds, npcId);
 }
 
 export function effectReferencesPlayer(effect: Effect, playerId: ID): boolean {
-  return includes(getEffectRefs(effect).playerIds, playerId);
+  return includes(extractEffectRefs(effect).playerIds, playerId);
 }
 
 export function effectReferencesNode(effect: Effect, nodeId: ID): boolean {
-  return includes(getEffectRefs(effect).nodeIds, nodeId);
+  return includes(extractEffectRefs(effect).nodeIds, nodeId);
 }
 
 export function effectReferencesDialogue(effect: Effect, dialogueId: ID): boolean {
-  return includes(getEffectRefs(effect).dialogueIds, dialogueId);
+  return includes(extractEffectRefs(effect).dialogueIds, dialogueId);
 }
 
 export function effectReferencesHotspot(effect: Effect, hotspotId: ID): boolean {
-  return includes(getEffectRefs(effect).hotspotIds, hotspotId);
+  return includes(extractEffectRefs(effect).hotspotIds, hotspotId);
 }
 
-export function effectReferencesItemInstance(effect: Effect, itemInstanceId: ID): boolean {
-  return includes(getEffectRefs(effect).itemInstanceIds, itemInstanceId);
+export function effectReferencesItemInstance(effect: Effect, ItemInstanceId: ID): boolean {
+  return includes(extractEffectRefs(effect).itemInstanceIds, ItemInstanceId);
 }
 
 export function effectReferencesImageAsset(effect: Effect, assetId: ID): boolean {
-  return includes(getEffectRefs(effect).imageAssetIds, assetId);
+  return includes(extractEffectRefs(effect).imageAssetIds, assetId);
 }
 
 export function effectReferencesSfx(effect: Effect, sfxId: ID): boolean {
-  return includes(getEffectRefs(effect).sfxIds, sfxId);
+  return includes(extractEffectRefs(effect).sfxIds, sfxId);
 }
 
 export function effectReferencesMusicTrack(effect: Effect, trackId: ID): boolean {
-  return includes(getEffectRefs(effect).musicTrackIds, trackId);
+  return includes(extractEffectRefs(effect).musicTrackIds, trackId);
 }
 
 export function effectReferencesMapRegion(effect: Effect, input: { mapId: ID; regionId: ID }): boolean {
-  return some(getEffectRefs(effect).mapRegions, (ref) => ref.mapId === input.mapId && ref.regionId === input.regionId);
+  return some(extractEffectRefs(effect).mapRegions, (ref) => ref.mapId === input.mapId && ref.regionId === input.regionId);
 }
 
 export function effectReferencesNpcVar(effect: Effect, input: { npcId: ID; varId: ID }): boolean {
-  return some(getEffectRefs(effect).npcVars, (ref) => ref.ownerId === input.npcId && ref.varId === input.varId);
+  return some(extractEffectRefs(effect).npcVars, (ref) => ref.ownerId === input.npcId && ref.varId === input.varId);
 }
 
 export function effectReferencesPlayerVar(effect: Effect, input: { playerId: ID; varId: ID }): boolean {
-  return some(getEffectRefs(effect).playerVars, (ref) => ref.ownerId === input.playerId && ref.varId === input.varId);
+  return some(extractEffectRefs(effect).playerVars, (ref) => ref.ownerId === input.playerId && ref.varId === input.varId);
 }
 
 export function effectReferencesHotspotVar(effect: Effect, input: { hotspotId: ID; varId: ID }): boolean {
-  return some(getEffectRefs(effect).hotspotVars, (ref) => ref.ownerId === input.hotspotId && ref.varId === input.varId);
+  return some(extractEffectRefs(effect).hotspotVars, (ref) => ref.ownerId === input.hotspotId && ref.varId === input.varId);
 }

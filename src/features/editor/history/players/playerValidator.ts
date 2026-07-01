@@ -43,7 +43,7 @@ function validatePlayerInitialInventoryDraft(input: PlayerDraftInput, project: P
   for (const item of inventory) {
     if (!item.itemId) {
       out.inventoryItemById ??= {};
-      out.inventoryItemById[item.itemInstanceId] = "Selecciona un item.";
+      out.inventoryItemById[item.itemInstanceId] = "Selecciona un objeto.";
       continue;
     }
 
@@ -51,13 +51,13 @@ function validatePlayerInitialInventoryDraft(input: PlayerDraftInput, project: P
 
     if (!itemExists) {
       out.inventoryItemById ??= {};
-      out.inventoryItemById[item.itemInstanceId] = "El item seleccionado no existe.";
+      out.inventoryItemById[item.itemInstanceId] = "El objeto seleccionado no existe.";
       continue;
     }
 
     if (hasDuplicatedItemInstanceLabel(project, item.label, item.itemInstanceId)) {
       out.inventoryItemById ??= {};
-      out.inventoryItemById[item.itemInstanceId] = "Ya existe otro item instanciado con ese nombre.";
+      out.inventoryItemById[item.itemInstanceId] = "Ya existe otro objeto instanciado con ese nombre.";
     }
   }
 
@@ -134,10 +134,10 @@ function validatePlayerImagesDraft(args: { input: PlayerDraftInput; project: Pro
       list: imageList,
       assetKind: "players",
       messages: {
-        duplicateName: "Ya existe otra imagen de personaje con ese nombre.",
+        duplicateName: "Ya existe otra imagen de jugador con ese nombre.",
         requireFileOnNew: "Selecciona una imagen antes de guardar.",
         requireFileOnEditMissingAsset: "Esta imagen no tiene asset en el proyecto. Selecciona una imagen antes de guardar.",
-        duplicateFile: "Ya existe otra imagen de personaje que usa este archivo.",
+        duplicateFile: "Ya existe otra imagen de jugador que usa este archivo.",
       },
     });
 
@@ -154,7 +154,7 @@ export function validatePlayerDraft(input: PlayerDraftInput, opts: { mode: "new"
   const nameTrim = String(input.name ?? "").trim();
 
   if (!baseErrors.name && hasDuplicateName({ list: opts.project.players, incomingName: nameTrim, ignoreId: opts.mode === "edit" ? opts.currentPlayerId : undefined })) {
-    baseErrors.name = "Ya existe otro personaje con ese nombre.";
+    baseErrors.name = "Ya existe otro jugador con ese nombre.";
   }
 
   const varBag = validateVarsDraft({ vars: input.vars, zodError });

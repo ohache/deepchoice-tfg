@@ -22,7 +22,7 @@ function TagColumn({ title, items, emptyMessage, onActivate, headerClassName }: 
   {items.length === 0 ? (
     <p className="p-3 text-[12px] text-slate-100 text-center">{emptyMessage}</p>
   ) : (
-    <div className="text-[14px] border-l-2 border-r-2 border-b-2 border-slate-700 rounded-b-lg max-h-[500px] overflow-y-auto">
+    <div className="text-[14px] border-l-2 border-r-2 border-b-2 border-slate-700 rounded-b-lg max-h-[600px] overflow-y-auto">
       <ul>
         {items.map((item) => (
           <li key={item.id} className="border-b-2 border-slate-700 last:border-b-0">
@@ -111,14 +111,14 @@ const handleMapActivate = useCallback((id: ID) => {
     return (
       <div className="max-w-[900px] mx-auto rounded-xl border border-slate-700 bg-slate-800 p-4">
         <p className="text-sm text-slate-300 text-center">
-          Abre o crea un proyecto para ver sus etiquetas.
+          Abre o crea un proyecto para ver sus nombres.
         </p>
       </div>
     );
   }
 
   return (
-    <div className="max-w-[1500px] mx-auto rounded-xl border-3 border-slate-700 bg-slate-900 p-4 space-y-3 h-[560px] overflow-hidden">
+    <div className="max-w-[1500px] mx-auto rounded-xl border-3 border-slate-700 bg-slate-900 p-4 space-y-3 h-[650px] overflow-hidden">
       <header className="mb-1">
         <p className="text-[16px] text-white text-center mb-3">
           Haz clic sobre un recurso para abrirlo en su editor correspondiente

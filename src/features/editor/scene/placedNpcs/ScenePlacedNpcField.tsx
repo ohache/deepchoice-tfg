@@ -9,7 +9,7 @@ import { InteractiveListPanel, type InteractiveListEntry } from "@/features/edit
 import { useEntityRulesEditor } from "@/features/editor/scene/rules/entityRulesEditor";
 import { useEntityCollisionGuard } from "@/features/editor/scene/useEntityCollisionGuard";
 import { DEFAULT_MIN_RECT_01 } from "@/features/editor/hooks/regionShape";
-import { buildClickableRegions, buildProjectWithNodeDraft, useActiveSceneLayer } from "@/features/editor/scene/interactiveComponents/interactiveFieldHelpers";
+import { buildClickableRegions, buildLiveProjectWithInteractiveDraft, useActiveSceneLayer } from "@/features/editor/scene/interactiveComponents/interactiveFieldHelpers";
 import { buildGameItemOptions } from "@/features/editor/scene/interactiveComponents/gameItemOptions";
 import { ToggleFieldBlock } from "@/features/editor/scene/SceneFieldBlocks";
 import { toast } from "@/shared/toast/toastStore";
@@ -24,9 +24,10 @@ type ScenePlacedNpcFieldProps = {
   active: boolean;
   onToggle: () => void;
   layerId: ID;
+  onSaveSceneDraft?: () => boolean;
 };
 
-export function ScenePlacedNpcField({ label = "PNJs", active, onToggle, layerId }: ScenePlacedNpcFieldProps) {
+export function ScenePlacedNpcField({ label = "PNJs", active, onToggle, layerId, onSaveSceneDraft }: ScenePlacedNpcFieldProps) {
   const project = useEditorStore((state) => state.project ?? null);
   const nodeDraft = useEditorStore((state) => state.nodeDraft);
 
@@ -80,7 +81,10 @@ export function ScenePlacedNpcField({ label = "PNJs", active, onToggle, layerId 
 
   const nodeId = nodeDraft?.id ?? "";
 
-  const liveProject = useMemo(() => buildProjectWithNodeDraft(project, nodeDraft), [project, nodeDraft]);
+  const liveProject = useMemo(() =>
+    buildLiveProjectWithInteractiveDraft({ project, nodeDraft, interactiveDraft: placedNpcEditor.draft ? { kind: "placedNpc", layerId, draft: placedNpcEditor.draft } : null }),
+  [project, nodeDraft, layerId, placedNpcEditor.draft],
+);
 
   /* ---------------------------- Entidades de la capa --------------------------- */
   const hotspots = useMemo<Hotspot[]>(() => layer?.hotspots ?? [], [layer?.hotspots]);
@@ -124,7 +128,7 @@ export function ScenePlacedNpcField({ label = "PNJs", active, onToggle, layerId 
 
 
   const { activeChannel, setActiveChannel, clickRules, useItemRulesForSelected, ruleModalOpen, currentRuleValue, openAddClickRule, openEditClickRule,
-    openAddUseItemRule, openEditUseItemRule, removeClickRule, removeUseItemRule, closeRuleModal, saveRule } = useEntityRulesEditor({
+    openAddUseItemRule, openEditUseItemRule, removeClickRule, moveClickRule, removeUseItemRule, moveUseItemRule, closeRuleModal, saveRule } = useEntityRulesEditor({
     rules: draft?.rules, onChangeRules: setPlacedNpcDraftRules });
 
   /* -------------------------------- Colisiones -------------------------------- */
@@ -223,7 +227,7 @@ export function ScenePlacedNpcField({ label = "PNJs", active, onToggle, layerId 
     setIsCreatingPlacedNpc(false);
     setSelectedCatalogNpcId("");
 
-    toast.success("PNJ guardado", "El PNJ ya forma parte de la escena.");
+    onSaveSceneDraft?.();
   };
 
   const handleDelete = (npcId: ID) => {
@@ -363,11 +367,19 @@ export function ScenePlacedNpcField({ label = "PNJs", active, onToggle, layerId 
                 removeClickRule(index);
                 toast.success("Regla eliminada", "Se ha eliminado la regla.");
               }}
+              onMoveClickRule={(fromIndex, toIndex) => {
+                moveClickRule(fromIndex, toIndex);
+                toast.success("Orden actualizado", "Se ha actualizado la prioridad de las reglas.");
+              }}
               onOpenAddUseItemRule={openAddUseItemRule}
               onOpenEditUseItemRule={openEditUseItemRule}
               onRemoveUseItemRule={(itemId, index) => {
                 removeUseItemRule(itemId, index);
                 toast.success("Regla eliminada", "Se ha eliminado la regla.");
+              }}
+              onMoveUseItemRule={(itemId, fromIndex, toIndex) => {
+                moveUseItemRule(itemId, fromIndex, toIndex);
+                toast.success("Orden actualizado", "Se ha actualizado la prioridad de las reglas.");
               }}
               onCloseRuleModal={closeRuleModal}
               onSaveRule={(rule: { id: ID; when?: Condition; effects: Effect[] }) => saveRule(rule)}

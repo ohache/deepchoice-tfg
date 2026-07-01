@@ -6,6 +6,7 @@ import { useRegionShapeRectDrawing } from "@/features/editor/hooks/useRegionShap
 import { useObjectContainRect } from "@/features/editor/hooks/useObjectContainRect";
 import { rectStyleFromShape } from "@/features/editor/hooks/regionShape";
 import { commitActiveInteractiveDrafts } from "@/features/editor/scene/interactiveComponents/interactiveDraftGuards";
+import { toast } from "@/shared/toast/toastStore";
 
 export type PreviewInteractiveFieldId = "hotspots" | "placedItems" | "placedNpcs" | "placedPlayers";
 
@@ -101,6 +102,7 @@ export function useSceneRenderPreviewInteractions({ activeLayerId, imageUrl, nod
     contentRect: contentRectInContainer,
     enabled: Boolean(isDrawing && imageUrl),
     toContainerPx,
+    onRejectInvalidShape: () => {toast.warning("Región no válida", "Dibuja un área más grande dentro de la imagen.")},
     onCommit: (shape: RegionShape) => {
       if (isDrawingHotspot) {
         setHotspotDraftShape(shape);

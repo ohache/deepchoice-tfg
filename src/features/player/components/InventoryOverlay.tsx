@@ -14,6 +14,7 @@ export type InventoryItemView = {
 type InventoryOverlayProps = {
   open: boolean;
   items: InventoryItemView[];
+  initialCursorPosition?: CursorPoint | null;
   onClose: () => void;
   onSelectItem: (item: InventoryItemView) => void;
   onUseItemOnInventoryItem: (sourceItem: InventoryItemView, targetItem: InventoryItemView) => void;
@@ -36,7 +37,7 @@ const MAX_CELL_SIZE = 112;
 const INVENTORY_TARGET_HALO_CLASS = "bg-amber-300/15 ring-2 ring-amber-300 shadow-[0_0_0_2px_rgba(251,191,36,0.35),0_0_26px_rgba(251,191,36,0.65)] scale-[1.04]";
 
 type CursorPosition = { visible: boolean; x: number; y: number };
-
+type CursorPoint = { x: number; y: number };
 type ViewportSize = { width: number; height: number };
 
 const INITIAL_CURSOR_POSITION: CursorPosition = { visible: false, x: 0, y: 0 };
@@ -107,11 +108,12 @@ function InventoryCursor(props: { visible: boolean; src: string; dragging: boole
       draggable={false}
       className="pointer-events-none fixed z-60 object-contain select-none"
       style={{
-        left: position.x,
-        top: position.y,
+        left: 0,
+        top: 0,
         width: cursorSize.width,
         height: cursorSize.height,
-        transform: "translate(-50%, -50%)",
+        transform: `translate3d(${position.x}px, ${position.y}px, 0) translate(-50%, -50%)`,
+        willChange: "transform",
       }}
     />
   );
@@ -139,7 +141,7 @@ function isInventoryUseTarget(item: InventoryItemView | null, pressedItem: Inven
   return Boolean(item && pressedItem && item.itemInstanceId !== pressedItem.itemInstanceId && hoveredTargetItemId === item.itemInstanceId);
 }
 
-export function InventoryOverlay({ open, items, onClose, onSelectItem, onUseItemOnInventoryItem }: InventoryOverlayProps) {
+export function InventoryOverlay({ open, items, initialCursorPosition = null, onClose, onSelectItem, onUseItemOnInventoryItem }: InventoryOverlayProps) {
   const [visible, setVisible] = useState(open);
   const [cursorPos, setCursorPos] = useState<CursorPosition>(INITIAL_CURSOR_POSITION);
   const [pressedItem, setPressedItem] = useState<InventoryItemView | null>(null);
@@ -205,14 +207,23 @@ export function InventoryOverlay({ open, items, onClose, onSelectItem, onUseItem
   useEffect(() => {
     if (open) {
       setVisible(true);
+
+      if (initialCursorPosition) {
+        applyCursorPosition({
+          visible: true,
+          x: initialCursorPosition.x,
+          y: initialCursorPosition.y,
+        });
+      }
+
       return;
     }
 
     const timer = window.setTimeout(() => setVisible(false), CLOSE_ANIMATION_MS);
     return () => window.clearTimeout(timer);
-  }, [open]);
+  }, [open, initialCursorPosition?.x, initialCursorPosition?.y, applyCursorPosition]);
 
-    const updateHoveredTargetFromPointer = useCallback((x: number, y: number) => {
+  const updateHoveredTargetFromPointer = useCallback((x: number, y: number) => {
     const targetItem = findInventoryTargetItemFromPoint(x, y, pressedItem, items);
 
     setHoveredTargetIfChanged(targetItem?.itemInstanceId ?? null);

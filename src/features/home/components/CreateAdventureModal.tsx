@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { createCommitCancelKeyHandler } from "@/shared/keyboard";
 
-interface CreateAdventureModalProps {
+type CreateAdventureModalProps = {
   open: boolean;
   title: string;
   onTitleChange: (value: string) => void;

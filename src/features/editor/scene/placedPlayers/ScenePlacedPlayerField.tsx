@@ -16,9 +16,10 @@ type ScenePlacedPlayerFieldProps = {
   active: boolean;
   onToggle: () => void;
   layerId: ID;
+  onSaveSceneDraft?: () => boolean;
 };
 
-export function ScenePlacedPlayerField({ label = "Jugadores", active, onToggle, layerId }: ScenePlacedPlayerFieldProps) {
+export function ScenePlacedPlayerField({ label = "Jugadores", active, onToggle, layerId, onSaveSceneDraft }: ScenePlacedPlayerFieldProps) {
   const project = useEditorStore((s) => s.project ?? null);
   const nodeDraft = useEditorStore((s) => s.nodeDraft);
 
@@ -192,7 +193,7 @@ export function ScenePlacedPlayerField({ label = "Jugadores", active, onToggle, 
     setIsCreatingPlacedPlayer(false);
     setSelectedCatalogPlayerId("");
 
-    toast.success("Jugador guardado", "El jugador ya forma parte de la escena.");
+    onSaveSceneDraft?.();
   };
 
   const handleDelete = (playerId: ID) => {

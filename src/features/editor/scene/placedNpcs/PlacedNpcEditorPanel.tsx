@@ -53,12 +53,13 @@ type PlacedNpcEditorPanelProps = {
   onOpenAddClickRule: () => void;
   onOpenEditClickRule: (index: number) => void;
   onRemoveClickRule: (index: number) => void;
+  onMoveClickRule: (fromIndex: number, toIndex: number) => void;
   onOpenAddUseItemRule: (placedItemId: ID) => void;
   onOpenEditUseItemRule: (placedItemId: ID, index: number) => void;
   onRemoveUseItemRule: (placedItemId: ID, index: number) => void;
-
+  onMoveUseItemRule: (placedItemId: ID, fromIndex: number, toIndex: number) => void;
   onCloseRuleModal: () => void;
-  onSaveRule: (rule: { id: ID; when?: Condition; phrase?: RulePhrase; effects: Effect[] }) => void;
+  onSaveRule: (rule: { id: ID; label: string; when?: Condition; phrase?: RulePhrase; effects: Effect[] }) => void;
 
   panelError: string | null;
   showRulesRequiredError: boolean;
@@ -74,8 +75,8 @@ export function PlacedNpcEditorPanel({ draft, selectedCatalogNpcId, projectNpcs,
   hasCollisions, collisionSummary, collisionLock, disableAllEditorFields, disableReachable, disableNotReachableText, initialVisible,
   initialReachable, initialNotReachableText, notReachableInputRef, onNpcChange, onStartRedrawShape, onVisibleChange, onReachableChange,
   onNotReachableTextChange, owner, activeChannel, setActiveChannel, clickRules, useItemRulesForSelected, ruleModalOpen, currentRuleValue,
-  nodeId, project, onOpenAddClickRule, onOpenEditClickRule, onRemoveClickRule, onOpenAddUseItemRule, onOpenEditUseItemRule, onRemoveUseItemRule,
-  onCloseRuleModal, onSaveRule, panelError, useItemSourceOptions, onDelete, onCancel, onCommit }: PlacedNpcEditorPanelProps) {
+  nodeId, project, onOpenAddClickRule, onOpenEditClickRule, onRemoveClickRule, onMoveClickRule, onOpenAddUseItemRule, onOpenEditUseItemRule,
+  onRemoveUseItemRule, onMoveUseItemRule, onCloseRuleModal, onSaveRule, panelError, useItemSourceOptions, onDelete, onCancel, onCommit }: PlacedNpcEditorPanelProps) {
   const npcOptions: Option<ID>[] = projectNpcs.map((npc) => ({ id: npc.id, label: npc.name || npc.id }));
 
   const useItemOptions: Option<ID>[] = useItemSourceOptions;
@@ -103,7 +104,7 @@ export function PlacedNpcEditorPanel({ draft, selectedCatalogNpcId, projectNpcs,
               value={selectedCatalogNpcId}
               onChange={onSelectedCatalogNpcIdChange}
               options={npcOptions}
-              placeholder="Seleccionar NPC"
+              placeholder="Seleccionar PNJ"
               disabled={!projectNpcs.length}
               buttonClassName={selectButtonClassName}
             />
@@ -197,9 +198,11 @@ export function PlacedNpcEditorPanel({ draft, selectedCatalogNpcId, projectNpcs,
         onOpenAddClickRule={onOpenAddClickRule}
         onOpenEditClickRule={onOpenEditClickRule}
         onRemoveClickRule={onRemoveClickRule}
+        onMoveClickRule={onMoveClickRule}
         onOpenAddUseItemRule={onOpenAddUseItemRule}
         onOpenEditUseItemRule={onOpenEditUseItemRule}
         onRemoveUseItemRule={onRemoveUseItemRule}
+        onMoveUseItemRule={onMoveUseItemRule}
         onCloseRuleModal={onCloseRuleModal}
         onSaveRule={onSaveRule}
       />

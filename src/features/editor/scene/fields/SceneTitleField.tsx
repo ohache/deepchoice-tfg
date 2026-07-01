@@ -1,7 +1,7 @@
 import type { RefObject, KeyboardEvent, ChangeEvent } from "react";
 import { ToggleFieldBlock } from "@/features/editor/scene/SceneFieldBlocks";
 
-interface SceneTitleFieldProps {
+type SceneTitleFieldProps = {
   label?: string;
   value: string;
   active: boolean;

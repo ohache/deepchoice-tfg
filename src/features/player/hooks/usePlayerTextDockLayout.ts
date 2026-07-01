@@ -2,8 +2,12 @@ import { useCallback, useMemo, useState, type CSSProperties } from "react";
 import type { Project } from "@/domain/types";
 import { resolveTextTokensToParts } from "@/shared/textTokens/ResolveTextTokens";
 
-export const HORIZONTAL_TEXT_DOCK_HEIGHT = 160;
-export const VERTICAL_TEXT_DOCK_WIDTH = 280;
+export const HORIZONTAL_TEXT_DOCK_HEIGHT = 176;
+export const VERTICAL_TEXT_DOCK_WIDTH = 320;
+
+const DOCK_LAYOUT_TRANSITION_MS = 240;
+const DOCK_LAYOUT_TRANSITION =
+  `top ${DOCK_LAYOUT_TRANSITION_MS}ms ease, right ${DOCK_LAYOUT_TRANSITION_MS}ms ease, bottom ${DOCK_LAYOUT_TRANSITION_MS}ms ease, left ${DOCK_LAYOUT_TRANSITION_MS}ms ease`;
 
 type TextDock = "bottom" | "top" | "left" | "right";
 type SceneContentRect = { x: number; y: number; w: number; h: number };
@@ -13,9 +17,15 @@ type ActiveTextView = {
   dock: TextDock;
 };
 
+function withDockLayoutTransition(style: CSSProperties, enabled: boolean): CSSProperties {
+  if (!enabled) return style;
+
+  return { ...style,  transition: DOCK_LAYOUT_TRANSITION,  willChange: "top, right, bottom, left" };
+}
+
 export function usePlayerTextDockLayout(args: { project: Project | null; activeText: ActiveTextView; bottomBarOpen: boolean;
-  settingsOpen: boolean; inventoryOpen: boolean; isMapOpen: boolean }) {
-  const { project, activeText, bottomBarOpen, settingsOpen, inventoryOpen, isMapOpen } = args;
+  settingsOpen: boolean; inventoryOpen: boolean; isMapOpen: boolean; animateLayout?: boolean }) {
+  const { project, activeText, bottomBarOpen, settingsOpen, inventoryOpen, isMapOpen, animateLayout = true } = args;
 
   const [sceneContentRect, setSceneContentRect] = useState<SceneContentRect | null>(null);
 
@@ -34,16 +44,21 @@ export function usePlayerTextDockLayout(args: { project: Project | null; activeT
   const isHorizontalTextDock = hasText && (activeText.dock === "top" || activeText.dock === "bottom");
   const isVerticalTextDock = hasText && (activeText.dock === "left" || activeText.dock === "right");
 
-  const sceneStageFrameStyle: CSSProperties = isHorizontalTextDock ? activeText.dock === "top"
-    ? { position: "absolute", left: 0, right: 0, top: HORIZONTAL_TEXT_DOCK_HEIGHT, bottom: 0 }
-    : { position: "absolute", left: 0, right: 0, top: 0, bottom: HORIZONTAL_TEXT_DOCK_HEIGHT }
-    : isVerticalTextDock ? activeText.dock === "left"
-      ? { position: "absolute", left: VERTICAL_TEXT_DOCK_WIDTH, right: 0, top: 0, bottom: 0 }
-      : { position: "absolute", left: 0, right: VERTICAL_TEXT_DOCK_WIDTH, top: 0, bottom: 0 }
-      : { position: "absolute", inset: 0 };
+  const sceneStageFrameStyle: CSSProperties = withDockLayoutTransition(
+    isHorizontalTextDock
+      ? activeText.dock === "top"
+        ? { position: "absolute", left: 0, right: 0, top: HORIZONTAL_TEXT_DOCK_HEIGHT, bottom: 0 }
+        : { position: "absolute", left: 0, right: 0, top: 0, bottom: HORIZONTAL_TEXT_DOCK_HEIGHT }
+      : isVerticalTextDock
+        ? activeText.dock === "left"
+          ? { position: "absolute", left: VERTICAL_TEXT_DOCK_WIDTH, right: 0, top: 0, bottom: 0 }
+          : { position: "absolute", left: 0, right: VERTICAL_TEXT_DOCK_WIDTH, top: 0, bottom: 0 }
+        : { position: "absolute", left: 0, right: 0, top: 0, bottom: 0 },
+    animateLayout,
+  );
 
   const handleSceneContentRectChange = useCallback((rect: SceneContentRect | null) => {
-      if (!rect) {
+    if (!rect) {
         setSceneContentRect(null);
         return;
       }

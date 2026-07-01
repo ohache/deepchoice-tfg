@@ -118,8 +118,8 @@ export function HistoryNpcsPanel() {
   });
 
   /* Editor de variables del PNJ */
-  const { draftVars, openVarId, varNameRefs, computeRowErrors, updateVarRow, switchVarType, addVarRow, toggleVarOpen, removeVarRow, saveVarRow, syncFromVars }
-    = useEntityVarsEditor({
+  const { draftVars, openVarId, varNameRefs, computeRowErrors, updateVarRow, switchVarType, addVarRow, toggleVarOpen, removeVarRow, saveVarRow, validateVarRows,
+    persistValidatedVars, syncFromVars } = useEntityVarsEditor({
       initialVars: selectedNpc?.vars ?? [],
       onPersistRemove: (varId) => { if (mode === "edit" && selectedNpcId && selectedNpcVarIds.has(varId)) removeNpcVar(selectedNpcId, varId) },
       onPersistSave: (variable, existedBefore) => {
@@ -151,6 +151,14 @@ export function HistoryNpcsPanel() {
     syncFromInventory(selectedNpc?.initialInventory ?? []);
   }, [selectedNpc?.id, syncFromVars, syncFromInventory]);
 
+  /* Limpia variables e inventario al crear un PNJ nuevo */
+  useEffect(() => {
+    if (mode !== "new") return;
+
+    syncFromVars([]);
+    syncFromInventory([]);
+  }, [mode, syncFromVars, syncFromInventory]);
+
   /* Valida el formulario completo del PNJ */
   const validateDraft = (input: { vars: VarDef[]; initialInventory: ItemInstance[] }): boolean => {
     if (!project) {
@@ -174,20 +182,14 @@ export function HistoryNpcsPanel() {
 
   /* Convierte las filas draft de variables en VarDef persistibles */
   const buildValidatedVars = (): VarDef[] | null => {
-    const varsOut: VarDef[] = [];
+    const result = validateVarRows();
 
-    for (const row of draftVars) {
-      const result = saveVarRow(row);
-
-      if (!result.ok) {
-        toast.warning("Variables con errores", "Corrige los errores de las variables antes de guardar el PNJ.");
-        return null;
-      }
-
-      varsOut.push(result.variable);
+    if (!result.ok) {
+      toast.warning("Variables con errores", "Corrige los errores de las variables antes de guardar el PNJ.");
+      return null;
     }
 
-    return varsOut;
+    return result.variables;
   };
 
   /* Convierte las filas draft de inventario en ItemInstance persistibles */
@@ -259,7 +261,10 @@ export function HistoryNpcsPanel() {
     if (!validateDraft({ vars: varsOut, initialInventory: inventoryOut })) return;
 
     if (mode === "new") handleCreate(varsOut, inventoryOut);
-    else if (mode === "edit") handleUpdate();
+    else if (mode === "edit") {
+      persistValidatedVars(varsOut);
+      handleUpdate();
+    }
   };
 
   /* Solicita la eliminación del PNJ seleccionado */
@@ -492,26 +497,27 @@ export function HistoryNpcsPanel() {
                   </div>
                 </div>
 
-                  <InventoryEditor
-                    project={project}
-                    value={draftInventory}
-                    openInventoryItemId={openInventoryItemId}
-                    fieldErrors={fieldErrors}
-                    addInventoryRow={addInventoryRow}
-                    updateInventoryRow={updateInventoryRow}
-                    removeInventoryRow={removeInventoryRow}
-                    toggleInventoryItemOpen={toggleInventoryItemOpen}
-                    saveInventoryRow={saveInventoryRow}
-                    buttonGroupClassName="panel--npcs"
-                    renderRulesEditor={({ item, onChange }) => (
-                      <InventoryItemRulesEditor
-                        project={project}
-                        owner={{ kind: "npcInventoryItem", npcId: selectedNpcId ?? "__draft_npc__" }}
-                        item={item}
-                        onChange={onChange}
-                      />
-                    )}
-                  />
+                <InventoryEditor
+                  project={project}
+                  value={draftInventory}
+                  openInventoryItemId={openInventoryItemId}
+                  fieldErrors={fieldErrors}
+                  savedInventoryItems={selectedNpcInitialInventory}
+                  addInventoryRow={addInventoryRow}
+                  updateInventoryRow={updateInventoryRow}
+                  removeInventoryRow={removeInventoryRow}
+                  toggleInventoryItemOpen={toggleInventoryItemOpen}
+                  saveInventoryRow={saveInventoryRow}
+                  buttonGroupClassName="panel--npcs"
+                  renderRulesEditor={({ item, onChange }) => (
+                    <InventoryItemRulesEditor
+                      project={project}
+                      owner={{ kind: "npcInventoryItem", npcId: selectedNpcId ?? "__draft_npc__" }}
+                      item={item}
+                      onChange={onChange}
+                    />
+                  )}
+                />
 
                 <div className="mt-auto flex justify-between pt-6">
                   <button

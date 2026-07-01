@@ -54,12 +54,13 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
 
   assetUrls: {},
 
-  audioAdapter: {
-    playSfx: () => { },
-    playSfxUrl: () => { },
-    setSfxVolume: () => { },
-    dispose: () => { },
-  },
+audioAdapter: {
+  playSfx: () => { },
+  playSfxUrl: () => { },
+  setSfxVolume: () => { },
+  stopAllSfx: () => { },
+  dispose: () => { },
+},
 
   startGame: (project: Project, files: File[]) => {
     const { assetUrls: prevAssetUrls, audioAdapter: prevAudioAdapter } = get();
@@ -107,6 +108,8 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     const { gameState, audioAdapter } = get();
     if (!gameState) return;
 
+    audioAdapter.stopAllSfx();
+
     try {
       const nextState = prepareNextGameState(
         applyHotspot(gameState, hotspot, {
@@ -124,6 +127,8 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   applyPlacedItemInteraction: (placedItem: ItemInstance) => {
     const { gameState, audioAdapter } = get();
     if (!gameState) return;
+
+    audioAdapter.stopAllSfx();
 
     try {
       const nextState = prepareNextGameState(
@@ -143,6 +148,8 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
     const { gameState, audioAdapter } = get();
     if (!gameState) return;
 
+    audioAdapter.stopAllSfx();
+
     try {
       const nextState = prepareNextGameState(
         applyPlacedNpcInteractionEngine(gameState, placedNpc, {
@@ -160,6 +167,8 @@ export const useGameStore = create<GameStoreState>((set, get) => ({
   applyInventoryItemInteraction: (sourceInstanceId: ID, targetInstanceId: ID) => {
     const { gameState, audioAdapter } = get();
     if (!gameState) return;
+
+    audioAdapter.stopAllSfx();
 
     try {
       const nextState = prepareNextGameState(

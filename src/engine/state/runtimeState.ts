@@ -1,4 +1,4 @@
-import type { ID, Project, PlaceableState, PlacedPlayerState, EndGameContent } from "@/domain/types";
+import type { ID, Project, PlaceableState, PlacedPlayerState, EndGameContent, InteractionRules } from "@/domain/types";
 import { createInitialMusicRuntime, type MusicRuntimeState } from "@/engine/state/slices/musicSlice";
 
 export type DialoguePhase = "speaking" | "choosing";
@@ -26,6 +26,7 @@ export type InventoryEntry = {
   itemInstanceId: ID;
   itemId: ID;
   label?: string;
+  rules?: InteractionRules;
 };
 
 /* Diálogo actualmente activo en el player */
@@ -64,6 +65,54 @@ export type GameState = {
   endingLineIndex?: number;
 };
 
+function hasProjectPlayer(project: Project, playerId: ID | null | undefined): playerId is ID {
+  if (!playerId) return false;
+
+  return (project.players ?? []).some((player) => player.id === playerId);
+}
+
+/* Decide qué Player es propietario del inventario en runtime */
+export function resolveInventoryPlayerId(state: GameState | null, preferredPlayerId?: ID | null): ID | null {
+  if (!state) return null;
+
+  if (hasProjectPlayer(state.project, preferredPlayerId)) return preferredPlayerId;
+
+  const projectPlayers = state.project.players ?? [];
+
+  if (projectPlayers.length === 1) return projectPlayers[0].id;
+
+  const currentNodeRuntime = state.nodes[state.currentNodeId];
+
+  if (currentNodeRuntime) {
+    const visiblePlacedPlayerIds = Object.entries(currentNodeRuntime.placedPlayers)
+      .filter(([, placedPlayer]) => placedPlayer.visible !== false)
+      .map(([playerId]) => playerId)
+      .filter((playerId) => hasProjectPlayer(state.project, playerId));
+
+    if (visiblePlacedPlayerIds.length === 1) return visiblePlacedPlayerIds[0];
+
+    const placedPlayerIds = Object.keys(currentNodeRuntime.placedPlayers)
+      .filter((playerId) => hasProjectPlayer(state.project, playerId));
+
+    if (placedPlayerIds.length === 1) return placedPlayerIds[0];
+  }
+
+  const inventoryPlayerIds = Object.keys(state.playerInventory)
+    .filter((playerId) => hasProjectPlayer(state.project, playerId));
+
+  if (inventoryPlayerIds.length === 1) return inventoryPlayerIds[0];
+
+  return projectPlayers[0]?.id ?? null;
+}
+
+export function resolveRequiredInventoryPlayerId(state: GameState, preferredPlayerId?: ID | null): ID {
+  const playerId = resolveInventoryPlayerId(state, preferredPlayerId);
+
+  if (!playerId) throw new Error("No se puede modificar el inventario porque el proyecto no tiene players.");
+
+  return playerId;
+}
+
 function createInitialMapRuntime(): WorldMapRuntime {
   return {
     isOpen: false,
@@ -75,11 +124,12 @@ function createInitialMapRuntime(): WorldMapRuntime {
   };
 }
 
-function initInventoryFromDefs(items?: { itemInstanceId: ID; itemId: ID; label?: string }[]): InventoryEntry[] {
+function initInventoryFromDefs(items?: { itemInstanceId: ID; itemId: ID; label?: string, rules?: InteractionRules }[]): InventoryEntry[] {
   return (items ?? []).map((item) => ({
     itemInstanceId: item.itemInstanceId,
     itemId: item.itemId,
     label: item.label,
+    ...(item.rules ? { rules: item.rules } : {})
   }));
 }
 
@@ -205,10 +255,9 @@ export function ensureNodeRuntime(state: GameState, nodeId: ID): GameState {
     for (const placedNpc of layer.placedNpcs ?? []) {
       placedNpcs[placedNpc.npcId] = { ...placedNpc.initialState };
     }
-
+    
     for (const placedPlayer of layer.placedPlayers ?? []) {
       placedPlayers[placedPlayer.playerId] = { ...placedPlayer.initialState };
-      placedPlayerImageId[placedPlayer.playerId] = placedPlayer.initialImageId;
     }
   }
 

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
 import type { BaseInteractionRule, ClickRule, ID, Project, RulePhrase, UseItemRule } from "@/domain/types";
 import type { Condition } from "@/domain/conditions";
 import type { Effect } from "@/domain/effects";
@@ -6,7 +6,7 @@ import type { RuleChannel } from "@/features/editor/scene/interactiveComponents/
 import type { EffectOwner } from "@/features/editor/scene/rules/effects/effectShared";
 import { RuleBuilderModal } from "@/features/editor/scene/rules/RuleBuilderModal";
 import { Select, type Option } from "@/components/Select";
-import { Pencil, Trash2 } from "lucide-react";
+import { GripVertical, Pencil, Trash2 } from "lucide-react";
 
 type UseItemOption = Option<ID>;
 
@@ -29,29 +29,113 @@ type InteractionRulesSectionProps = {
   onOpenAddClickRule: () => void;
   onOpenEditClickRule: (index: number) => void;
   onRemoveClickRule: (index: number) => void;
+  onMoveClickRule?: (fromIndex: number, toIndex: number) => void;
 
   onOpenAddUseItemRule: (itemInstanceId: ID) => void;
   onOpenEditUseItemRule: (itemInstanceId: ID, index: number) => void;
   onRemoveUseItemRule: (itemInstanceId: ID, index: number) => void;
+  onMoveUseItemRule?: (itemInstanceId: ID, fromIndex: number, toIndex: number) => void;
 
   onCloseRuleModal: () => void;
-  onSaveRule: (rule: { id: ID; when?: Condition; phrase?: RulePhrase; effects: Effect[] }) => void;
+  onSaveRule: (rule: { id: ID; label: string; when?: Condition; phrase?: RulePhrase; effects: Effect[] }) => void;
 
   requiredErrorText?: string | null;
 };
 
+type RuleDragIndexRef = {
+  current: number | null;
+};
+
+type SetOverRuleId = (value: ID | null | ((current: ID | null) => ID | null)) => void;
+
 type RuleListCardProps = {
   index: number;
   ruleId: ID;
+  ruleLabel: string;
   disabledEdit: boolean;
   disabledDelete: boolean;
+  disabledDrag: boolean;
+  isDragging: boolean;
+  isOver: boolean;
   onEdit: () => void;
   onDelete: () => void;
+  onDragStart: (event: DragEvent<HTMLDivElement>) => void;
+  onDragEnd: () => void;
+  onDragOver: (event: DragEvent<HTMLDivElement>) => void;
+  onDragLeave: () => void;
+  onDrop: () => void;
 };
 
+function cx(...classes: Array<string | false | null | undefined>): string {
+  return classes.filter(Boolean).join(" ");
+}
+
+function getRuleCardClassName(args: { canEdit: boolean; canDrag: boolean; isDragging: boolean; isOver: boolean }): string {
+  const { canEdit, canDrag, isDragging, isOver } = args;
+
+  return cx(
+    "select-none rounded-md border-2 border-fuchsia-950 bg-slate-950/30 px-3 py-2",
+    canEdit ? "cursor-pointer hover:bg-fuchsia-900/20 hover:border-fuchsia-800" : "cursor-not-allowed opacity-50",
+    canDrag && "variant-draggable",
+    isDragging && "variant-dragging",
+    isOver && "variant-drop-target",
+  );
+}
+
+function getRuleDisplayLabel(rule: { label?: string }, index: number): string {
+  return rule.label?.trim() || `Regla ${index + 1}`;
+}
+
+function handleRuleDragStart(args: { event: DragEvent<HTMLDivElement>; ruleId: ID; index: number; disabledDrag: boolean; dragFromIndexRef: RuleDragIndexRef;
+  setDraggingId: (id: ID | null) => void}): void {
+  const { event, ruleId, index, disabledDrag, dragFromIndexRef, setDraggingId } = args;
+
+  if (disabledDrag) {
+    event.preventDefault();
+    return;
+  }
+
+  dragFromIndexRef.current = index;
+  setDraggingId(ruleId);
+
+  event.dataTransfer.effectAllowed = "move";
+}
+
+function handleRuleDragOver(args: { event: DragEvent<HTMLDivElement>; ruleId: ID; disabledDrag: boolean; setOverId: (id: ID | null) => void}): void {
+  const { event, ruleId, disabledDrag, setOverId } = args;
+
+  if (disabledDrag) return;
+
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "move";
+  setOverId(ruleId);
+}
+
+function handleRuleDragLeave(args: { ruleId: ID; setOverId: SetOverRuleId }): void {
+  const { ruleId, setOverId } = args;
+
+  setOverId((current) => (current === ruleId ? null : current));
+}
+
+function handleRuleDrop(args: { index: number; disabledDrag: boolean; dragFromIndexRef: RuleDragIndexRef; resetDragState: () => void;
+  onReorder?: (fromIndex: number, toIndex: number) => void}): void {
+  const { index, disabledDrag, dragFromIndexRef, resetDragState, onReorder } = args;
+
+  if (disabledDrag || !onReorder) return;
+
+  const fromIndex = dragFromIndexRef.current;
+  resetDragState();
+
+  if (fromIndex == null || fromIndex === index) return;
+
+  onReorder(fromIndex, index);
+}
+
 /* Card reutilizable para cada regla guardada */
-function RuleListCard({ index, ruleId, disabledEdit, disabledDelete, onEdit, onDelete }: RuleListCardProps) {
+function RuleListCard({ ruleId, ruleLabel, disabledEdit, disabledDelete, disabledDrag, isDragging, isOver, onEdit, onDelete,
+  onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop }: RuleListCardProps) {
   const canEdit = !disabledEdit;
+  const canDrag = !disabledDrag;
 
   const handleEdit = () => {
     if (!canEdit) return;
@@ -62,6 +146,12 @@ function RuleListCard({ index, ruleId, disabledEdit, disabledDelete, onEdit, onD
     <div
       role="button"
       tabIndex={canEdit ? 0 : -1}
+      draggable={canDrag}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
       onClick={handleEdit}
       onKeyDown={(event) => {
         if (!canEdit) return;
@@ -71,15 +161,24 @@ function RuleListCard({ index, ruleId, disabledEdit, disabledDelete, onEdit, onD
           onEdit();
         }
       }}
-      className={`select-none rounded-md border-2 border-fuchsia-800 bg-slate-950/30 px-3 py-2 ${
-        canEdit ? "cursor-pointer hover:bg-fuchsia-900/20" : "cursor-not-allowed opacity-50"}`}
-      title={canEdit ? "Editar regla" : undefined}
+      className={getRuleCardClassName({ canEdit, canDrag, isDragging, isOver })}
+      title={canDrag ? "Arrastra para reordenar · Click para editar" : canEdit ? "Editar regla" : undefined}
       data-rule-id={ruleId}
     >
       <div className="flex items-center justify-between gap-2">
-        <div className="min-w-0">
-          <div className="truncate text-sm text-slate-100">
-            <span>Regla {index + 1}</span>
+        <div className="flex min-w-0 items-center gap-2">
+          <div
+            className={cx("shrink-0 text-slate-300", canDrag ? "cursor-grab" : "opacity-40")}
+            aria-hidden="true"
+            title={canDrag ? "Arrastra para reordenar" : "Orden fijo"}
+          >
+            <GripVertical className="h-4 w-4" />
+          </div>
+
+          <div className="min-w-0">
+            <div className="truncate text-sm text-slate-100">
+              <span>{ruleLabel}</span>
+            </div>
           </div>
         </div>
 
@@ -93,7 +192,7 @@ function RuleListCard({ index, ruleId, disabledEdit, disabledDelete, onEdit, onD
             disabled={disabledEdit}
             onClick={onEdit}
             title="Editar"
-            aria-label={`Editar regla ${index + 1}`}
+            aria-label={`Editar ${ruleLabel}`}
           >
             <Pencil className="h-4 w-4" />
           </button>
@@ -104,12 +203,68 @@ function RuleListCard({ index, ruleId, disabledEdit, disabledDelete, onEdit, onD
             disabled={disabledDelete}
             onClick={onDelete}
             title="Eliminar"
-            aria-label={`Eliminar regla ${index + 1}`}
+            aria-label={`Eliminar ${ruleLabel}`}
           >
             <Trash2 className="h-4 w-4" />
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+type DraggableRuleListProps = {
+  rules: Array<{ id: ID; label?: string }>;
+  disabledEdit: boolean;
+  disabledDelete: boolean;
+  disabledDrag: boolean;
+  onEdit: (index: number) => void;
+  onDelete: (index: number) => void;
+  onReorder?: (fromIndex: number, toIndex: number) => void;
+};
+
+function DraggableRuleList({ rules, disabledEdit, disabledDelete, disabledDrag, onEdit, onDelete, onReorder }: DraggableRuleListProps) {
+  const dragFromIndexRef = useRef<number | null>(null);
+
+  const [draggingId, setDraggingId] = useState<ID | null>(null);
+  const [overId, setOverId] = useState<ID | null>(null);
+
+  const dragDisabled = disabledDrag || rules.length < 2 || !onReorder;
+
+  const resetDragState = () => {
+    dragFromIndexRef.current = null;
+    setDraggingId(null);
+    setOverId(null);
+  };
+
+  return (
+    <div className="space-y-2">
+      {rules.map((rule, index) => {
+        const isDragging = draggingId === rule.id;
+        const isOver = overId === rule.id && !isDragging;
+        const ruleLabel = getRuleDisplayLabel(rule, index);
+
+        return (
+          <RuleListCard
+            key={rule.id}
+            ruleId={rule.id}
+            ruleLabel={ruleLabel}
+            index={index}
+            disabledEdit={disabledEdit}
+            disabledDelete={disabledDelete}
+            disabledDrag={dragDisabled}
+            isDragging={isDragging}
+            isOver={isOver}
+            onEdit={() => onEdit(index)}
+            onDelete={() => onDelete(index)}
+            onDragStart={(event) => handleRuleDragStart({ event, ruleId: rule.id, index, disabledDrag: dragDisabled, dragFromIndexRef, setDraggingId })}
+            onDragEnd={resetDragState}
+            onDragOver={(event) => handleRuleDragOver({ event, ruleId: rule.id, disabledDrag: dragDisabled, setOverId })}
+            onDragLeave={() => handleRuleDragLeave({ ruleId: rule.id, setOverId })}
+            onDrop={() => handleRuleDrop({ index, disabledDrag: dragDisabled, dragFromIndexRef, resetDragState, onReorder })}
+          />
+        );
+      })}
     </div>
   );
 }
@@ -124,8 +279,7 @@ type ChannelTabsProps = {
 
 /* Botones para alternar el canal de interacción activo */
 function ChannelTabs({ activeChannel, disableAllEditorFields, disabledOnUseItem, onSelectOnClick, onSelectOnUseItem }: ChannelTabsProps) {
-  const getTabClassName = (selected: boolean) => `btn justify-center border-2 text-xs ${
-      selected ? "border-fuchsia-500/50 bg-fuchsia-950/30 text-fuchsia-100" : "border-slate-700 bg-slate-900 text-white hover:bg-fuchsia-950 hover:border-fuchsia-700"
+  const getTabClassName = (selected: boolean) => `btn justify-center border-2 text-xs ${selected ? "border-fuchsia-500/50 bg-fuchsia-950/30 text-fuchsia-100" : "border-slate-700 bg-slate-900 text-white hover:bg-fuchsia-950 hover:border-fuchsia-700"
     } disabled:cursor-not-allowed disabled:opacity-40`;
 
   return (
@@ -150,10 +304,9 @@ function ChannelTabs({ activeChannel, disableAllEditorFields, disabledOnUseItem,
     </div>
   );
 }
-
 export function InteractionRulesSection({ owner, project, nodeId, disableAllEditorFields, activeChannel, setActiveChannel, clickRules, useItemRulesForSelected,
-  useItemOptions, ruleModalOpen, currentRuleValue, onOpenAddClickRule, onOpenEditClickRule, onRemoveClickRule, onOpenAddUseItemRule, onOpenEditUseItemRule,
-  onRemoveUseItemRule, onCloseRuleModal, onSaveRule, requiredErrorText }: InteractionRulesSectionProps) {
+  useItemOptions, ruleModalOpen, currentRuleValue, onOpenAddClickRule, onOpenEditClickRule, onRemoveClickRule, onMoveClickRule, onOpenAddUseItemRule,
+  onOpenEditUseItemRule, onRemoveUseItemRule, onMoveUseItemRule, onCloseRuleModal, onSaveRule, requiredErrorText }: InteractionRulesSectionProps) {
   const firstUseItemId = useItemOptions[0]?.id ?? "";
   const hasUseItemOptions = useItemOptions.length > 0;
 
@@ -217,19 +370,15 @@ export function InteractionRulesSection({ owner, project, nodeId, disableAllEdit
               </button>
             </div>
 
-            <div className="space-y-2">
-              {clickRules.map((rule, index) => (
-                <RuleListCard
-                  key={rule.id}
-                  ruleId={rule.id}
-                  index={index}
-                  disabledEdit={disableAllEditorFields || !owner}
-                  disabledDelete={disableAllEditorFields}
-                  onEdit={() => onOpenEditClickRule(index)}
-                  onDelete={() => onRemoveClickRule(index)}
-                />
-              ))}
-            </div>
+            <DraggableRuleList
+              rules={clickRules}
+              disabledEdit={disableAllEditorFields || !owner}
+              disabledDelete={disableAllEditorFields}
+              disabledDrag={disableAllEditorFields || !owner}
+              onEdit={onOpenEditClickRule}
+              onDelete={onRemoveClickRule}
+              onReorder={onMoveClickRule}
+            />
           </div>
         ) : null}
 
@@ -264,21 +413,17 @@ export function InteractionRulesSection({ owner, project, nodeId, disableAllEdit
               </button>
             </div>
 
-            <div className="space-y-2">
-              {selectedUseItemId
-                ? useItemRulesForSelected.map((rule, index) => (
-                    <RuleListCard
-                      key={rule.id}
-                      ruleId={rule.id}
-                      index={index}
-                      disabledEdit={disableAllEditorFields || !owner}
-                      disabledDelete={disableAllEditorFields}
-                      onEdit={() => onOpenEditUseItemRule(selectedUseItemId, index)}
-                      onDelete={() => onRemoveUseItemRule(selectedUseItemId, index)}
-                    />
-                  ))
-                : null}
-            </div>
+            {selectedUseItemId ? (
+              <DraggableRuleList
+                rules={useItemRulesForSelected}
+                disabledEdit={disableAllEditorFields || !owner}
+                disabledDelete={disableAllEditorFields}
+                disabledDrag={disableAllEditorFields || !owner || !selectedUseItemId}
+                onEdit={(index) => onOpenEditUseItemRule(selectedUseItemId, index)}
+                onDelete={(index) => onRemoveUseItemRule(selectedUseItemId, index)}
+                onReorder={(fromIndex, toIndex) => onMoveUseItemRule?.(selectedUseItemId, fromIndex, toIndex)}
+              />
+            ) : null}
           </div>
         ) : null}
 

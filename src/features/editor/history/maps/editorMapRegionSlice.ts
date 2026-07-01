@@ -171,7 +171,7 @@ export function createEditorMapRegionsSlice(set: (partial: | Partial<EditorStore
         mapRegionEditor: initialMapRegionEditorState,
       })),
 
-    /* Actualiza la etiqueta del borrador de región del mapa */
+    /* Actualiza el nombre del borrador de región del mapa */
     setMapRegionDraftLabel: (label) =>
       set((state) => {
         if (!state.mapRegionEditor.draft) return state;

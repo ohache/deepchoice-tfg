@@ -207,7 +207,7 @@ const handleChangeFamily = (family: ConditionFamilyId | "") => {
 
     onChange({ ...pruned, lastGroupId: newGroupId });
 
-    toast.success("Condición guardada", "Actualizada y movida a un grupo nuevo.");
+    toast.success("Condición guardada", "La condición se ha actualizado y movido a un nuevo grupo.");
     closeComposer();
   };
 
@@ -239,7 +239,7 @@ const handleChangeFamily = (family: ConditionFamilyId | "") => {
 
     onChange({ ...pruned, lastGroupId: toGroupId });
 
-    toast.success("Condición guardada", "Actualizada correctamente.");
+    toast.success("Condición guardada", "La condición se ha actualizado correctamente.");
     closeComposer();
   };
 
@@ -248,7 +248,7 @@ const handleChangeFamily = (family: ConditionFamilyId | "") => {
 
     onChange({ ...draft, groups: [...draft.groups, newGroup], lastGroupId: newGroup.id });
 
-    toast.success("Condición creada", "Añadida como nuevo grupo.");
+    toast.success("Condición creada", "´La condición se ha añadido como nuevo grupo.");
     closeComposer();
   };
 
@@ -257,7 +257,7 @@ const handleChangeFamily = (family: ConditionFamilyId | "") => {
 
     onChange({ ...draft, groups: nextGroups, lastGroupId: targetId });
 
-    toast.success("Condición creada", "Añadida al grupo seleccionado.");
+    toast.success("Condición creada", "La condición ha sido añadido al grupo seleccionado.");
     closeComposer();
   };
 
@@ -313,7 +313,7 @@ const handleChangeFamily = (family: ConditionFamilyId | "") => {
     const pruned = pruneEmptyGroups({ ...value, groups: nextGroups });
     onChange(ensureAtLeastOneGroup(pruned));
 
-    toast.success("Condición eliminada", "Se ha eliminado correctamente.");
+    toast.success("Condición eliminada", "La condición se ha eliminado correctamente.");
   };
 
   /*  Drag & drop */

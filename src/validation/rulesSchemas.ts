@@ -91,18 +91,22 @@ export const rulePhraseSchema = z.object({
   speaker: rulePhraseSpeakerSchema.optional(),
 });
 
+const resultItemRulesSchema: z.ZodType<any> = z.lazy(() => interactionRulesSchema);
+
 /* Effects */
 export const effectSchema: z.ZodType<Effect> = z.discriminatedUnion("type", [
   // Navegación
   z.object({ type: z.literal("goToNode"), targetNodeId: IdSchema }),
 
 // Inventario
-z.object({ type: z.literal("addItem"), playerId: IdSchema, itemInstanceId: IdSchema }),
-z.object({ type: z.literal("removeItem"), playerId: IdSchema, itemInstanceId: IdSchema }),
+z.object({ type: z.literal("addItem"), itemInstanceId: IdSchema }),
+z.object({ type: z.literal("removeItem"), itemInstanceId: IdSchema }),
 z.object({ type: z.literal("transformItem"), itemInstanceId: IdSchema, resultItemId: IdSchema, resultItemInstanceId: IdSchema,
-  resultItemLabel: z.string().trim().min(1, "El nombre del nuevo item no puede estar vacío").max(60, "El nombre del nuevo item no puede superar los 60 caracteres") }),
+  resultItemLabel: z.string().trim().min(1, "El nombre del nuevo objeto no puede estar vacío").max(60, "El nombre del nuevo objeto no puede superar los 60 caracteres"),
+  resultItemRules: resultItemRulesSchema.optional() }),
 z.object({ type: z.literal("combineItems"), itemAInstanceId: IdSchema, itemBInstanceId: IdSchema, resultItemId: IdSchema, resultItemInstanceId: IdSchema,
-  resultItemLabel: z.string().trim().min(1, "El nombre del nuevo item no puede estar vacío").max(60, "El nombre del nuevo item no puede superar los 60 caracteres") }),
+  resultItemLabel: z.string().trim().min(1, "El nombre del nuevo objeto no puede estar vacío").max(60, "El nombre del nuevo objeto no puede superar los 60 caracteres"),
+  resultItemRules: resultItemRulesSchema.optional() }),
 
   // Diálogo / PNJ
   z.object({ type: z.literal("startDialogue"), nodeDialogueId: IdSchema }),
@@ -163,10 +167,25 @@ z.object({ type: z.literal("combineItems"), itemAInstanceId: IdSchema, itemBInst
   }).optional()})]);
 
 /* Interaction Rules */
-export const baseInteractionRuleSchema = z.object({ id: IdSchema, when: conditionSchema.optional(), phrase: rulePhraseSchema.optional(), effects: z.array(effectSchema).default([]) });
+const singleGoToNodeMessage = "Cada regla solo puede tener como máximo un efecto de tipo Ir a escena.";
+
+function countGoToNodeEffects(effects: Effect[] | undefined): number {
+  return (effects ?? []).filter((effect) => effect.type === "goToNode").length;
+}
+
+export const baseInteractionRuleSchema = z.object({id: IdSchema,
+  label: z.string().trim().min(1, "El nombre de la regla no puede estar vacío.").max(60, "El nombre de la regla no puede superar los 60 caracteres."),
+  when: conditionSchema.optional(),
+  phrase: rulePhraseSchema.optional(),
+  effects: z.array(effectSchema).default([]),
+}).superRefine((rule, ctx) => {
+  if (countGoToNodeEffects(rule.effects) <= 1) return;
+
+  ctx.addIssue({ code: "custom", path: ["effects"], message: singleGoToNodeMessage });
+});
 
 export const clickRuleSchema = baseInteractionRuleSchema;
 
-export const useItemRuleSchema = baseInteractionRuleSchema.extend({ itemInstanceId: IdSchema });
+export const useItemRuleSchema = baseInteractionRuleSchema.safeExtend({ itemInstanceId: IdSchema });
 
 export const interactionRulesSchema = z.object({ onClick: z.array(clickRuleSchema).optional(), onUseItem: z.array(useItemRuleSchema).optional() });

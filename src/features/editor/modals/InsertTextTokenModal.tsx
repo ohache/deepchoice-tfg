@@ -13,8 +13,8 @@ type Props = {
 
 const KINDS: Array<{ id: TextTokenKind; label: string }> = [
   { id: "players", label: "Jugadores" },
-  { id: "npcs", label: "NPCs" },
-  { id: "items", label: "Items" },
+  { id: "npcs", label: "PNJs" },
+  { id: "items", label: "Objetos" },
   { id: "maps", label: "Mapas" },
   { id: "music", label: "Música" },
 ];

@@ -57,10 +57,10 @@ type ConditionFamilySpec = {
 
 const CONDITION_FAMILIES: ConditionFamilySpec[] = [
   { id: "progress", label: "Progreso", leafTypes: ["nodeVisited", "mapRegionVisited"] },
-  { id: "item", label: "Item", leafTypes: ["placedItemVisible", "placedItemReachable"] },
+  { id: "item", label: "Objeto", leafTypes: ["placedItemVisible", "placedItemReachable"] },
   { id: "hotspot", label: "Hotspot", leafTypes: ["hotspotVisible", "hotspotReachable", "hotspotVar"] },
-  { id: "npc", label: "NPC", leafTypes: ["placedNpcVisible", "placedNpcReachable", "npcVar", "npcHasItem"] },
-  { id: "player", label: "Player", leafTypes: ["placedPlayerVisible", "placedPlayerImage", "playerVar", "hasItem"] },
+  { id: "npc", label: "PNJ", leafTypes: ["placedNpcVisible", "placedNpcReachable", "npcVar", "npcHasItem"] },
+  { id: "player", label: "Jugador", leafTypes: ["placedPlayerVisible", "placedPlayerImage", "playerVar", "hasItem"] },
   { id: "music", label: "Música", leafTypes: ["musicPlaying"] },
 ];
 
@@ -195,22 +195,22 @@ const LEAF_REGISTRY: { [K in EnabledLeafType]: LeafSpec<K> } = {
   },
 
   hasItem: {
-    label: "Tiene item",
+    label: "Tiene objeto",
     makeDefault: () => ({ type: "hasItem", playerId: "", itemInstanceId: "", op: "==", value: true }),
-    summarize: ({ idx }, c) => `Player tiene item: ${idx.getPlayerLabel(c.playerId)} · ${idx.getGameItemLabel(c.itemInstanceId)} = ${String(c.value)}`,
+    summarize: ({ idx }, c) => `Jugador tiene objeto: ${idx.getPlayerLabel(c.playerId)} · ${idx.getGameItemLabel(c.itemInstanceId)} = ${String(c.value)}`,
     ui: {
       layoutClassName: "grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_140px] gap-2",
       fields: [
         {
           key: "playerId",
-          label: "Player",
+          label: "Jugador",
           path: "playerId",
           control: "id-select",
           optionsSource: "players",
         },
         {
           key: "itemInstanceId",
-          label: "Item",
+          label: "Objeto",
           path: "itemInstanceId",
           control: "id-select",
           optionsResolver: (ctx) => ctx.idx.getGameItemOptions(),
@@ -228,23 +228,23 @@ const LEAF_REGISTRY: { [K in EnabledLeafType]: LeafSpec<K> } = {
   },
 
   npcHasItem: {
-    label: "Tiene item",
+    label: "Tiene objeto",
     makeDefault: () => ({ type: "npcHasItem", npcId: "", itemInstanceId: "", op: "==", value: true }),
     summarize: ({ idx }, c) =>
-      `NPC tiene item: ${idx.getNpcLabel(c.npcId)} · ${idx.getGameItemLabel(c.itemInstanceId)} = ${String(c.value)}`,
+      `PNJ tiene objeto: ${idx.getNpcLabel(c.npcId)} · ${idx.getGameItemLabel(c.itemInstanceId)} = ${String(c.value)}`,
     ui: {
       layoutClassName: "space-y-2",
       fields: [
         {
           key: "npcId",
-          label: "NPC",
+          label: "PNJ",
           path: "npcId",
           control: "id-select",
           optionsSource: "npcs",
         },
         {
           key: "itemInstanceId",
-          label: "Item",
+          label: "Objeto",
           path: "itemInstanceId",
           control: "id-select",
           optionsResolver: (ctx) => ctx.idx.getGameItemOptions(),
@@ -267,14 +267,14 @@ const LEAF_REGISTRY: { [K in EnabledLeafType]: LeafSpec<K> } = {
     summarize: ({ idx }, c) => {
       const p = idx.getPlayerLabel(c.playerId);
       const v = idx.getVarLabel("player", c.playerId, c.varId);
-      return `Player: ${p} · ${v} ${String(c.op)} ${String(c.value)}`;
+      return `Jugador: ${p} · ${v} ${String(c.op)} ${String(c.value)}`;
     },
     ui: {
       layoutClassName: "space-y-2",
       fields: [
         {
           key: "playerId",
-          label: "Player",
+          label: "Jugador",
           path: "playerId",
           control: "id-select",
           optionsSource: "players",
@@ -314,14 +314,14 @@ const LEAF_REGISTRY: { [K in EnabledLeafType]: LeafSpec<K> } = {
     summarize: ({ idx }, c) => {
       const n = idx.getNpcLabel(c.npcId);
       const v = idx.getVarLabel("npc", c.npcId, c.varId);
-      return `NPC: ${n} · ${v} ${String(c.op)} ${String(c.value)}`;
+      return `PNJ: ${n} · ${v} ${String(c.op)} ${String(c.value)}`;
     },
     ui: {
       layoutClassName: "space-y-2",
       fields: [
         {
           key: "npcId",
-          label: "NPC",
+          label: "PNJ",
           path: "npcId",
           control: "id-select",
           optionsSource: "npcs",
@@ -455,13 +455,13 @@ const LEAF_REGISTRY: { [K in EnabledLeafType]: LeafSpec<K> } = {
   placedItemVisible: {
     label: "Visible",
     makeDefault: () => ({ type: "placedItemVisible", itemInstanceId: "", op: "==", value: true }),
-    summarize: ({ idx }, c) => `Item visible: ${idx.getPlacedItemLabel(c.itemInstanceId)} = ${String(c.value)}`,
+    summarize: ({ idx }, c) => `Objeto visible: ${idx.getPlacedItemLabel(c.itemInstanceId)} = ${String(c.value)}`,
     ui: {
       layoutClassName: "grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_140px] gap-2",
       fields: [
         {
           key: "itemInstanceId",
-          label: "Item",
+          label: "Objeto",
           path: "itemInstanceId",
           control: "id-select",
           optionsSource: "items",
@@ -480,13 +480,13 @@ const LEAF_REGISTRY: { [K in EnabledLeafType]: LeafSpec<K> } = {
   placedItemReachable: {
     label: "Alcanzable",
     makeDefault: () => ({ type: "placedItemReachable", itemInstanceId: "", op: "==", value: true }),
-    summarize: ({ idx }, c) => `Item alcanzable: ${idx.getPlacedItemLabel(c.itemInstanceId)} = ${String(c.value)}`,
+    summarize: ({ idx }, c) => `Objeto alcanzable: ${idx.getPlacedItemLabel(c.itemInstanceId)} = ${String(c.value)}`,
     ui: {
       layoutClassName: "grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_140px] gap-2",
       fields: [
         {
           key: "itemInstanceId",
-          label: "Item",
+          label: "Objeto",
           path: "itemInstanceId",
           control: "id-select",
           optionsSource: "items",
@@ -505,13 +505,13 @@ const LEAF_REGISTRY: { [K in EnabledLeafType]: LeafSpec<K> } = {
   placedNpcVisible: {
     label: "Visible",
     makeDefault: () => ({ type: "placedNpcVisible", nodeId: "", layerId: "", npcId: "", op: "==", value: true }),
-    summarize: ({ idx }, c) => `NPC visible: ${idx.getPlacedNpcContextLabel(c.nodeId, c.layerId, c.npcId)} = ${String(c.value)}`,
+    summarize: ({ idx }, c) => `PNJ visible: ${idx.getPlacedNpcContextLabel(c.nodeId, c.layerId, c.npcId)} = ${String(c.value)}`,
     ui: {
       layoutClassName: "space-y-2",
       fields: [
         {
           key: "npcId",
-          label: "NPC",
+          label: "PNJ",
           path: "npcId",
           control: "id-select",
           optionsSource: "npcs",
@@ -546,13 +546,13 @@ const LEAF_REGISTRY: { [K in EnabledLeafType]: LeafSpec<K> } = {
   placedNpcReachable: {
     label: "Alcanzable",
     makeDefault: () => ({ type: "placedNpcReachable", nodeId: "", layerId: "", npcId: "", op: "==", value: true }),
-    summarize: ({ idx }, c) => `NPC alcanzable: ${idx.getPlacedNpcContextLabel(c.nodeId, c.layerId, c.npcId)} = ${String(c.value)}`,
+    summarize: ({ idx }, c) => `PNJ alcanzable: ${idx.getPlacedNpcContextLabel(c.nodeId, c.layerId, c.npcId)} = ${String(c.value)}`,
     ui: {
       layoutClassName: "space-y-2",
       fields: [
         {
           key: "npcId",
-          label: "NPC",
+          label: "PNJ",
           path: "npcId",
           control: "id-select",
           optionsSource: "npcs",
@@ -587,13 +587,13 @@ const LEAF_REGISTRY: { [K in EnabledLeafType]: LeafSpec<K> } = {
   placedPlayerVisible: {
     label: "Visible",
     makeDefault: () => ({ type: "placedPlayerVisible", nodeId: "", layerId: "", playerId: "", op: "==", value: true }),
-    summarize: ({ idx }, c) => `Player visible: ${idx.getPlacedPlayerContextLabel(c.nodeId, c.layerId, c.playerId)} = ${String(c.value)}`,
+    summarize: ({ idx }, c) => `Jugador visible: ${idx.getPlacedPlayerContextLabel(c.nodeId, c.layerId, c.playerId)} = ${String(c.value)}`,
     ui: {
       layoutClassName: "space-y-2",
       fields: [
         {
           key: "playerId",
-          label: "Player",
+          label: "Jugador",
           path: "playerId",
           control: "id-select",
           optionsSource: "players",
@@ -628,13 +628,13 @@ const LEAF_REGISTRY: { [K in EnabledLeafType]: LeafSpec<K> } = {
   placedPlayerImage: {
     label: "Imagen",
     makeDefault: () => ({ type: "placedPlayerImage", nodeId: "", layerId: "", playerId: "", imageId: "", op: "==", value: true }),
-    summarize: ({ idx }, c) => `Player imagen: ${idx.getPlacedPlayerContextLabel(c.nodeId, c.layerId, c.playerId)} · ${idx.getPlayerImageLabel(c.playerId, c.imageId)} = ${String(c.value)}`,
+    summarize: ({ idx }, c) => `Jugador imagen: ${idx.getPlacedPlayerContextLabel(c.nodeId, c.layerId, c.playerId)} · ${idx.getPlayerImageLabel(c.playerId, c.imageId)} = ${String(c.value)}`,
     ui: {
       layoutClassName: "space-y-2",
       fields: [
         {
           key: "playerId",
-          label: "Player",
+          label: "Jugador",
           path: "playerId",
           control: "id-select",
           optionsSource: "players",

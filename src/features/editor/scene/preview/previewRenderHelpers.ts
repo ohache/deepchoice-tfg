@@ -31,10 +31,10 @@ export function mergePreviewDraft<T>(items: T[], draft: T | null | undefined, ge
 
 export function getNpcName(project: Project | null, npcId: ID): string {
   const npc = project?.npcs.find((entry) => entry.id === npcId);
-  return npc?.name?.trim() || "NPC";
+  return npc?.name?.trim() || "PNJ";
 }
 
 export function getPlayerName(project: Project | null, playerId: ID): string {
   const player = project?.players.find((entry) => entry.id === playerId);
-  return player?.name?.trim() || "Player";
+  return player?.name?.trim() || "Jugador";
 }

@@ -30,6 +30,7 @@ function FieldRow({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
+
 function InlineFieldRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="text-[12px] text-slate-200">
@@ -41,7 +42,7 @@ function InlineFieldRow({ label, value }: { label: string; value: ReactNode }) {
 
 function EmptyBlock({ children }: { children: ReactNode }) {
   return (
-    <div className="rounded-md border border-slate-700 bg-slate-950/70 px-3 py-2 text-[12px] text-slate-400">
+    <div className=" px-3 py-2 text-[12px] text-slate-300">
       {children}
     </div>
   );
@@ -188,9 +189,7 @@ function HotspotCard({ target }: { target: SceneTestHotspotEntry }) {
       <FieldRow label="Tipo" value="Hotspot" />
       <FieldRow label="Nombre" value={target.label} />
 
-      <InfoSection title="Estado inicial">
-        <InitialStateBlock state={target.initialState} />
-      </InfoSection>
+      <FieldRow label="Estado inicial" value={<InitialStateBlock state={target.initialState} />} />
 
       <InfoSection title="Variables">
         <VarsBlock vars={target.vars} />
@@ -206,13 +205,11 @@ function HotspotCard({ target }: { target: SceneTestHotspotEntry }) {
 function PlacedItemCard({ target }: { target: SceneTestPlacedItemEntry }) {
   return (
     <div className="space-y-4">
-      <FieldRow label="Tipo" value="Item colocado" />
+      <FieldRow label="Tipo" value="Objeto colocado" />
       <FieldRow label="Nombre" value={target.label} />
-      <FieldRow label="Item referenciado" value={target.itemName} />
+      <FieldRow label="Objeto referenciado" value={target.itemName} />
 
-      <InfoSection title="Estado inicial">
-        <InitialStateBlock state={target.initialState} />
-      </InfoSection>
+      <FieldRow label="Estado inicial" value={<InitialStateBlock state={target.initialState} />} />
 
       <InfoSection title="Reglas">
         <RulesBlock rules={target.rules} />
@@ -224,12 +221,10 @@ function PlacedItemCard({ target }: { target: SceneTestPlacedItemEntry }) {
 function PlacedNpcCard({ target }: { target: SceneTestPlacedNpcEntry }) {
   return (
     <div className="space-y-4">
-      <FieldRow label="Tipo" value="NPC colocado" />
-      <FieldRow label="NPC" value={target.npcName} />
+      <FieldRow label="Tipo" value="PNJ colocado" />
+      <FieldRow label="PNJ" value={target.npcName} />
 
-      <InfoSection title="Estado inicial">
-        <InitialStateBlock state={target.initialState} />
-      </InfoSection>
+      <FieldRow label="Estado inicial" value={<InitialStateBlock state={target.initialState} />} />
 
       <InfoSection title="Variables">
         <VarsBlock vars={target.vars} />
@@ -245,13 +240,11 @@ function PlacedNpcCard({ target }: { target: SceneTestPlacedNpcEntry }) {
 function PlacedPlayerCard({ target }: { target: SceneTestPlacedPlayerEntry }) {
   return (
     <div className="space-y-4">
-      <FieldRow label="Tipo" value="Player colocado" />
-      <FieldRow label="Player" value={target.playerName} />
+      <FieldRow label="Tipo" value="Jugador colocado" />
+      <FieldRow label="Jugador" value={target.playerName} />
       <FieldRow label="Imagen inicial" value={target.initialImageName} />
 
-      <InfoSection title="Estado inicial">
-        <InitialStateBlock state={target.initialState} />
-      </InfoSection>
+      <FieldRow label="Estado inicial" value={<InitialStateBlock state={target.initialState} />} />
 
       <InfoSection title="Variables">
         <VarsBlock vars={target.vars} />
@@ -282,10 +275,10 @@ function TargetDetails({ target }: { target: SceneTestInspectableEntry }) {
 /* Componente principal */
 export function SceneTestInfoCard({ target, pinned }: SceneTestInfoCardProps) {
   return (
-    <aside className="rounded-xl border-2 border-slate-700 bg-slate-900 shadow-xl overflow-hidden">
-      <div className="border-b border-slate-700 bg-slate-950/90 px-4 py-3">
-        <div className="flex items-center justify-center gap-2">
-          <div className="text-sm font-semibold text-slate-100">
+    <aside className="flex max-h-[75vh] flex-col overflow-hidden rounded-xl border-2 border-slate-700 bg-slate-900 shadow-xl">
+      <div className="shrink-0 border-b border-slate-700 bg-slate-950/90 px-4 py-3">
+        <div className="flex items-center justify-center gap-3">
+          <div className="text-[17px] font-semibold text-slate-100">
             Detalles del componente
           </div>
 
@@ -299,7 +292,7 @@ export function SceneTestInfoCard({ target, pinned }: SceneTestInfoCardProps) {
         </div>
       </div>
 
-      <div className="px-4 py-4">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 editor-scroll">
         {!target ? (
           <EmptyBlock>
             Pasa el cursor por un elemento interactivo o haz click para fijar su información.

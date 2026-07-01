@@ -64,12 +64,14 @@ type HotspotEditorPanelProps = {
   onOpenAddClickRule: () => void;
   onOpenEditClickRule: (index: number) => void;
   onRemoveClickRule: (index: number) => void;
+  onMoveClickRule: (fromIndex: number, toIndex: number) => void;
   onOpenAddUseItemRule: (itemId: ID) => void;
   onOpenEditUseItemRule: (itemId: ID, index: number) => void;
   onRemoveUseItemRule: (itemId: ID, index: number) => void;
+  onMoveUseItemRule: (itemId: ID, fromIndex: number, toIndex: number) => void;
 
   onCloseRuleModal: () => void;
-  onSaveRule: (rule: { id: ID; when?: Condition; phrase?: RulePhrase; effects: Effect[] }) => void;
+  onSaveRule: (rule: { id: ID; label: string; when?: Condition; phrase?: RulePhrase; effects: Effect[] }) => void;
 
   onDelete: () => void;
   onCancel: () => void;
@@ -78,15 +80,15 @@ type HotspotEditorPanelProps = {
 
 export function HotspotEditorPanel({ draft, isDrawing, hasShape, isExistingHotspot, dupLabelInLayer, hasCollisions, collisionSummary, collisionLock, disableAllEditorFields,
   disableReachable, disableNotReachableText, initialVisible, initialReachable, initialNotReachableText, labelInputRef, notReachableInputRef, onLabelChange, onStartRedrawShape,
-  onVisibleChange, onReachableChange, onNotReachableTextChange, panelError, varPanelError, draftVarsUI, openVarId,
-  varErrorsById, onAddVar, onToggleVarOpen, onChangeVar, onSwitchVarType, onSaveVar, onDeleteVar, onBindVarNameInputRef, owner, useItemSourceOptions, activeChannel,
-  setActiveChannel, clickRules, useItemRulesForSelected, ruleModalOpen, currentRuleValue, nodeId, project, onOpenAddClickRule, onOpenEditClickRule,
-  onRemoveClickRule, onOpenAddUseItemRule, onOpenEditUseItemRule, onRemoveUseItemRule, onCloseRuleModal, onSaveRule, onDelete, onCancel, onCommit }: HotspotEditorPanelProps) {
+  onVisibleChange, onReachableChange, onNotReachableTextChange, panelError, varPanelError, draftVarsUI, openVarId, varErrorsById, onAddVar, onToggleVarOpen, onChangeVar,
+  onSwitchVarType, onSaveVar, onDeleteVar, onBindVarNameInputRef, owner, useItemSourceOptions, activeChannel, setActiveChannel, clickRules, useItemRulesForSelected, 
+  ruleModalOpen, currentRuleValue, nodeId, project, onOpenAddClickRule, onOpenEditClickRule, onRemoveClickRule, onMoveClickRule, onOpenAddUseItemRule, onOpenEditUseItemRule, 
+  onRemoveUseItemRule, onMoveUseItemRule, onCloseRuleModal, onSaveRule, onDelete, onCancel, onCommit }: HotspotEditorPanelProps) {
 
   const saveButtonTitle = isDrawing ? "Termina o cancela el dibujo actual antes de guardar" : !hasShape
     ? "Dibuja una región válida antes de guardar" : !(draft.label ?? "").trim()
-      ? "La etiqueta es obligatoria" : dupLabelInLayer
-        ? "Etiqueta duplicada" : hasCollisions
+      ? "El nombre es obligatorio" : dupLabelInLayer
+        ? "Nombre duplicado" : hasCollisions
           ? "Colisión con otro clicable" : undefined;
 
   return (
@@ -134,7 +136,7 @@ export function HotspotEditorPanel({ draft, isDrawing, hasShape, isExistingHotsp
 
         {dupLabelInLayer ? (
           <div className="mt-2 rounded-md border border-rose-500/40 bg-rose-950/20 px-2 py-1 text-[11px] text-rose-100">
-            Ya existe un hotspot con esa etiqueta en esta capa. Usa un nombre distinto.
+            Ya existe un hotspot con ese nombre en esta capa. Usa un nombre distinto.
           </div>
         ) : null}
       </div>
@@ -223,9 +225,11 @@ export function HotspotEditorPanel({ draft, isDrawing, hasShape, isExistingHotsp
         onOpenAddClickRule={onOpenAddClickRule}
         onOpenEditClickRule={onOpenEditClickRule}
         onRemoveClickRule={onRemoveClickRule}
+        onMoveClickRule={onMoveClickRule}
         onOpenAddUseItemRule={onOpenAddUseItemRule}
         onOpenEditUseItemRule={onOpenEditUseItemRule}
         onRemoveUseItemRule={onRemoveUseItemRule}
+        onMoveUseItemRule={onMoveUseItemRule}
         onCloseRuleModal={onCloseRuleModal}
         onSaveRule={onSaveRule}
       />

@@ -58,7 +58,7 @@ export function DialogueEditorModal({ open, project, nodeId, panelError, onClose
   const playerOptions = useMemo<Option<string>[]>(() => buildCharacterOptions(players), [players]);
   const npcOptions = useMemo<Option<string>[]>(() => buildCharacterOptions(npcs), [npcs]);
 
-  const playerName = useMemo(() => findCharacterName(players, dialogueDraft?.playerId, "Player"), [players, dialogueDraft?.playerId]);
+  const playerName = useMemo(() => findCharacterName(players, dialogueDraft?.playerId, "Jugador"), [players, dialogueDraft?.playerId]);
 
   const npcName = useMemo(() => findCharacterName(npcs, dialogueDraft?.npcId, "NPC"), [npcs, dialogueDraft?.npcId]);
 
@@ -174,12 +174,12 @@ export function DialogueEditorModal({ open, project, nodeId, panelError, onClose
               </div>
 
               <div className="space-y-1">
-                <div>Player</div>
+                <div>Jugador</div>
                 <Select<ID>
                   value={dialogueDraft.playerId}
                   onChange={(value) => value && setDialoguePlayerId(currentDialogueId, value)}
                   options={playerOptions}
-                  placeholder="Seleccionar player"
+                  placeholder="Seleccionar jugador"
                   disabled={!playerOptions.length}
                   className="w-full"
                   buttonClassName="border-2 border-emerald-800 bg-slate-900/30"
@@ -188,12 +188,12 @@ export function DialogueEditorModal({ open, project, nodeId, panelError, onClose
               </div>
 
               <div className="space-y-1">
-                <div>NPC</div>
+                <div>PNJ</div>
                 <Select<ID>
                   value={dialogueDraft.npcId}
                   onChange={(value) => value && setDialogueNpcId(currentDialogueId, value)}
                   options={npcOptions}
-                  placeholder="Seleccionar NPC"
+                  placeholder="Seleccionar PNJ"
                   disabled={!npcOptions.length}
                   className="w-full"
                   buttonClassName="border-2 border-sky-800 bg-slate-900/30"

@@ -1,7 +1,7 @@
 import type { ComponentType, SVGProps } from "react";
 import { FlagIcon, StopCircleIcon } from "@heroicons/react/24/outline";
 
-interface SceneTypeButtonProps {
+type SceneTypeButtonProps = {
   active: boolean;
   label: string;
   icon: ComponentType<SVGProps<SVGSVGElement>>;
@@ -29,7 +29,7 @@ function SceneTypeButton({ active, label, icon: Icon, variant, onClick }: SceneT
   );
 }
 
-interface SceneTypeFieldProps {
+type SceneTypeFieldProps = {
   isStart: boolean;
   isFinal: boolean;
   onToggleStart: () => void;

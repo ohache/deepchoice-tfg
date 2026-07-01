@@ -13,7 +13,7 @@ const NpcImageFileSchema = createFileSchema({
 const NpcInventoryItemDraftSchema = z.object({
   itemInstanceId: IdSchema,
   itemId: IdSchema,
-  label: z.string().trim().min(1, "El item necesita una etiqueta").max(60, "La etiqueta no puede superar 60 caracteres"),
+  label: z.string().trim().min(1, "El objeto necesita una nombre").max(60, "El nombre no puede superar 60 caracteres"),
   rules: interactionRulesSchema.optional(),
 });
 

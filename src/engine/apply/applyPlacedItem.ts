@@ -3,8 +3,7 @@ import type { ID, ItemInstance, PlaceableState } from "@/domain/types";
 import { addInventoryInstance, applyEffects, type ApplyEffectCtx } from "@/engine/apply/applyEffect";
 import { applyBlockedPhrase, applyMessageEffect, canInteractWithPlaceable, findInventorySourceRules } from "@/engine/apply/applyHelpers";
 import { pickClickRule, pickUseItemRule } from "@/engine/rules";
-import type { GameState } from "@/engine/state/runtimeState";
-import { ensureNodeRuntime } from "@/engine/state/runtimeState";
+import { ensureNodeRuntime, resolveRequiredInventoryPlayerId, type GameState } from "@/engine/state/runtimeState";
 import { publicPath } from "@/shared/helpers";
 
 const DEFAULT_NOT_REACHABLE_MESSAGE = "No puedes alcanzarlo.";
@@ -21,8 +20,16 @@ function getPreparedPlacedItemState(state: GameState, nodeId: ID, placedItemId: 
   return { state: preparedState, runtimeState };
 }
 
-function pickUpPlacedItem(state: GameState, nodeId: ID, placedItem: ItemInstance, playerId: ID, ctx: ApplyEffectCtx = {}): GameState {
-  const nextState = addInventoryInstance(state, playerId, placedItem.itemInstanceId, placedItem.itemId, placedItem.label);
+function pickUpPlacedItem(state: GameState, nodeId: ID, placedItem: ItemInstance, ctx: ApplyEffectCtx = {}): GameState {
+  const playerId = resolveRequiredInventoryPlayerId(state, ctx.inventoryPlayerId);
+
+  const nextState = addInventoryInstance(
+    state,
+    playerId,
+    placedItem.itemInstanceId,
+    placedItem.itemId,
+    placedItem.label,
+  );
 
   ctx.audio?.playSfxUrl(publicPath("sounds/add_item.wav"));
 
@@ -50,6 +57,14 @@ function pickUpPlacedItem(state: GameState, nodeId: ID, placedItem: ItemInstance
   };
 }
 
+function applyPlacedItemEffects(state: GameState, nodeId: ID, placedItem: ItemInstance, effects: Effect[] = [], ctx: ApplyEffectCtx = {}): GameState {
+  return effects.reduce((currentState, effect) => {
+    if (isOwnAddItemEffect(placedItem, effect)) return pickUpPlacedItem(currentState, nodeId, placedItem, ctx);
+
+    return applyEffects(currentState, [effect], ctx);
+  }, state);
+}
+
 export function applyPlacedItemInteraction(state: GameState, placedItem: ItemInstance, ctx: ApplyEffectCtx = {}): GameState {
   if (state.gameEnded) return state;
   if (state.activeDialogue) return state;
@@ -66,11 +81,7 @@ export function applyPlacedItemInteraction(state: GameState, placedItem: ItemIns
 
   if (result.kind === "blocked") return applyBlockedPhrase(interaction.state, result.phrase, ctx);
 
-  return (result.rule.effects ?? []).reduce((currentState, effect) => {
-    if (isOwnAddItemEffect(placedItem, effect)) return pickUpPlacedItem(currentState, nodeId, placedItem, effect.playerId, ctx);
-
-    return applyEffects(currentState, [effect], ctx);
-  }, interaction.state);
+  return applyPlacedItemEffects(interaction.state, nodeId, placedItem, result.rule.effects ?? [], ctx);
 }
 
 export function applyPlacedItemUseItem(state: GameState, placedItem: ItemInstance, inventoryInstanceId: ID, ctx: ApplyEffectCtx = {}): GameState {
@@ -86,7 +97,7 @@ export function applyPlacedItemUseItem(state: GameState, placedItem: ItemInstanc
   const targetResult = pickUseItemRule(interaction.state, placedItem.rules ?? {}, inventoryInstanceId);
 
   if (targetResult.kind === "matched") {
-    return applyEffects(interaction.state, targetResult.rule.effects ?? [], {
+    return applyPlacedItemEffects(interaction.state, nodeId, placedItem, targetResult.rule.effects ?? [], {
       ...ctx,
       itemUsePair: { sourceItemInstanceId: inventoryInstanceId, targetItemInstanceId: placedItem.itemInstanceId },
     });
@@ -100,7 +111,7 @@ export function applyPlacedItemUseItem(state: GameState, placedItem: ItemInstanc
     const sourceResult = pickUseItemRule(interaction.state, sourceRules, placedItem.itemInstanceId);
 
     if (sourceResult.kind === "matched") {
-      return applyEffects(interaction.state, sourceResult.rule.effects ?? [], {
+      return applyPlacedItemEffects(interaction.state, nodeId, placedItem, sourceResult.rule.effects ?? [], {
         ...ctx,
         itemUsePair: {
           sourceItemInstanceId: inventoryInstanceId,

@@ -1,7 +1,8 @@
 import type { z, ZodError } from "zod";
 import { issuesToAllowedFieldErrors } from "@/shared/zodIssues";
-import { NodeDraftSchema } from "@/features/editor/scene/node/nodeSchemas";
 import type { ID, NodeMapLocation, Project } from "@/domain/types";
+import { NodeDraftSchema } from "@/features/editor/scene/node/nodeSchemas";
+import { isEmptyCondition } from "@/shared/helpers";
 
 type NodeDraftOutput = z.output<typeof NodeDraftSchema>;
 
@@ -48,6 +49,14 @@ function getProjectNodes(opts?: ValidateNodeDraftOptions): Array<{ id: ID; title
   return opts?.project?.nodes ?? [];
 }
 
+function getLayerLabel(layer: NodeDraftOutput["layers"][number], index: number): string {
+  return (layer.label ?? "").trim() || `Capa ${index + 1}`;
+}
+
+function hasRealLayerCondition(layer: NodeDraftOutput["layers"][number]): boolean {
+  return Boolean(layer.when && !isEmptyCondition(layer.when));
+}
+
 /* Reglas propias de la escena como contenedor */
 function validateNodeBusinessRules(input: NodeDraftOutput, opts?: ValidateNodeDraftOptions): NodeFieldErrors {
   const errors: NodeFieldErrors = {};
@@ -70,9 +79,19 @@ function validateNodeBusinessRules(input: NodeDraftOutput, opts?: ValidateNodeDr
   const layers = input.layers ?? [];
 
   if (layers.length > 0) {
-    const hasBaseLayer = layers.some((layer) => layer.when == null);
+    const baseLayer = layers[0];
 
-    if (!hasBaseLayer) errors.layers = "La escena necesita una capa base (sin condición).";
+    if (baseLayer?.when && !isEmptyCondition(baseLayer.when)) {
+      errors.layers = "La primera capa debe ser la capa base, sin condición.";
+    } else {
+      const invalidConditionalLayerIndex = layers.findIndex((layer, index) => index > 0 && !hasRealLayerCondition(layer));
+
+      if (invalidConditionalLayerIndex >= 0) {
+        const layer = layers[invalidConditionalLayerIndex];
+
+        errors.layers = `La capa “${getLayerLabel(layer, invalidConditionalLayerIndex)}” necesita una condición.`;
+      }
+    }
   }
 
   return errors;

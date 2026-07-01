@@ -120,6 +120,7 @@ export type RulePhrase = {
 
 export type BaseInteractionRule = {
   id: ID;
+  label: string;
   when?: Condition;
   phrase?: RulePhrase;
   effects: Effect[];

@@ -11,9 +11,10 @@ type SceneDialogueFieldProps = {
   label?: string;
   active: boolean;
   onToggle: () => void;
+  onSaveSceneDraft?: () => boolean;
 };
 
-export function SceneDialogueField({ label = "Diálogos", active, onToggle }: SceneDialogueFieldProps) {
+export function SceneDialogueField({ label = "Diálogos", active, onToggle, onSaveSceneDraft  }: SceneDialogueFieldProps) {
   const project = useEditorStore((state) => state.project ?? null);
   const nodeDraft = useEditorStore((state) => state.nodeDraft);
 
@@ -55,7 +56,7 @@ export function SceneDialogueField({ label = "Diálogos", active, onToggle }: Sc
     }
 
     if (!canCreateDialogue) {
-      toast.warning("Faltan personajes en escena", "Debes emplazar al menos un Jugador y un PNJ en esta escena.");
+      toast.warning("Faltan personajes en escena", "Debes emplazar al menos un jugador y un PNJ en esta escena.");
       return;
     }
 
@@ -106,14 +107,14 @@ export function SceneDialogueField({ label = "Diálogos", active, onToggle }: Sc
     clearDialogueEditor();
     setModalOpen(false);
 
-    toast.success("Diálogo guardado", "Los cambios se han guardado correctamente.");
+    onSaveSceneDraft?.();
   };
 
   if (!nodeDraft) {
     return (
       <ToggleFieldBlock label={label} active={active} onToggle={onToggle}>
         <div className="mx-auto max-w-[420px] bg-slate-950/40 text-center mt-4 mb-2 text-xs text-white">
-          No hay escena seleccionada.
+      No hay escena seleccionada.
         </div>
       </ToggleFieldBlock>
     );

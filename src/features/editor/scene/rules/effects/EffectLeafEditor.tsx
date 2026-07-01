@@ -167,6 +167,10 @@ function getTopLevelEffectType(effect: EnabledEffect | null): EnabledEffectType 
   return effect.type;
 }
 
+function isPlacedItemStateEffect(effect: EnabledEffect): effect is Extract<EnabledEffect, { type: "setPlacedItemVisible" | "setPlacedItemReachable" }> {
+  return effect.type === "setPlacedItemVisible" || effect.type === "setPlacedItemReachable";
+}
+
 export function EffectLeafEditor({ factory, eff, selectedFamily, familyTypeOptions = [], onChangeType, onChange, errorsByPath,
   errorPrefix, showLocalErrors, forceEmptyAudioOption = false }: Props) {
   const family = selectedFamily || (eff ? effectFamilyOf(eff.type) : "");
@@ -310,7 +314,9 @@ export function EffectLeafEditor({ factory, eff, selectedFamily, familyTypeOptio
   })();
 
   const optionFieldDisabled = (() => {
-    if (isProgressFamily || isAudioFamily || isDialogueFamily || family === "item") return false;
+    if (isProgressFamily || isAudioFamily || isDialogueFamily) return false;
+
+    if (family === "item") return !eff || !hasPrimaryEntity;
 
     return !eff || !hasPrimaryEntity;
   })();
@@ -573,11 +579,6 @@ export function EffectLeafEditor({ factory, eff, selectedFamily, familyTypeOptio
           ) : null}
         </>
       ) : null}
-      {family === "item" && !eff ? (
-        <div className="grid grid-cols-1 gap-2">
-          {optionField}
-        </div>
-      ) : null}
       {family === "item" && eff ? (
         <>
           {eff.type === "transformItem" ? (
@@ -606,34 +607,45 @@ export function EffectLeafEditor({ factory, eff, selectedFamily, familyTypeOptio
                 {renderField(fieldMap.itemBInstanceId)}
               </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)] gap-2">
-                  {renderField(fieldMap.resultItemId)}
-                </div>
+              <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)] gap-2">
+                {renderField(fieldMap.resultItemId)}
+              </div>
 
-                <div className="grid grid-cols-1 gap-2">
-                  {renderField(fieldMap.resultItemLabel)}
-                </div>
-              </>
-            ) : eff.type === "addItem" || eff.type === "removeItem" ? (
-              <>
-                <div className="grid grid-cols-1 gap-2">
-                  {optionField}
-                </div>
+              <div className="grid grid-cols-1 gap-2">
+                {renderField(fieldMap.resultItemLabel)}
+              </div>
+            </>
+          ) : eff.type === "addItem" || eff.type === "removeItem" ? (
+            <>
+              <div className="grid grid-cols-1 gap-2">
+                {renderField(fieldMap.itemInstanceId)}
+              </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2">
-                  {renderField(fieldMap.itemInstanceId)}
-                  {renderField(fieldMap.playerId)}
-                </div>
-              </>
-            ) : (
-              <>
-                {fieldMap.itemInstanceId ? (
-                  <div className="grid grid-cols-1 gap-2">{renderField(fieldMap.itemInstanceId)}</div>
-                ) : null}
+              <div className="grid grid-cols-1 gap-2">
+                {optionField}
+              </div>
+            </>
+          ) : isPlacedItemStateEffect(eff) ? (
+            <>
+              <div className="grid grid-cols-1 gap-2">
+                {renderField(fieldMap.itemInstanceId)}
+              </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_140px] gap-2">
+              <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_140px] gap-2">
                 {optionField}
                 {renderField(fieldMap.value)}
+              </div>
+            </>
+          ) : (
+            <>
+              {fieldMap.itemInstanceId ? (
+                <div className="grid grid-cols-1 gap-2">
+                  {renderField(fieldMap.itemInstanceId)}
+                </div>
+              ) : null}
+
+              <div className="grid grid-cols-1 gap-2">
+                {optionField}
               </div>
             </>
           )}

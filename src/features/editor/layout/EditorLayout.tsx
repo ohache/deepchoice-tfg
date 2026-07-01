@@ -8,7 +8,7 @@ import { HistorySfxPanel } from "@/features/editor/history/sfx/HistorySfxPanel";
 import { HistoryMapsPanel } from "@/features/editor/history/maps/HistoryMapsPanel";
 import { HistoryTagsPanel } from "@/features/editor/history/HistoryTagsPanel";
 import { SceneEditorView } from "@/features/editor/scene/SceneEditorView";
-import { SceneListView } from "@/features/editor/scene/SceneListView";
+import { SceneListView } from "@/features/editor/scene/list/SceneListView";
 import { SceneTestView } from "@/features/editor/scene/test/SceneTestView";
 
 function renderHistoryContent(secondaryMode: string) {

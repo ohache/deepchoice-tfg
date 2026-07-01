@@ -6,7 +6,7 @@ type EditorStoreLike = {
   selectedNodeId: ID | null;
 };
 
-export type EditorTestSlice = {
+export interface EditorTestSlice {
   getSceneTestNodeId: () => ID | null;
   canOpenSceneTest: () => boolean;
 };

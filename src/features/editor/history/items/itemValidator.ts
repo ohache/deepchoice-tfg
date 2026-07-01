@@ -23,7 +23,7 @@ export function validateItemDraft( input: ItemDraftInput, opts: { mode: "new" | 
     },
   });
 
-  if (!result.errors.name && hasDuplicatedItemInstanceLabel(opts.project, input.name)) result.errors.name = "Ya existe una instancia de item con ese nombre.";
+  if (!result.errors.name && hasDuplicatedItemInstanceLabel(opts.project, input.name)) result.errors.name = "Ya existe una instancia de objeto con ese nombre.";
 
   return {
     ...result,

@@ -2,35 +2,46 @@ import type { ClickRule, Dialogue, ID, InteractionRules, Node, Project, RulePhra
 import type { Condition } from "@/domain/conditions";
 import type { Effect } from "@/domain/effects";
 
-/* Firma de un “mapper” de when */
 type WhenMapper = (when: Condition | undefined) => {
   when: Condition | undefined;
   touched: boolean;
 };
 
-type WC = Condition;
-
 type InteractionRule = ClickRule | UseItemRule;
 
-/* Recorre recursivamente una condición y permite transformarla */
-function mapCondition(cond: WC | undefined, mapper: (c: WC) => WC | undefined): { when: WC | undefined; touched: boolean } {
+type InteractionRuleMappers = {
+  onClick?: (rule: ClickRule) => ClickRule;
+  onUseItem?: (rule: UseItemRule) => UseItemRule;
+};
+
+type EffectMapper = (effect: Effect) => Effect | undefined;
+
+type RuleContainerKey = "hotspots" | "placedItems" | "placedNpcs";
+type RuleContainerList<K extends RuleContainerKey> = NonNullable<SceneImageLayer[K]>;
+type RuleContainerEntry<K extends RuleContainerKey> = RuleContainerList<K>[number];
+
+const RULE_CONTAINER_KEYS = ["hotspots", "placedItems", "placedNpcs"] as const;
+
+/* ---------- Conditions ---------- */
+function mapCondition(cond: Condition | undefined, mapper: (condition: Condition) => Condition | undefined): { when: Condition | undefined; touched: boolean } {
   if (!cond) return { when: cond, touched: false };
 
-  const recur = (current: WC): WC | undefined => {
+  const recur = (current: Condition): Condition | undefined => {
     switch (current.type) {
       case "and": {
         let touched = false;
 
         const nextAll = current.all.map((child) => {
-            const nextChild = recur(child);
-            if (nextChild !== child) touched = true;
-            return nextChild;
-          }).filter(Boolean) as WC[];
+          const nextChild = recur(child);
+          if (nextChild !== child) touched = true;
+          return nextChild;
+        })
+        .filter(Boolean) as Condition[];
 
         if (nextAll.length === 0) return undefined;
         if (nextAll.length === 1) return nextAll[0];
 
-        const next = touched ? ({ ...current, all: nextAll } as WC) : current;
+        const next = touched ? ({ ...current, all: nextAll } as Condition) : current;
         return mapper(next);
       }
 
@@ -38,15 +49,16 @@ function mapCondition(cond: WC | undefined, mapper: (c: WC) => WC | undefined): 
         let touched = false;
 
         const nextAny = current.any.map((child) => {
-            const nextChild = recur(child);
-            if (nextChild !== child) touched = true;
-            return nextChild;
-          }).filter(Boolean) as WC[];
+          const nextChild = recur(child);
+          if (nextChild !== child) touched = true;
+          return nextChild;
+        })
+        .filter(Boolean) as Condition[];
 
         if (nextAny.length === 0) return undefined;
         if (nextAny.length === 1) return nextAny[0];
 
-        const next = touched ? ({ ...current, any: nextAny } as WC) : current;
+        const next = touched ? ({ ...current, any: nextAny } as Condition) : current;
         return mapper(next);
       }
 
@@ -54,9 +66,7 @@ function mapCondition(cond: WC | undefined, mapper: (c: WC) => WC | undefined): 
         const nextInner = recur(current.cond);
         if (!nextInner) return undefined;
 
-        const next = nextInner !== current.cond
-          ? ({ ...current, cond: nextInner } as WC)
-          : current;
+        const next = nextInner !== current.cond ? ({ ...current, cond: nextInner } as Condition) : current;
 
         return mapper(next);
       }
@@ -70,244 +80,11 @@ function mapCondition(cond: WC | undefined, mapper: (c: WC) => WC | undefined): 
   return { when: next, touched: next !== cond };
 }
 
-/* Elimina condiciones que cumplan predicate en cualquier `when` del proyecto */
 export function removeConditionsInProject(project: Project, predicate: (condition: Condition) => boolean): Project {
-  return mapAllWhensInProject(project, (when) =>
-    mapCondition(when, (condition) => (predicate(condition) ? undefined : condition)),
-  );
+  return mapAllWhensInProject(project, (when) => mapCondition(when, (condition) => (predicate(condition) ? undefined : condition)));
 }
 
-/* True si alguna condición del árbol cumple el predicate */
-function someCondition(cond: WC | undefined, predicate: (c: WC) => boolean): boolean {
-  if (!cond) return false;
-
-  const visit = (current: WC): boolean => {
-    if (predicate(current)) return true;
-
-    switch (current.type) {
-      case "and":
-        return current.all.some(visit);
-
-      case "or":
-        return current.any.some(visit);
-
-      case "not":
-        return visit(current.cond);
-
-      default:
-        return false;
-    }
-  };
-
-  return visit(cond);
-}
-
-/* True si algún effect del array cumple el predicate */
-function someEffectsInEffects(effects: Effect[] | undefined, predicate: (e: Effect) => boolean): boolean {
-  if (!effects || effects.length === 0) return false;
-  return effects.some(predicate);
-}
-
-/* True si algún effect de unas InteractionRules cumple el predicate */
-function someEffectsInInteractionRules(rules: InteractionRules | undefined, predicate: (e: Effect) => boolean): boolean {
-  if (!rules) return false;
-
-  for (const rule of rules.onClick ?? []) {
-    if (someEffectsInEffects(rule.effects, predicate)) return true;
-  }
-
-  for (const rule of rules.onUseItem ?? []) {
-    if (someEffectsInEffects(rule.effects, predicate)) return true;
-  }
-
-  return false;
-}
-
-/* True si algún effect del nodo cumple el predicate */
-function someEffectsInNode(node: Node, predicate: (e: Effect) => boolean): boolean {
-  for (const layer of node.layers) {
-    for (const hotspot of layer.hotspots ?? []) {
-      if (someEffectsInInteractionRules(hotspot.rules, predicate)) return true;
-    }
-
-    for (const placedItem of layer.placedItems ?? []) {
-      if (someEffectsInInteractionRules(placedItem.rules, predicate)) return true;
-    }
-
-    for (const placedNpc of layer.placedNpcs ?? []) {
-      if (someEffectsInInteractionRules(placedNpc.rules, predicate)) return true;
-    }
-  }
-
-  for (const dialogue of node.dialogues ?? []) {
-    for (const dialogueNode of dialogue.nodes) {
-      if (dialogueNode.type === "line" && someEffectsInEffects(dialogueNode.effects, predicate)) return true;
-    }
-  }
-
-  return false;
-}
-
-/* True si existe algún effect en cualquier punto del proyecto */
-export function someEffectsInProject(project: Project, predicate: (e: Effect) => boolean): boolean {
-  for (const node of project.nodes) {
-    if (someEffectsInNode(node, predicate)) return true;
-  }
-
-  return false;
-}
-
-function hasMeaningfulPhrase(phrase: RulePhrase | undefined): boolean {
-  return Boolean(phrase?.text.trim());
-}
-
-function isEmptyInteractionRule(rule: Pick<InteractionRule, "when" | "phrase" | "effects">): boolean {
-  return !rule.when && !hasMeaningfulPhrase(rule.phrase) && rule.effects.length === 0;
-}
-
-function mapRuleList<T extends InteractionRule>(list: T[] | undefined, mapper: (rule: T) => T ): { list: T[] | undefined; touched: boolean } {
-  if (!list || list.length === 0) return { list, touched: false };
-
-  let touched = false;
-  const nextList: T[] = [];
-
-  for (const rule of list) {
-    const nextRule = mapper(rule);
-
-    if (nextRule !== rule) touched = true;
-
-    if (isEmptyInteractionRule(nextRule)) {
-      touched = true;
-      continue;
-    }
-
-    nextList.push(nextRule);
-  }
-
-  if (!touched) return { list, touched: false };
-
-  return { list: nextList.length > 0 ? nextList : undefined, touched: true  };
-}
-
-function mapInteractionRules(rules: InteractionRules | undefined, mappers: {
-    onClick?: (rule: ClickRule) => ClickRule; onUseItem?: (rule: UseItemRule) => UseItemRule }): { rules: InteractionRules | undefined; touched: boolean } {
-  if (!rules) return { rules, touched: false };
-
-  const onClickRes = mapRuleList(rules.onClick, mappers.onClick ?? ((rule) => rule));
-
-  const onUseItemRes = mapRuleList(rules.onUseItem, mappers.onUseItem ?? ((rule) => rule));
-
-  if (!onClickRes.touched && !onUseItemRes.touched) return { rules, touched: false };
-
-  return {
-    rules: {
-      ...rules,
-      onClick: onClickRes.list,
-      onUseItem: onUseItemRes.list,
-    },
-    touched: true,
-  };
-}
-
-/* Elimina effects que cumplan predicate en un bloque de InteractionRules */
-function pruneEffectsInInteractionRules(rules: InteractionRules | undefined, predicate: (e: Effect) => boolean): { rules: InteractionRules | undefined; touched: boolean } {
-  const pruneRuleEffects = <T extends InteractionRule>(rule: T): T => {
-    const nextEffects = rule.effects.filter((effect) => !predicate(effect));
-    if (nextEffects.length === rule.effects.length) return rule;
-
-    return { ...rule, effects: nextEffects } as T;
-  };
-
-  return mapInteractionRules(rules, { onClick: pruneRuleEffects, onUseItem: pruneRuleEffects });
-}
-
-/* Elimina effects que cumplan predicate dentro de un nodo */
-function removeEffectsInNode(node: Node, predicate: (e: Effect) => boolean): { node: Node; touched: boolean } {
-  let touchedNode = false;
-
-  const nextLayers = node.layers.map((layer) => {
-    let touchedLayer = false;
-
-    const mapRuleContainers = <T extends { rules?: InteractionRules }>(list: T[] | undefined): { list: T[] | undefined; touched: boolean } => {
-      if (!list || list.length === 0) return { list, touched: false };
-
-      let touchedList = false;
-
-      const nextList = list.map((entry) => {
-        const res = pruneEffectsInInteractionRules(entry.rules, predicate);
-        if (!res.touched) return entry;
-
-        touchedList = true;
-        return { ...entry, rules: res.rules ?? entry.rules } as T;
-      });
-
-      return { list: touchedList ? nextList : list, touched: touchedList };
-    };
-
-    const hotspotRes = mapRuleContainers(layer.hotspots);
-    const itemRes = mapRuleContainers(layer.placedItems);
-    const npcRes = mapRuleContainers(layer.placedNpcs);
-
-    if (hotspotRes.touched || itemRes.touched || npcRes.touched) touchedLayer = true;
-
-    if (!touchedLayer) return layer;
-
-    touchedNode = true;
-    return {
-      ...layer,
-      hotspots: hotspotRes.touched ? hotspotRes.list : layer.hotspots,
-      placedItems: itemRes.touched ? itemRes.list : layer.placedItems,
-      placedNpcs: npcRes.touched ? npcRes.list : layer.placedNpcs,
-    };
-  });
-
-  const nextDialogues = (node.dialogues ?? []).map((dialogue) => {
-    let touchedDialogue = false;
-
-    const nextNodes = dialogue.nodes.map((dialogueNode) => {
-      if (dialogueNode.type !== "line" || !dialogueNode.effects || dialogueNode.effects.length === 0) return dialogueNode;
-
-      const nextEffects = dialogueNode.effects.filter((effect) => !predicate(effect));
-      if (nextEffects.length === dialogueNode.effects.length) return dialogueNode;
-
-      touchedDialogue = true;
-      return { ...dialogueNode, effects: nextEffects };
-    });
-
-    if (!touchedDialogue) return dialogue;
-
-    touchedNode = true;
-    return { ...dialogue, nodes: nextNodes };
-  });
-
-  if (!touchedNode) return { node, touched: false };
-
-  return {
-    node: {
-      ...node,
-      layers: nextLayers,
-      dialogues: nextDialogues,
-    },
-    touched: true,
-  };
-}
-
-/* Elimina effects que cumplan predicate en todo el proyecto */
-export function removeEffectsInProject(project: Project, predicate: (e: Effect) => boolean): Project {
-  let touchedNodes = false;
-
-  const nextNodes = project.nodes.map((node) => {
-    const res = removeEffectsInNode(node, predicate);
-    if (res.touched) touchedNodes = true;
-    return res.node;
-  });
-
-  if (!touchedNodes) return project;
-  return { ...project, nodes: nextNodes };
-}
-
-/* Interaction Rule Walkers */
-function mapWhensInInteractionRules(rules: InteractionRules | undefined, mapWhen: WhenMapper): { next: InteractionRules | undefined; touched: boolean } {
+function mapWhensInInteractionRules(rules: InteractionRules | undefined, mapWhen: WhenMapper): { rules: InteractionRules | undefined; touched: boolean } {
   const mapRuleWhen = <T extends InteractionRule>(rule: T): T => {
     const res = mapWhen(rule.when);
     if (!res.touched) return rule;
@@ -315,29 +92,12 @@ function mapWhensInInteractionRules(rules: InteractionRules | undefined, mapWhen
     return { ...rule, when: res.when } as T;
   };
 
-  const res = mapInteractionRules(rules, { onClick: mapRuleWhen, onUseItem: mapRuleWhen });
-
-  return { next: res.rules, touched: res.touched };
+  return mapInteractionRules(rules, { onClick: mapRuleWhen, onUseItem: mapRuleWhen });
 }
 
-function someWhenInInteractionRules(rules: InteractionRules | undefined, predicate: (when: WC) => boolean): boolean {
-  if (!rules) return false;
-
-  for (const rule of rules.onClick ?? []) {
-    if (rule.when && someCondition(rule.when, predicate)) return true;
-  }
-
-  for (const rule of rules.onUseItem ?? []) {
-    if (rule.when && someCondition(rule.when, predicate)) return true;
-  }
-
-  return false;
-}
-
-/* Dialogues */
-function mapWhensInDialogues(dialogues: Node["dialogues"] | undefined, mapWhen: WhenMapper): { next: NonNullable<Node["dialogues"]>; touched: boolean } {
+function mapWhensInDialogues(dialogues: Node["dialogues"] | undefined, mapWhen: WhenMapper): { dialogues: NonNullable<Node["dialogues"]>; touched: boolean } {
   const currentDialogues = dialogues ?? [];
-  if (currentDialogues.length === 0) return { next: currentDialogues, touched: false };
+  if (currentDialogues.length === 0) return { dialogues: currentDialogues, touched: false };
 
   let touchedDialogues = false;
 
@@ -359,236 +119,286 @@ function mapWhensInDialogues(dialogues: Node["dialogues"] | undefined, mapWhen: 
     if (!dialogueWhenRes.touched && !touchedDialogue) return dialogue;
 
     touchedDialogues = true;
-    return {
-      ...dialogue,
-      when: dialogueWhenRes.when,
-      nodes: nextNodes,
-    };
+    return { ...dialogue, when: dialogueWhenRes.when, nodes: nextNodes };
   });
 
-  return { next: nextDialogues, touched: touchedDialogues };
+  return { dialogues: nextDialogues, touched: touchedDialogues };
 }
 
-function someWhenInDialogues(dialogues: Node["dialogues"] | undefined, predicate: (when: WC) => boolean): boolean {
-  for (const dialogue of dialogues ?? []) {
-    if (dialogue.when && someCondition(dialogue.when, predicate)) return true;
+function mapTextWhens(layer: SceneImageLayer, mapWhen: WhenMapper): Pick<SceneImageLayer, "text"> | null {
+  if (layer.text.length === 0) return null;
 
-    for (const dialogueNode of dialogue.nodes) {
-      if (
-        dialogueNode.type === "line" &&
-        dialogueNode.when &&
-        someCondition(dialogueNode.when, predicate)
-      ) {
-        return true;
-      }
-    }
-  }
+  let touchedText = false;
 
-  return false;
-}
+  const nextText = layer.text.map((entry) => {
+    const res = mapWhen(entry.when);
+    if (!res.touched) return entry;
 
-/* Node-level walker */
-function mapWhensInNode(node: Node, mapWhen: WhenMapper): { node: Node; touched: boolean } {
-  let touchedNode = false;
-
-  const nextLayers = node.layers.map((layer) => {
-    let touchedLayer = false;
-
-    const layerWhenRes = mapWhen(layer.when);
-    if (layerWhenRes.touched) touchedLayer = true;
-
-    let nextText = layer.text;
-    if (layer.text.length > 0) {
-      let touchedText = false;
-
-      const mappedText = layer.text.map((entry) => {
-        const res = mapWhen(entry.when);
-        if (!res.touched) return entry;
-
-        touchedText = true;
-        return { ...entry, when: res.when };
-      });
-
-      if (touchedText) {
-        touchedLayer = true;
-        nextText = mappedText;
-      }
-    }
-
-    let nextHotspots = layer.hotspots;
-    if ((layer.hotspots ?? []).length > 0) {
-      let touchedHotspots = false;
-
-      const mappedHotspots = layer.hotspots!.map((hotspot) => {
-        const res = mapWhensInInteractionRules(hotspot.rules, mapWhen);
-        if (!res.touched) return hotspot;
-
-        touchedHotspots = true;
-        return { ...hotspot, rules: res.next ?? hotspot.rules };
-      });
-
-      if (touchedHotspots) {
-        touchedLayer = true;
-        nextHotspots = mappedHotspots;
-      }
-    }
-
-    let nextPlacedItems = layer.placedItems;
-    if ((layer.placedItems ?? []).length > 0) {
-      let touchedItems = false;
-
-      const mappedItems = layer.placedItems!.map((placedItem) => {
-        const res = mapWhensInInteractionRules(placedItem.rules, mapWhen);
-        if (!res.touched) return placedItem;
-
-        touchedItems = true;
-        return { ...placedItem, rules: res.next ?? placedItem.rules };
-      });
-
-      if (touchedItems) {
-        touchedLayer = true;
-        nextPlacedItems = mappedItems;
-      }
-    }
-
-    let nextPlacedNpcs = layer.placedNpcs;
-    if ((layer.placedNpcs ?? []).length > 0) {
-      let touchedNpcs = false;
-
-      const mappedNpcs = layer.placedNpcs!.map((placedNpc) => {
-        const res = mapWhensInInteractionRules(placedNpc.rules, mapWhen);
-        if (!res.touched) return placedNpc;
-
-        touchedNpcs = true;
-        return { ...placedNpc, rules: res.next ?? placedNpc.rules };
-      });
-
-      if (touchedNpcs) {
-        touchedLayer = true;
-        nextPlacedNpcs = mappedNpcs;
-      }
-    }
-
-    if (!touchedLayer) return layer;
-
-    touchedNode = true;
-    return {
-      ...layer,
-      when: layerWhenRes.touched ? layerWhenRes.when : layer.when,
-      text: nextText,
-      hotspots: nextHotspots,
-      placedItems: nextPlacedItems,
-      placedNpcs: nextPlacedNpcs,
-    };
+    touchedText = true;
+    return { ...entry, when: res.when };
   });
 
-  const dialogueRes = mapWhensInDialogues(node.dialogues, mapWhen);
-  if (dialogueRes.touched) touchedNode = true;
+  return touchedText ? { text: nextText } : null;
+}
 
-  if (!touchedNode) return { node, touched: false };
+function mapWhensInLayer(layer: SceneImageLayer, mapWhen: WhenMapper): { layer: SceneImageLayer; touched: boolean } {
+  const layerWhenRes = mapWhen(layer.when);
+  const textPatch = mapTextWhens(layer, mapWhen);
+  const rulesRes = mapRuleContainersInLayer(layer, (rules) => mapWhensInInteractionRules(rules, mapWhen));
+
+  if (!layerWhenRes.touched && !textPatch && !rulesRes.touched) return { layer, touched: false };
 
   return {
-    node: {
-      ...node,
-      layers: nextLayers,
-      dialogues: dialogueRes.touched ? dialogueRes.next : node.dialogues,
+    layer: {
+      ...layer,
+      when: layerWhenRes.touched ? layerWhenRes.when : layer.when,
+      ...(textPatch ?? {}),
+      ...rulesRes.patch,
     },
     touched: true,
   };
 }
 
-/* Recorre el proyecto y permite transformar cualquier `when` */
-function mapAllWhensInProject(project: Project, mapWhen: WhenMapper): Project {
-  let touchedNodes = false;
+function mapWhensInNode(node: Node, mapWhen: WhenMapper): { node: Node; touched: boolean } {
+  const layersRes = mapLayers(node.layers, (layer) => mapWhensInLayer(layer, mapWhen));
+  const dialoguesRes = mapWhensInDialogues(node.dialogues, mapWhen);
 
-  const nextNodes = project.nodes.map((node) => {
-    const res = mapWhensInNode(node, mapWhen);
-    if (res.touched) touchedNodes = true;
-    return res.node;
-  });
+  if (!layersRes.touched && !dialoguesRes.touched) return { node, touched: false };
 
-  if (!touchedNodes) return project;
-  return { ...project, nodes: nextNodes };
+  return {
+    node: {
+      ...node,
+      layers: layersRes.layers,
+      dialogues: dialoguesRes.touched ? dialoguesRes.dialogues : node.dialogues,
+    },
+    touched: true,
+  };
 }
 
-/* True si existe algún `when` en cualquier punto del proyecto que cumpla */
-function someWhenInProject(project: Project, predicate: (when: WC) => boolean): boolean {
-  for (const node of project.nodes) {
-    if (someWhenInDialogues(node.dialogues, predicate)) return true;
+function mapAllWhensInProject(project: Project, mapWhen: WhenMapper): Project {
+  return mapNodesInProject(project, (node) => mapWhensInNode(node, mapWhen));
+}
 
-    for (const layer of node.layers) {
-      if (layer.when && someCondition(layer.when, predicate)) return true;
+/* ---------- Interaction rules ---------- */
+function shouldRemoveInteractionRule(rule: Pick<InteractionRule, "when" | "phrase" | "effects">): boolean {
+  if (rule.effects.length > 0) return false;
 
-      for (const textEntry of layer.text) {
-        if (textEntry.when && someCondition(textEntry.when, predicate)) return true;
-      }
-
-      for (const hotspot of layer.hotspots ?? []) {
-        if (someWhenInInteractionRules(hotspot.rules, predicate)) return true;
-      }
-
-      for (const placedItem of layer.placedItems ?? []) {
-        if (someWhenInInteractionRules(placedItem.rules, predicate)) return true;
-      }
-
-      for (const placedNpc of layer.placedNpcs ?? []) {
-        if (someWhenInInteractionRules(placedNpc.rules, predicate)) return true;
-      }
-    }
-  }
+  if (!rule.when) return true;
 
   return false;
 }
 
-function mapInteractionRulesInProject(project: Project, mappers: { onClick?: (rule: ClickRule) => ClickRule; onUseItem?: (rule: UseItemRule) => UseItemRule }): Project {
-  let touchedNodes = false;
+function mapRuleList<T extends InteractionRule>(list: T[] | undefined, mapper: (rule: T) => T): { list: T[] | undefined; touched: boolean } {
+  if (!list || list.length === 0) return { list, touched: false };
 
-  const nextNodes = project.nodes.map((node) => {
-    let touchedNode = false;
+  let touched = false;
+  const nextList: T[] = [];
 
-    const nextLayers = node.layers.map((layer) => {
-      const mapRuleContainers = <T extends { rules?: InteractionRules }>(list: T[] | undefined): { list: T[] | undefined; touched: boolean } => {
-        if (!list || list.length === 0) return { list, touched: false };
+  for (const rule of list) {
+    const nextRule = mapper(rule);
 
-        let touchedList = false;
+    if (nextRule !== rule) touched = true;
 
-        const nextList = list.map((entry) => {
-          const res = mapInteractionRules(entry.rules, mappers);
-          if (!res.touched) return entry;
+    if (shouldRemoveInteractionRule(nextRule)) {
+      touched = true;
+      continue;
+    }
 
-          touchedList = true;
-          return { ...entry, rules: res.rules ?? entry.rules } as T;
-        });
+    nextList.push(nextRule);
+  }
 
-        return { list: touchedList ? nextList : list, touched: touchedList };
-      };
+  if (!touched) return { list, touched: false };
 
-      const hotspotRes = mapRuleContainers(layer.hotspots);
-      const itemRes = mapRuleContainers(layer.placedItems);
-      const npcRes = mapRuleContainers(layer.placedNpcs);
-
-      if (!hotspotRes.touched && !itemRes.touched && !npcRes.touched) return layer;
-
-      touchedNode = true;
-
-      return {
-        ...layer,
-        hotspots: hotspotRes.touched ? hotspotRes.list : layer.hotspots,
-        placedItems: itemRes.touched ? itemRes.list : layer.placedItems,
-        placedNpcs: npcRes.touched ? npcRes.list : layer.placedNpcs,
-      };
-    });
-
-    if (!touchedNode) return node;
-
-    touchedNodes = true;
-    return { ...node, layers: nextLayers };
-  });
-
-  if (!touchedNodes) return project;
-  return { ...project, nodes: nextNodes };
+  return { list: nextList.length > 0 ? nextList : undefined, touched: true };
 }
 
+function mapInteractionRules(rules: InteractionRules | undefined, mappers: InteractionRuleMappers): { rules: InteractionRules | undefined; touched: boolean } {
+  if (!rules) return { rules, touched: false };
+
+  const onClickRes = mapRuleList(rules.onClick, mappers.onClick ?? ((rule) => rule));
+
+  const onUseItemRes = mapRuleList(rules.onUseItem, mappers.onUseItem ?? ((rule) => rule));
+
+  if (!onClickRes.touched && !onUseItemRes.touched) return { rules, touched: false };
+
+  return {
+    rules: {
+      ...rules,
+      onClick: onClickRes.list,
+      onUseItem: onUseItemRes.list,
+    },
+    touched: true,
+  };
+}
+
+function mapRuleContainerList<K extends RuleContainerKey>(list: RuleContainerList<K> | undefined,
+  mapper: (rules: InteractionRules | undefined) => { rules: InteractionRules | undefined; touched: boolean },
+): { list: RuleContainerList<K> | undefined; touched: boolean } {
+  if (!list || list.length === 0) return { list, touched: false };
+
+  let touchedList = false;
+
+  const nextList = list.map((entry) => {
+    const res = mapper(entry.rules);
+    if (!res.touched) return entry;
+
+    touchedList = true;
+    return { ...entry, rules: res.rules ?? entry.rules } as RuleContainerEntry<K>;
+  }) as RuleContainerList<K>;
+
+  return { list: touchedList ? nextList : list, touched: touchedList };
+}
+
+function mapRuleContainersInLayer(layer: SceneImageLayer, mapper: (rules: InteractionRules | undefined) => { rules: InteractionRules | undefined; touched: boolean })
+  : { patch: Partial<Pick<SceneImageLayer, RuleContainerKey>>; touched: boolean } {
+  let touched = false;
+  const patch: Partial<Pick<SceneImageLayer, RuleContainerKey>> = {};
+
+  for (const key of RULE_CONTAINER_KEYS) {
+    const res = mapRuleContainerList(layer[key] as RuleContainerList<typeof key> | undefined, mapper);
+    if (!res.touched) continue;
+
+    touched = true;
+    patch[key] = res.list as never;
+  }
+
+  return { patch, touched };
+}
+
+function mapLayerInteractionRules(layer: SceneImageLayer, mappers: InteractionRuleMappers): { layer: SceneImageLayer; touched: boolean } {
+  const res = mapRuleContainersInLayer(layer, (rules) => mapInteractionRules(rules, mappers));
+
+  if (!res.touched) return { layer, touched: false };
+
+  return {
+    layer: { ...layer, ...res.patch },
+    touched: true,
+  };
+}
+
+function mapSceneInteractionRulesInProject(project: Project, mappers: InteractionRuleMappers): Project {
+  return mapNodesInProject(project, (node) => mapSceneInteractionRulesInNodeValue(node, mappers));
+}
+
+function mapSceneInteractionRulesInNode(project: Project, nodeId: ID, mappers: InteractionRuleMappers): Project {
+  return mapTargetNodeInProject(project, nodeId, (node) => mapSceneInteractionRulesInNodeValue(node, mappers));
+}
+
+function mapSceneInteractionRulesInNodeValue(node: Node, mappers: InteractionRuleMappers): { node: Node; touched: boolean } {
+  const res = mapLayers(node.layers, (layer) => mapLayerInteractionRules(layer, mappers));
+
+  if (!res.touched) return { node, touched: false };
+
+  return {
+    node: { ...node, layers: res.layers },
+    touched: true,
+  };
+}
+
+/* ---------- Effects ---------- */
+function mapEffectArray(effects: Effect[] | undefined, mapper: EffectMapper): { effects: Effect[] | undefined; touched: boolean } {
+  if (!effects || effects.length === 0) return { effects, touched: false };
+
+  let touched = false;
+  const nextEffects: Effect[] = [];
+
+  for (const effect of effects) {
+    const nextEffect = mapper(effect);
+
+    if (nextEffect !== effect) touched = true;
+
+    if (!nextEffect) {
+      touched = true;
+      continue;
+    }
+
+    nextEffects.push(nextEffect);
+  }
+
+  if (!touched) return { effects, touched: false };
+
+  return { effects: nextEffects, touched: true };
+}
+
+function mapEffectsInInteractionRules(rules: InteractionRules | undefined, mapper: EffectMapper): { rules: InteractionRules | undefined; touched: boolean } {
+  const mapRuleEffects = <T extends InteractionRule>(rule: T): T => {
+    const res = mapEffectArray(rule.effects, mapper);
+    if (!res.touched) return rule;
+
+    return { ...rule, effects: res.effects ?? [] } as T;
+  };
+
+  return mapInteractionRules(rules, { onClick: mapRuleEffects, onUseItem: mapRuleEffects });
+}
+
+function mapEffectsInDialogues(dialogues: Node["dialogues"] | undefined, mapper: EffectMapper): { dialogues: NonNullable<Node["dialogues"]>; touched: boolean } {
+  const currentDialogues = dialogues ?? [];
+  if (currentDialogues.length === 0) return { dialogues: currentDialogues, touched: false };
+
+  let touchedDialogues = false;
+
+  const nextDialogues = currentDialogues.map((dialogue) => {
+    let touchedDialogue = false;
+
+    const nextNodes = dialogue.nodes.map((dialogueNode) => {
+      if (dialogueNode.type !== "line") return dialogueNode;
+
+      const res = mapEffectArray(dialogueNode.effects, mapper);
+      if (!res.touched) return dialogueNode;
+
+      touchedDialogue = true;
+      return { ...dialogueNode, effects: res.effects };
+    });
+
+    if (!touchedDialogue) return dialogue;
+
+    touchedDialogues = true;
+    return { ...dialogue, nodes: nextNodes };
+  });
+
+  return { dialogues: nextDialogues, touched: touchedDialogues };
+}
+
+function mapEffectsInLayer(layer: SceneImageLayer, mapper: EffectMapper): { layer: SceneImageLayer; touched: boolean } {
+  const res = mapRuleContainersInLayer(layer, (rules) => mapEffectsInInteractionRules(rules, mapper));
+
+  if (!res.touched) return { layer, touched: false };
+
+  return {
+    layer: { ...layer, ...res.patch },
+    touched: true,
+  };
+}
+
+function mapEffectsInNodeValue(node: Node, mapper: EffectMapper): { node: Node; touched: boolean } {
+  const layersRes = mapLayers(node.layers, (layer) => mapEffectsInLayer(layer, mapper));
+  const dialoguesRes = mapEffectsInDialogues(node.dialogues, mapper);
+
+  if (!layersRes.touched && !dialoguesRes.touched) return { node, touched: false };
+
+  return {
+    node: {
+      ...node,
+      layers: layersRes.layers,
+      dialogues: dialoguesRes.touched ? dialoguesRes.dialogues : node.dialogues,
+    },
+    touched: true,
+  };
+}
+
+export function mapEffectsInProject(project: Project, mapper: EffectMapper): Project {
+  return mapNodesInProject(project, (node) => mapEffectsInNodeValue(node, mapper));
+}
+
+export function mapEffectsInNode(project: Project, nodeId: ID, mapper: EffectMapper): Project {
+  return mapTargetNodeInProject(project, nodeId, (node) => mapEffectsInNodeValue(node, mapper));
+}
+
+export function removeEffectsInProject(project: Project, predicate: (effect: Effect) => boolean): Project {
+  return mapEffectsInProject(project, (effect) => (predicate(effect) ? undefined : effect));
+}
+
+/* ---------- Rule phrases ---------- */
 export function removeRulePhrasesInProject(project: Project, predicate: (phrase: RulePhrase) => boolean): Project {
   const removePhrase = <T extends InteractionRule>(rule: T): T => {
     if (!rule.phrase || !predicate(rule.phrase)) return rule;
@@ -596,13 +406,24 @@ export function removeRulePhrasesInProject(project: Project, predicate: (phrase:
     return { ...rule, phrase: undefined } as T;
   };
 
-  return mapInteractionRulesInProject(project, { onClick: removePhrase, onUseItem: removePhrase });
+  return mapSceneInteractionRulesInProject(project, { onClick: removePhrase, onUseItem: removePhrase });
 }
 
+export function removeRulePhrasesInNode(project: Project, nodeId: ID, predicate: (phrase: RulePhrase) => boolean): Project {
+  const removePhrase = <T extends InteractionRule>(rule: T): T => {
+    if (!rule.phrase || !predicate(rule.phrase)) return rule;
+
+    return { ...rule, phrase: undefined } as T;
+  };
+
+  return mapSceneInteractionRulesInNode(project, nodeId, { onClick: removePhrase, onUseItem: removePhrase });
+}
+
+/* ---------- Specific rule cleanup ---------- */
 export function removeOnUseItemRulesForInstances(project: Project, removedInstanceIds: Set<ID>): Project {
   if (removedInstanceIds.size === 0) return project;
 
-  return mapInteractionRulesInProject(project, {
+  return mapSceneInteractionRulesInProject(project, {
     onUseItem: (rule) => {
       if (!removedInstanceIds.has(rule.itemInstanceId)) return rule;
 
@@ -614,145 +435,97 @@ export function removeOnUseItemRulesForInstances(project: Project, removedInstan
 export function removeEmptyInteractionRulesInProject(project: Project): Project {
   const keepRule = <T extends InteractionRule>(rule: T): T => rule;
 
-  return mapInteractionRulesInProject(project, { onClick: keepRule, onUseItem: keepRule });
+  return mapSceneInteractionRulesInProject(project, { onClick: keepRule, onUseItem: keepRule });
 }
 
-/* Placed walkers */
+/* ---------- Placed entities ---------- */
 type PlacedKey = "placedItems" | "placedNpcs" | "placedPlayers";
 type PlacedElem<K extends PlacedKey> = NonNullable<SceneImageLayer[K]>[number];
 
-function somePlaced<K extends PlacedKey>(project: Project, key: K, predicate: (item: PlacedElem<K>) => boolean): boolean {
-  for (const node of project.nodes) {
-    for (const layer of node.layers) {
-      for (const item of (layer[key] ?? []) as PlacedElem<K>[]) {
-        if (predicate(item)) return true;
-      }
-    }
-  }
-
-  return false;
-}
-
-/* Recoge elementos placed de cualquier tipo según predicate */
-export function collectPlaced<K extends PlacedKey>(project: Project, key: K, predicate: (item: PlacedElem<K>) => boolean = () => true): PlacedElem<K>[] {
-  const collected: PlacedElem<K>[] = [];
-
-  for (const node of project.nodes) {
-    for (const layer of node.layers) {
-      for (const item of (layer[key] ?? []) as PlacedElem<K>[]) {
-        if (predicate(item)) collected.push(item);
-      }
-    }
-  }
-
-  return collected;
-}
-
 function removePlaced<K extends PlacedKey>(project: Project, key: K, predicate: (item: PlacedElem<K>) => boolean): Project {
-  let touchedNodes = false;
-
-  const nextNodes = project.nodes.map((node) => {
-    let touchedLayers = false;
-
-    const nextLayers = node.layers.map((layer) => {
+  return mapNodesInProject(project, (node) => {
+    const res = mapLayers(node.layers, (layer) => {
       const currentItems = (layer[key] ?? []) as PlacedElem<K>[];
-      if (currentItems.length === 0) return layer;
+      if (currentItems.length === 0) return { layer, touched: false };
 
       const nextItems = currentItems.filter((item) => !predicate(item));
-      if (nextItems.length === currentItems.length) return layer;
+      if (nextItems.length === currentItems.length) return { layer, touched: false };
 
-      touchedLayers = true;
-      return { ...layer, [key]: nextItems } as SceneImageLayer;
+      return {
+        layer: { ...layer, [key]: nextItems } as SceneImageLayer,
+        touched: true,
+      };
     });
 
-    if (!touchedLayers) return node;
+    if (!res.touched) return { node, touched: false };
 
-    touchedNodes = true;
-    return { ...node, layers: nextLayers };
+    return {
+      node: { ...node, layers: res.layers },
+      touched: true,
+    };
   });
-
-  if (!touchedNodes) return project;
-  return { ...project, nodes: nextNodes };
-}
-
-export function somePlacedItem(project: Project, predicate: (item: NonNullable<SceneImageLayer["placedItems"]>[number]) => boolean): boolean {
-  return somePlaced(project, "placedItems", predicate);
 }
 
 export function removePlacedItems(project: Project, predicate: (item: NonNullable<SceneImageLayer["placedItems"]>[number]) => boolean): Project {
   return removePlaced(project, "placedItems", predicate);
 }
 
-export function somePlacedNpc(project: Project, predicate: (npc: NonNullable<SceneImageLayer["placedNpcs"]>[number]) => boolean): boolean {
-  return somePlaced(project, "placedNpcs", predicate);
-}
-
 export function removePlacedNpcs(project: Project, predicate: (npc: NonNullable<SceneImageLayer["placedNpcs"]>[number]) => boolean): Project {
   return removePlaced(project, "placedNpcs", predicate);
-}
-
-export function somePlacedPlayer(project: Project, predicate: (player: NonNullable<SceneImageLayer["placedPlayers"]>[number]) => boolean): boolean {  // USARLO
-  return somePlaced(project, "placedPlayers", predicate);
 }
 
 export function removePlacedPlayers(project: Project, predicate: (player: NonNullable<SceneImageLayer["placedPlayers"]>[number]) => boolean): Project {
   return removePlaced(project, "placedPlayers", predicate);
 }
 
-/* Dialogue helpers */
-export function someDialogue(project: Project, predicate: (dialogue: Dialogue) => boolean): boolean {  // USARLO Player
-  for (const node of project.nodes) {
-    for (const dialogue of node.dialogues ?? []) {
-      if (predicate(dialogue)) return true;
-    }
-  }
-
-  return false;
-}
-
+/* ---------- Dialogues ---------- */
 export function removeDialogues(project: Project, predicate: (dialogue: Dialogue) => boolean): Project {
-  let touchedNodes = false;
-
-  const nextNodes = project.nodes.map((node) => {
+  return mapNodesInProject(project, (node) => {
     const currentDialogues = node.dialogues ?? [];
-    if (currentDialogues.length === 0) return node;
+    if (currentDialogues.length === 0) return { node, touched: false };
 
     const nextDialogues = currentDialogues.filter((dialogue) => !predicate(dialogue));
-    if (nextDialogues.length === currentDialogues.length) return node;
+    if (nextDialogues.length === currentDialogues.length) return { node, touched: false };
 
-    touchedNodes = true;
-    return { ...node, dialogues: nextDialogues };
+    return {
+      node: { ...node, dialogues: nextDialogues },
+      touched: true,
+    };
   });
-
-  if (!touchedNodes) return project;
-  return { ...project, nodes: nextNodes };
 }
 
-export function collectDialogueIds(project: Project, predicate: (dialogue: Dialogue) => boolean): Set<ID> {  // USARLO PLAYER
-  const ids = new Set<ID>();
-
-  for (const node of project.nodes) {
-    for (const dialogue of node.dialogues ?? []) {
-      if (predicate(dialogue)) ids.add(dialogue.id);
-    }
-  }
-
-  return ids;
-}
-
-export function effectIsStartDialogueForAnyOf(effect: Effect, dialogueIds: Set<ID>): boolean {  // USARLO PLAYER
+export function effectIsStartDialogueForAnyOf(effect: Effect, dialogueIds: Set<ID>): boolean {
   return effect.type === "startDialogue" && dialogueIds.has(effect.nodeDialogueId);
 }
 
-/* Helper compuesto para comprobar si una entidad está referenciada */
-export function isEntityReferenced(project: Project, input: {
-    someSceneRef?: (project: Project) => boolean;
-    someWhenRef?: (when: Condition) => boolean;
-    someEffectRef?: (effect: Effect) => boolean;
-  }): boolean {
-  if (input.someSceneRef && input.someSceneRef(project)) return true;
-  if (input.someWhenRef && someWhenInProject(project, input.someWhenRef)) return true;
-  if (input.someEffectRef && someEffectsInProject(project, input.someEffectRef)) return true;
+/* ---------- Generic project walkers ---------- */
+function mapLayers(layers: SceneImageLayer[], mapper: (layer: SceneImageLayer) => { layer: SceneImageLayer; touched: boolean }): { layers: SceneImageLayer[]; touched: boolean } {
+  let touchedLayers = false;
 
-  return false;
+  const nextLayers = layers.map((layer) => {
+    const res = mapper(layer);
+    if (res.touched) touchedLayers = true;
+    return res.layer;
+  });
+
+  return touchedLayers ? { layers: nextLayers, touched: true } : { layers, touched: false };
+}
+
+function mapNodesInProject(project: Project, mapper: (node: Node) => { node: Node; touched: boolean }): Project {
+  let touchedNodes = false;
+
+  const nextNodes = project.nodes.map((node) => {
+    const res = mapper(node);
+    if (res.touched) touchedNodes = true;
+    return res.node;
+  });
+
+  return touchedNodes ? { ...project, nodes: nextNodes } : project;
+}
+
+function mapTargetNodeInProject(project: Project, nodeId: ID, mapper: (node: Node) => { node: Node; touched: boolean }): Project {
+  return mapNodesInProject(project, (node) => {
+    if (node.id !== nodeId) return { node, touched: false };
+    return mapper(node);
+  });
 }

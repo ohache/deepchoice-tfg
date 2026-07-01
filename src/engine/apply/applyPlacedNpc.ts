@@ -5,7 +5,7 @@ import { pickClickRule, pickUseItemRule } from "@/engine/rules";
 import type { GameState } from "@/engine/state/runtimeState";
 import { ensureNodeRuntime } from "@/engine/state/runtimeState";
 
-const DEFAULT_NPC_NOT_REACHABLE_MESSAGE = "No puedes alcanzar al NPC.";
+const DEFAULT_NPC_NOT_REACHABLE_MESSAGE = "No puedes alcanzar al PNJ.";
 const DEFAULT_CANNOT_USE_MESSAGE = "No puedes hacer eso.";
 
 function getPreparedPlacedNpcState(state: GameState, nodeId: ID, npcId: ID): { state: GameState; runtimeState: PlaceableState | null } {

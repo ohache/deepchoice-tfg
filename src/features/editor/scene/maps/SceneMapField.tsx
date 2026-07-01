@@ -38,7 +38,7 @@ export function SceneMapField({ label = "Mapa", active, onToggle }: SceneMapFiel
   const regions = useMemo<MapRegion[]>(() => selectedMap?.regions ?? [], [selectedMap]);
 
   const mapOptions = useMemo<Option<ID>[]>(() => maps.map((map) => ({ id: map.id, label: map.name?.trim() || map.id })), [maps]);
-  const regionOptions = useMemo<Option<ID>[]>(() => regions.map((region) => ({ id: region.id, label: region.label?.trim() || "(Sin etiqueta)" })), [regions]);
+  const regionOptions = useMemo<Option<ID>[]>(() => regions.map((region) => ({ id: region.id, label: region.label?.trim() || "(Sin nombre)" })), [regions]);
 
   /* Cambia el mapa asociado a la escena */
   const handleMapChange = useCallback((nextMapId: string) => {

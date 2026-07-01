@@ -70,9 +70,9 @@ function applyBusinessRules(project: Project, errors: ProjectFieldErrors): void 
   const { assets, items, npcs, players, nodes, maps, musicTracks, soundEffects } = project;
 
   if (hasDuplicateIds(assets)) errors.assets ??= "Hay assets con id repetido.";
-  if (hasDuplicateIds(items)) errors.items ??= "Hay items con id repetido.";
+  if (hasDuplicateIds(items)) errors.items ??= "Hay objetos con id repetido.";
   if (hasDuplicateIds(npcs)) errors.npcs ??= "Hay PNJs con id repetido.";
-  if (hasDuplicateIds(players)) errors.players ??= "Hay players con id repetido.";
+  if (hasDuplicateIds(players)) errors.players ??= "Hay jugadores con id repetido.";
   if (hasDuplicateIds(nodes)) errors.nodes ??= "Hay escenas (nodes) con id repetido.";
   if (hasDuplicateIds(maps)) errors.maps ??= "Hay mapas con id repetido.";
   if (hasDuplicateIds(musicTracks)) errors.musicTracks ??= "Hay pistas de música con id repetido.";
@@ -146,7 +146,7 @@ function applyBusinessRules(project: Project, errors: ProjectFieldErrors): void 
   /* Integridad items / npcs */
   for (const item of items) {
     if (!assetIndex.has("items", item.id)) {
-      errors.items ??= "Hay items sin asset asociado (assets.kind === 'items' con el mismo id).";
+      errors.items ??= "Hay objetos sin asset asociado (assets.kind === 'items' con el mismo id).";
       break;
     }
   }

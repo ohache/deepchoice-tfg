@@ -7,7 +7,8 @@ import { useEditorStore } from "@/store/editorStore";
 import { buildGameItemOptions } from "@/features/editor/scene/interactiveComponents/gameItemOptions";
 import { HotspotEditorPanel } from "@/features/editor/scene/hotspots/HotspotEditorPanel";
 import { InteractiveListPanel, type InteractiveListEntry } from "@/features/editor/scene/interactiveComponents/InteractiveListPanel";
-import { buildClickableRegions, buildProjectWithNodeDraft, normKey, useActiveSceneLayer, useFocusWhenEnabled } from "@/features/editor/scene/interactiveComponents/interactiveFieldHelpers";
+import { buildClickableRegions, buildLiveProjectWithInteractiveDraft,
+  normKey, useActiveSceneLayer, useFocusWhenEnabled } from "@/features/editor/scene/interactiveComponents/interactiveFieldHelpers";
 import { useEntityVarsEditor } from "@/shared/vars/useEntityVarsEditor";
 import { useEntityRulesEditor } from "@/features/editor/scene/rules/entityRulesEditor";
 import { useEntityCollisionGuard } from "@/features/editor/scene/useEntityCollisionGuard";
@@ -28,9 +29,10 @@ type SceneHotspotFieldProps = {
   active: boolean;
   onToggle: () => void;
   layerId: ID;
+  onSaveSceneDraft?: () => boolean;
 };
 
-export function SceneHotspotField({ label = "Hotspots", active, onToggle, layerId }: SceneHotspotFieldProps) {
+export function SceneHotspotField({ label = "Hotspots", active, onToggle, layerId, onSaveSceneDraft }: SceneHotspotFieldProps) {
   const project = useEditorStore((state) => state.project ?? null);
   const nodeDraft = useEditorStore((state) => state.nodeDraft);
 
@@ -72,7 +74,10 @@ export function SceneHotspotField({ label = "Hotspots", active, onToggle, layerI
 
   const nodeId = nodeDraft?.id ?? "";
 
-  const liveProject = useMemo(() => buildProjectWithNodeDraft(project, nodeDraft), [project, nodeDraft]);
+  const liveProject = useMemo(() =>
+    buildLiveProjectWithInteractiveDraft({ project, nodeDraft, interactiveDraft: hotspotEditor.draft ? { kind: "hotspot", layerId, draft: hotspotEditor.draft } : null }),
+  [project, nodeDraft, layerId, hotspotEditor.draft],
+);
 
   /* ---------------------------- Entidades de la capa --------------------------- */
   const hotspots = useMemo<Hotspot[]>(() => layer?.hotspots ?? [], [layer?.hotspots]);
@@ -159,7 +164,7 @@ export function SceneHotspotField({ label = "Hotspots", active, onToggle, layerI
   }, [draft, layerId]);
 
   const { activeChannel, setActiveChannel, clickRules, useItemRulesForSelected, ruleModalOpen, currentRuleValue, openAddClickRule, openEditClickRule, openAddUseItemRule,
-    openEditUseItemRule, removeClickRule, removeUseItemRule, closeRuleModal, saveRule } = useEntityRulesEditor({
+    openEditUseItemRule, removeClickRule, moveClickRule, removeUseItemRule, moveUseItemRule, closeRuleModal, saveRule } = useEntityRulesEditor({
       rules: draft?.rules,
       onChangeRules: setHotspotDraftRules,
     });
@@ -338,6 +343,26 @@ export function SceneHotspotField({ label = "Hotspots", active, onToggle, layerI
     toast.success("Regla eliminada", "Se ha eliminado la regla.");
   };
 
+  const handleMoveClickRule = (fromIndex: number, toIndex: number) => {
+    if (hasBlockingVarEdit) {
+      warnBlockingVarEdit();
+      return;
+    }
+
+    moveClickRule(fromIndex, toIndex);
+    toast.success("Orden actualizado", "Se ha actualizado la prioridad de las reglas.");
+  };
+
+  const handleMoveUseItemRule = (itemId: ID, fromIndex: number, toIndex: number) => {
+    if (hasBlockingVarEdit) {
+      warnBlockingVarEdit();
+      return;
+    }
+
+    moveUseItemRule(itemId, fromIndex, toIndex);
+    toast.success("Orden actualizado", "Se ha actualizado la prioridad de las reglas.");
+  };
+
   const handleSaveRule = (rule: { id: ID; when?: Condition; effects: Effect[] }) => {
     if (hasBlockingVarEdit) {
       warnBlockingVarEdit();
@@ -383,12 +408,12 @@ export function SceneHotspotField({ label = "Hotspots", active, onToggle, layerI
     }
 
     if (!hasLabel) {
-      setEditorError({ kind: "panel", message: "El hotspot debe tener una etiqueta antes de guardarse." });
+      setEditorError({ kind: "panel", message: "El hotspot debe tener un nombre antes de guardarse." });
       return;
     }
 
     if (dupLabelInLayer) {
-      toast.warning("Etiqueta duplicada", "Ya existe un hotspot con esa etiqueta en esta capa.");
+      toast.warning("Nombre duplicado", "Ya existe un hotspot con ese nombre en esta capa.");
       return;
     }
 
@@ -410,8 +435,7 @@ export function SceneHotspotField({ label = "Hotspots", active, onToggle, layerI
     }
 
     setEditorError(null);
-
-    toast.success("Hotspot guardado", "El hotspot ya forma parte de la escena.");
+    onSaveSceneDraft?.();
   };
 
   const handleDelete = (id: ID) => {
@@ -562,9 +586,11 @@ export function SceneHotspotField({ label = "Hotspots", active, onToggle, layerI
               onOpenAddClickRule={handleOpenAddClickRule}
               onOpenEditClickRule={handleOpenEditClickRule}
               onRemoveClickRule={handleRemoveClickRule}
+              onMoveClickRule={handleMoveClickRule}
               onOpenAddUseItemRule={handleOpenAddUseItemRule}
               onOpenEditUseItemRule={handleOpenEditUseItemRule}
               onRemoveUseItemRule={handleRemoveUseItemRule}
+              onMoveUseItemRule={handleMoveUseItemRule}
               onCloseRuleModal={handleCloseRuleModal}
               onSaveRule={handleSaveRule}
               onDelete={handleDeleteDraft}

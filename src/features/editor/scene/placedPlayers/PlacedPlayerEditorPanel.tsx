@@ -62,7 +62,7 @@ export function PlacedPlayerEditorPanel({ draft, selectedCatalogPlayerId, projec
           </div>
 
           <div className="space-y-1">
-            <div className="text-xs text-slate-100">Player</div>
+            <div className="text-xs text-slate-100">Jugador</div>
 
             <Select<ID>
               value={selectedCatalogPlayerId}

@@ -2,11 +2,10 @@ import { useEffect, useMemo } from "react";
 import type { ID, Node } from "@/domain/types";
 import type { GameState } from "@/engine/state/runtimeState";
 import type { AudioAdapter } from "@/engine/adapters/SfxAdapter";
-import { musicPlay, musicRememberPosition, musicStop, selectSavedTrackPosition } from "@/engine/state/slices/musicSlice";
+import { musicMarkPlaybackStarted, musicMarkPlaybackStopped, musicRememberPosition, selectSavedTrackPosition } from "@/engine/state/slices/musicSlice";
 import { useGameStore } from "@/store/gameStore";
 import { useSceneAudio } from "@/features/player/hooks/useSceneAudio";
 import { resolveAssetIdToSrc } from "@/features/player/utils/playerAssetResolution";
-import { pickActiveMusicTrackId } from "@/features/player/utils/playerSceneResolution";
 
 export function usePlayerMusicController(args: {
   gameState: GameState | null;
@@ -17,7 +16,7 @@ export function usePlayerMusicController(args: {
   musicVolume: number;
   sfxVolume: number;
 }) {
-  const { gameState, runtimeNode, assetIdToFile, assetUrls, audioAdapter, musicVolume, sfxVolume } = args;
+  const { gameState, assetIdToFile, assetUrls, audioAdapter, musicVolume, sfxVolume } = args;
 
   const activeMusicTrackId = useMemo(() => {
     if (!gameState) return undefined;
@@ -26,12 +25,8 @@ export function usePlayerMusicController(args: {
       return gameState.ending.musicTrackId;
     }
 
-    return (
-      gameState.music.targetTrackId ??
-      gameState.music.currentTrackId ??
-      (runtimeNode ? pickActiveMusicTrackId(runtimeNode, gameState) : undefined)
-    );
-  }, [runtimeNode, gameState]);
+    return gameState.music.targetTrackId;
+  }, [gameState]);
 
   const activeMusicSrc = useMemo(() => {
     return resolveAssetIdToSrc(activeMusicTrackId, assetIdToFile, assetUrls);
@@ -72,7 +67,7 @@ export function usePlayerMusicController(args: {
           ...prev,
           gameState: {
             ...prev.gameState,
-            music: musicPlay(prev.gameState.music, trackId, { startAt: "resume" }),
+            music: musicMarkPlaybackStarted(prev.gameState.music, trackId),
           },
         };
       });
@@ -85,7 +80,7 @@ export function usePlayerMusicController(args: {
           ...prev,
           gameState: {
             ...prev.gameState,
-            music: musicStop(prev.gameState.music, { keepLastTrackId: true }),
+            music: musicMarkPlaybackStopped(prev.gameState.music, { keepLastTrackId: true }),
           },
         };
       });

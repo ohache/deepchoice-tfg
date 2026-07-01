@@ -24,12 +24,7 @@ function genId(): string {
 
 /* Construye un ToastItem normalizado a partir del input */
 function buildToast(kind: ToastKind, title: string, message: string): ToastItem {
-  return {
-    id: genId(),
-    kind,
-    title,
-    message,
-  };
+  return { id: genId(), kind, title, message };
 }
 
 export const useToastStore = create<ToastState>((set, get) => ({

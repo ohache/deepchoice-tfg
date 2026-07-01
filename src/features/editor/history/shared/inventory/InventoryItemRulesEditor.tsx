@@ -22,7 +22,7 @@ function isPersistedOwner(project: Project, owner: InventoryItemRulesOwner): boo
 }
 
 function getOwnerLabel(owner: InventoryItemRulesOwner): string {
-  return owner.kind === "npcInventoryItem" ? "PNJ" : "Player";
+  return owner.kind === "npcInventoryItem" ? "PNJ" : "Jugador";
 }
 
 function buildEffectOwner(owner: InventoryItemRulesOwner, item: ItemInstance): EffectOwner {
@@ -45,7 +45,8 @@ export function InventoryItemRulesEditor({ project, owner, item, onChange }: Pro
   const persisted = isPersistedOwner(project, owner);
 
   const { activeChannel, setActiveChannel, clickRules, useItemRulesForSelected, ruleModalOpen, currentRuleValue, openAddClickRule, openEditClickRule, openAddUseItemRule,
-    openEditUseItemRule, removeClickRule, removeUseItemRule, closeRuleModal, saveRule } = useEntityRulesEditor({ rules: item.rules, onChangeRules: (rules) => onChange({ rules })});
+    openEditUseItemRule, removeClickRule, moveClickRule, removeUseItemRule, moveUseItemRule, closeRuleModal, saveRule }
+    = useEntityRulesEditor({ rules: item.rules, onChangeRules: (rules) => onChange({ rules })});
 
   const canEditRules = persisted;
 
@@ -98,7 +99,7 @@ export function InventoryItemRulesEditor({ project, owner, item, onChange }: Pro
     <div className="mt-3 border-t border-slate-700 pt-3">
       {!persisted && (
         <p className="mb-2 text-center text-[11px] text-slate-400">
-          Guarda primero el {getOwnerLabel(owner)} para poder añadir reglas a este item.
+          Guarda primero el {getOwnerLabel(owner)} para poder añadir reglas a este objeto.
         </p>
       )}
 
@@ -117,9 +118,11 @@ export function InventoryItemRulesEditor({ project, owner, item, onChange }: Pro
         onOpenAddClickRule={openAddClickRule}
         onOpenEditClickRule={openEditClickRule}
         onRemoveClickRule={removeClickRule}
+        onMoveClickRule={moveClickRule}
         onOpenAddUseItemRule={openAddUseItemRule}
         onOpenEditUseItemRule={openEditUseItemRule}
         onRemoveUseItemRule={removeUseItemRule}
+        onMoveUseItemRule={moveUseItemRule}
         onCloseRuleModal={closeRuleModal}
         onSaveRule={saveRule}
       />

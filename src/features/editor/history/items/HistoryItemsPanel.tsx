@@ -129,7 +129,7 @@ export function HistoryItemsPanel() {
       return;
     }
 
-    toast.success("Item creado", `“${nameTrim}”`);
+    toast.success("Objeto creado", `“${nameTrim}”`);
     panel.reset();
   };
 
@@ -144,7 +144,7 @@ export function HistoryItemsPanel() {
 
     updateItem(selectedItemId, { name: nameTrim, description, file: image.draftFile ?? undefined });
 
-    toast.success(replacingFile ? "Item actualizado (imagen reemplazada)" : "Item actualizado", `“${nameTrim}”`);
+    toast.success(replacingFile ? "Objeto actualizado (imagen reemplazada)" : "Objeto actualizado", `“${nameTrim}”`);
 
     panel.reset();
   };
@@ -181,13 +181,13 @@ export function HistoryItemsPanel() {
             onClick={panel.startNew}
             className="px-3 py-2 text-base font-semibold bg-red-800 hover:bg-red-700 text-white rounded-t-lg"
           >
-            + Añadir item
+            + Añadir objeto
           </button>
 
           <div className="flex-1 overflow-y-auto text-[15px]">
             {itemsList.length === 0 ? (
               <p className="p-4 text-xs text-slate-320 text-center">
-                No hay items en el proyecto
+                No hay objetos en el proyecto
               </p>
             ) : (
               <ul>
@@ -240,8 +240,8 @@ export function HistoryItemsPanel() {
           <div className="p-4 flex-1 flex flex-col">
             {mode === "none" ? (
               <p className="text-[11px] text-slate-200 text-center">
-                Selecciona un item en la lista de la izquierda o pulsa{" "}
-                <span className="font-semibold">“Añadir item”</span> para crear uno nuevo
+                Selecciona un objeto en la lista de la izquierda o pulsa{" "}
+                <span className="font-semibold">“Añadir objeto”</span> para crear uno nuevo
               </p>
             ) : (
               <>
@@ -350,7 +350,7 @@ export function HistoryItemsPanel() {
                     disabled={!selectedItemId}
                     className="btn btn-danger border-rose-500 bg-rose-800 hover:bg-rose-500 text-[12px] disabled:opacity-40 disabled:cursor-not-allowed"
                   >
-                    Eliminar item
+                    Eliminar objeto
                   </button>
 
                   <div className="flex gap-3 panel--items">
@@ -366,7 +366,7 @@ export function HistoryItemsPanel() {
                       onClick={handleSave}
                       className="btn btn-save"
                     >
-                      Guardar item
+                      Guardar objeto
                     </button>
                   </div>
                 </div>

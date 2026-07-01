@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef, type MouseEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import type { ItemInstance, PlacedNpc, Project } from "@/domain/types";
 import { useGameStore } from "@/store/gameStore";
@@ -24,9 +24,19 @@ import { PlayerCursor, PlayerTextPanel } from "@/features/player/components/Play
 import { pickNodeById } from "@/features/player/utils/playerSceneResolution";
 import { usePlayerOverlayState } from "@/features/player/hooks/usePlayerOverlayState";
 
-const DEFAULT_DIALOGUE_AUTO_ADVANCE_MS = 2000;
+const DEFAULT_DIALOGUE_AUTO_ADVANCE_MS = 4000;
 const DEFAULT_MUSIC_VOLUME = 1;
 const DEFAULT_SFX_VOLUME = 1;
+
+const TEXT_PANEL_TRANSITION_MS = 200;
+
+type TextDock = "bottom" | "top" | "left" | "right";
+
+type TextPanelSnapshot = {
+  nodeId: string;
+  text: string;
+  dock: TextDock;
+};
 
 export function PlayerShell() {
   const navigate = useNavigate();
@@ -54,10 +64,20 @@ export function PlayerShell() {
 
   const project: Project | null = gameState?.project ?? null;
   const currentNodeId = gameState?.currentNodeId;
+  const playerSpeakerId = project?.players?.[0]?.id;
+
+  const previousNodeIdRef = useRef<string | undefined>(currentNodeId);
 
   const [musicVolume, setMusicVolume] = useState(DEFAULT_MUSIC_VOLUME);
   const [sfxVolume, setSfxVolume] = useState(DEFAULT_SFX_VOLUME);
   const [dialogueDelayMs, setDialogueDelayMs] = useState(DEFAULT_DIALOGUE_AUTO_ADVANCE_MS);
+
+  const [textPanelSnapshot, setTextPanelSnapshot] = useState<TextPanelSnapshot | null>(null);
+  const [textPanelVisible, setTextPanelVisible] = useState(false);
+
+  const textPanelSnapshotRef = useRef<TextPanelSnapshot | null>(null);
+  const textPanelTimerRef = useRef<number | null>(null);
+  const textPanelFrameRef = useRef<number | null>(null);
 
   const { toggleFullscreen } = useFullscreen();
 
@@ -71,8 +91,103 @@ export function PlayerShell() {
 
   const { inventoryItems } = usePlayerInventoryView(project, gameState, assetIdToFile, assetUrls, null);
 
+  const isMapOpen = Boolean(gameState?.map.isOpen);
+
+  const shouldAnimateDockLayout = !isFading && Boolean(displayedNodeId) && displayedNodeId === currentNodeId;
+
+  const { currentNode, activeText, activeImageSrc, hotspotsForStage, placedItemsForStage: rawPlacedItemsForStage, placedPlayersForStage: rawPlacedPlayersForStage,
+    placedNpcsForStage: rawPlacedNpcsForStage } = usePlayerSceneViewModel(project, displayedNodeId, displayedGameState, assetIdToFile, assetUrls);
+
+  const { sceneContentRect, resolvedActiveText, layoutClass, sceneStageFrameStyle, textPanelDisabled, handleSceneContentRectChange,
+    dockMainSize, dockSideSize } = usePlayerTextDockLayout({ project, activeText, bottomBarOpen, settingsOpen, inventoryOpen, isMapOpen, animateLayout: shouldAnimateDockLayout });
+
+  const clearTextPanelTransition = useCallback(() => {
+    if (textPanelTimerRef.current !== null) {
+      window.clearTimeout(textPanelTimerRef.current);
+      textPanelTimerRef.current = null;
+    }
+
+    if (textPanelFrameRef.current !== null) {
+      window.cancelAnimationFrame(textPanelFrameRef.current);
+      textPanelFrameRef.current = null;
+    }
+  }, []);
+
+  const showTextPanelOnNextFrame = useCallback(() => {
+    if (textPanelFrameRef.current !== null) {
+      window.cancelAnimationFrame(textPanelFrameRef.current);
+    }
+
+    textPanelFrameRef.current = window.requestAnimationFrame(() => {
+      textPanelFrameRef.current = null;
+      setTextPanelVisible(true);
+    });
+  }, []);
+
+  const setTextPanelSnapshotAndRef = useCallback((snapshot: TextPanelSnapshot | null) => {
+    textPanelSnapshotRef.current = snapshot;
+    setTextPanelSnapshot(snapshot);
+  }, []);
+
+  useEffect(() => {
+    clearTextPanelTransition();
+
+    const nodeId = displayedNodeId ?? currentNodeId ?? "";
+    const nextText = resolvedActiveText.trim() ? resolvedActiveText : "";
+    const previousSnapshot = textPanelSnapshotRef.current;
+
+    const isSameScene = Boolean(previousSnapshot?.nodeId && nodeId && previousSnapshot.nodeId === nodeId);
+
+    if (!nextText) {
+      if (!isSameScene) {
+        setTextPanelVisible(false);
+        setTextPanelSnapshotAndRef(null);
+        return;
+      }
+
+      setTextPanelVisible(false);
+
+      textPanelTimerRef.current = window.setTimeout(() => {
+        setTextPanelSnapshotAndRef(null);
+        textPanelTimerRef.current = null;
+      }, TEXT_PANEL_TRANSITION_MS);
+
+      return;
+    }
+
+    const nextSnapshot: TextPanelSnapshot = { nodeId, text: resolvedActiveText, dock: activeText.dock };
+
+    if (!previousSnapshot || !isSameScene) {
+      setTextPanelSnapshotAndRef(nextSnapshot);
+      setTextPanelVisible(true);
+      return;
+    }
+
+    if (previousSnapshot.dock === nextSnapshot.dock) {
+      setTextPanelSnapshotAndRef(nextSnapshot);
+      setTextPanelVisible(true);
+      return;
+    }
+
+    setTextPanelVisible(false);
+
+    textPanelTimerRef.current = window.setTimeout(() => {
+      setTextPanelSnapshotAndRef(nextSnapshot);
+      showTextPanelOnNextFrame();
+      textPanelTimerRef.current = null;
+    }, TEXT_PANEL_TRANSITION_MS);
+
+    return clearTextPanelTransition;
+  }, [activeText.dock, currentNodeId, displayedNodeId, resolvedActiveText, clearTextPanelTransition, setTextPanelSnapshotAndRef, showTextPanelOnNextFrame]);
+
   const { textCursor, playerCursor, isUsingItem, effectivePlayerCursorSrc, selectedItemCursorSize, showPlayerCursor, hidePlayerCursor,
-    updatePlayerCursorFromMouseEvent, updateTextCursor, hideTextCursor, hideAllCursors } = usePlayerCursor(interactionMode);
+    updatePlayerCursorFromMouseEvent, updateTextCursor, hideTextCursor, hideAllCursors } = usePlayerCursor(interactionMode, sceneContentRect);
+
+  const updateDialogueCursorFromMouseEvent = useCallback((event: MouseEvent) => {
+    updatePlayerCursorFromMouseEvent(event, "dialogue");
+  }, [updatePlayerCursorFromMouseEvent]);
+
+  const shouldHideGlobalCursorForOverlay = inventoryOpen || isMapOpen || settingsOpen;
 
   const playerCursorPositionRef = useRef({ x: playerCursor.x, y: playerCursor.y });
 
@@ -80,8 +195,30 @@ export function PlayerShell() {
     playerCursorPositionRef.current = { x: playerCursor.x, y: playerCursor.y };
   }, [playerCursor.x, playerCursor.y]);
 
-  const { currentNode, activeText, activeImageSrc, hotspotsForStage, placedItemsForStage: rawPlacedItemsForStage, placedPlayersForStage: rawPlacedPlayersForStage,
-    placedNpcsForStage: rawPlacedNpcsForStage } = usePlayerSceneViewModel(project, displayedNodeId, displayedGameState, assetIdToFile, assetUrls);
+  useEffect(() => {
+    if (!shouldHideGlobalCursorForOverlay) return;
+
+    hidePlayerCursor();
+  }, [shouldHideGlobalCursorForOverlay, hidePlayerCursor]);
+
+  useEffect(() => {
+    if (!currentNodeId) {
+      previousNodeIdRef.current = undefined;
+      return;
+    }
+
+    const previousNodeId = previousNodeIdRef.current;
+
+    if (!previousNodeId) {
+      previousNodeIdRef.current = currentNodeId;
+      return;
+    }
+
+    if (previousNodeId === currentNodeId) return;
+
+    audioAdapter.stopAllSfx();
+    previousNodeIdRef.current = currentNodeId;
+  }, [currentNodeId, audioAdapter]);
 
   const placedItemsForStage = useMemo(() => {
     return resolvePlacedItemsForStage(rawPlacedItemsForStage);
@@ -106,7 +243,16 @@ export function PlayerShell() {
   const { gameEnded, endingMessage, activeEndingLine, endingLinesFinished, endingNarratorLineText, hasSceneMessage, currentDialogueNode, dialogueOptions,
     isDialogueOpen, shouldShowDialogueChoices, dialogueBubbleText, dialogueBubbleSpeaker, dialogueBubbleSpeakerId, narratorMessageText } = speech;
 
-  const isMapOpen = Boolean(gameState?.map.isOpen);
+  const shouldForceShellCursor = isDialogueOpen || gameEnded;
+
+  const updateForcedShellCursorFromMouseEvent = useCallback((event: MouseEvent<HTMLDivElement>) => {
+    if (isDialogueOpen) {
+      updatePlayerCursorFromMouseEvent(event, "dialogue");
+      return;
+    }
+
+    if (gameEnded) updatePlayerCursorFromMouseEvent(event, "idle");
+  }, [isDialogueOpen, gameEnded, updatePlayerCursorFromMouseEvent]);
 
   const dismissSceneMessage = useCallback(() => {
     if (!sceneMessage) return;
@@ -114,8 +260,11 @@ export function PlayerShell() {
     dismissUiMessage(sceneMessage.id);
   }, [sceneMessage, dismissUiMessage]);
 
-  const { sceneContentRect, resolvedActiveText, hasText, layoutClass, sceneStageFrameStyle, textPanelDisabled, handleSceneContentRectChange,
-    dockMainSize, dockSideSize } = usePlayerTextDockLayout({ project, activeText, bottomBarOpen, settingsOpen, inventoryOpen, isMapOpen });
+  const pushNotReachablePlayerMessage = useCallback((text?: string) => {
+    const messageText = text?.trim() || "No puedes interactuar con eso ahora.";
+
+    pushUiMessage({ text: messageText, preferredChannel: "bubble", ...(playerSpeakerId ? { speaker: { kind: "player" as const, playerId: playerSpeakerId } } : {}) });
+  }, [playerSpeakerId, pushUiMessage]);
 
   const { audioRef } = usePlayerMusicController({ gameState, runtimeNode, assetIdToFile, assetUrls, audioAdapter, musicVolume, sfxVolume });
 
@@ -166,19 +315,18 @@ export function PlayerShell() {
   }, [saveGameToFile, pushUiMessage, closeOverlays],
   );
 
-  const handleLoadGame = useCallback(
-    async (file: File) => {
-      try {
-        await loadGameFromFile(file);
+  const handleLoadGame = useCallback(async (file: File) => {
+    try {
+      await loadGameFromFile(file);
 
-        closePlayerOverlays();
+      closePlayerOverlays();
 
-        pushUiMessage({ text: "Partida cargada correctamente.", preferredChannel: "bubble" });
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "No se ha podido cargar la partida.";
-        pushUiMessage({ text: msg, preferredChannel: "bubble" });
-      }
-    }, [loadGameFromFile, pushUiMessage, closePlayerOverlays],
+      pushUiMessage({ text: "Partida cargada correctamente.", preferredChannel: "bubble" });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "No se ha podido cargar la partida.";
+      pushUiMessage({ text: msg, preferredChannel: "bubble" });
+    }
+  }, [loadGameFromFile, pushUiMessage, closePlayerOverlays],
   );
 
   const handleExitGame = useCallback(() => {
@@ -206,12 +354,14 @@ export function PlayerShell() {
       if (isDialogueOpen || isMapOpen) return;
 
       dismissSceneMessage();
+      hidePlayerCursor();
       toggleInventory();
     },
     openMap: () => {
       if (isDialogueOpen) return;
 
       dismissSceneMessage();
+      hidePlayerCursor();
       prepareForMapToggle();
       toggleMap();
     },
@@ -253,6 +403,14 @@ export function PlayerShell() {
 
     showPlayerCursor(x || window.innerWidth / 2, y || window.innerHeight / 2, "dialogue");
   }, [isDialogueOpen, closeOverlays, showPlayerCursor]);
+
+  useEffect(() => {
+    if (!gameEnded) return;
+
+    const { x, y } = playerCursorPositionRef.current;
+
+    showPlayerCursor(x || window.innerWidth / 2, y || window.innerHeight / 2, "idle");
+  }, [gameEnded, showPlayerCursor]);
 
   useEffect(() => {
     if (!isDialogueOpen) return;
@@ -313,6 +471,10 @@ export function PlayerShell() {
     return () => window.clearTimeout(timer);
   }, [gameEnded, activeEndingLine, dialogueDelayMs]);
 
+  useEffect(() => {
+    return () => clearTextPanelTransition()
+  }, [clearTextPanelTransition]);
+
   if (!gameState || !project) {
     return (
       <div className="page-fullscreen-center">
@@ -352,7 +514,12 @@ export function PlayerShell() {
   }
 
   return (
-    <div className="h-screen w-screen overflow-hidden bg-black">
+    <div
+      className="h-screen w-screen overflow-hidden bg-black"
+      style={{ cursor: shouldForceShellCursor ? "none" : undefined }}
+      onMouseMoveCapture={shouldForceShellCursor ? updateForcedShellCursorFromMouseEvent : undefined}
+      onMouseOverCapture={shouldForceShellCursor ? updateForcedShellCursorFromMouseEvent : undefined}
+    >
       <audio ref={audioRef} className="hidden" />
 
       <div className="h-full min-h-0 flex flex-col bg-black">
@@ -360,8 +527,9 @@ export function PlayerShell() {
           <div className="relative min-h-0 flex-1 overflow-hidden bg-black">
             <div style={sceneStageFrameStyle}>
               <SceneStage
-                key={`${currentNode.id}-${activeText.dock}-${hasText ? "text" : "no-text"}`}
+                key={currentNode.id}
                 scene={{
+                  nodeId: currentNode.id,
                   imageSrc: activeImageSrc,
                   gameEnded,
                   revealSignal,
@@ -385,7 +553,7 @@ export function PlayerShell() {
                   onPlacedNpcUseItem: useOnPlacedNpc,
                 }}
                 cursor={{
-                  blocked: gameEnded || bottomBarOpen || settingsOpen || inventoryOpen || isMapOpen,
+                  blocked: isDialogueOpen || settingsOpen || inventoryOpen || isMapOpen,
                   onMove: updatePlayerCursorFromMouseEvent,
                   onEnter: updatePlayerCursorFromMouseEvent,
                   onLeave: hidePlayerCursor,
@@ -418,30 +586,31 @@ export function PlayerShell() {
                   },
                   onHotspotNotReachable: (_, text) => {
                     if (isUsingItem) clearInteractionMode();
-                    pushUiMessage({ text: text?.trim() || "No puedes interactuar con eso ahora.", preferredChannel: "bubble" });
+                    pushNotReachablePlayerMessage(text);
                   },
                   onPlacedItemNotReachable: (_, text) => {
                     if (isUsingItem) clearInteractionMode();
-                    pushUiMessage({ text: text?.trim() || "No puedes interactuar con eso ahora.", preferredChannel: "bubble" });
+                    pushNotReachablePlayerMessage(text);
                   },
                   onPlacedNpcNotReachable: (_, text) => {
                     if (isUsingItem) clearInteractionMode();
-                    pushUiMessage({ text: text?.trim() || "No puedes interactuar con eso ahora.", preferredChannel: "bubble" });
+                    pushNotReachablePlayerMessage(text);
                   },
                 }}
                 onContentRectChange={handleSceneContentRectChange}
               />
             </div>
 
-            {hasText && sceneContentRect ? (
+            {textPanelSnapshot && sceneContentRect ? (
               <PlayerTextPanel
-                text={resolvedActiveText}
+                text={textPanelSnapshot.text}
                 cursor={textCursor}
-                dock={activeText.dock}
+                dock={textPanelSnapshot.dock}
                 rect={sceneContentRect}
                 dockMainSize={dockMainSize}
                 dockSideSize={dockSideSize}
-                disabled={textPanelDisabled}
+                disabled={textPanelDisabled || !textPanelVisible}
+                visible={textPanelVisible}
                 onMouseMove={updateTextCursor}
                 onMouseEnter={updateTextCursor}
                 onMouseLeave={hideTextCursor}
@@ -450,13 +619,16 @@ export function PlayerShell() {
 
             <div className={`absolute inset-0 z-200 pointer-events-none transition-opacity duration-150 ${isFading ? "opacity-100 bg-black" : "opacity-0 bg-black"}`} />
 
+
             <PlayerBottomBar
               open={bottomBarOpen}
               anchorRect={sceneContentRect}
+              onCursorMove={(event) => updatePlayerCursorFromMouseEvent(event, "idle")}
+              onCursorEnter={(event) => updatePlayerCursorFromMouseEvent(event, "idle")}
+              onCursorLeave={hidePlayerCursor}
               onToggle={() => {
                 if (gameEnded) return;
 
-                hidePlayerCursor();
                 toggleBottomBar();
               }}
               onClose={() => {
@@ -467,12 +639,14 @@ export function PlayerShell() {
                 if (gameEnded || isDialogueOpen || isMapOpen) return;
 
                 dismissSceneMessage();
+                hideAllCursors();
                 openInventoryFromBottomBar();
               }}
               onOpenMap={() => {
                 if (gameEnded || isDialogueOpen || inventoryOpen) return;
 
                 dismissSceneMessage();
+                hideAllCursors();
                 openMapFromBottomBar();
                 toggleMap();
               }}
@@ -486,6 +660,7 @@ export function PlayerShell() {
             <InventoryOverlay
               open={!gameEnded && !isDialogueOpen && !isMapOpen && inventoryOpen}
               items={inventoryItems}
+              initialCursorPosition={playerCursorPositionRef.current}
               onClose={closeInventory}
               onSelectItem={startUseItemInteraction}
               onUseItemOnInventoryItem={useOnInventoryItem}
@@ -506,14 +681,22 @@ export function PlayerShell() {
               onExit={handleExitGame}
             />
 
+            {isDialogueOpen ? (
+              <div
+                className="absolute inset-0 z-35"
+                style={{ cursor: "none" }}
+                onMouseMove={updateDialogueCursorFromMouseEvent}
+                onMouseEnter={updateDialogueCursorFromMouseEvent}
+              />
+            ) : null}
+
             <DialogueChoicesPanel
               open={shouldShowDialogueChoices}
               options={dialogueOptions}
               anchorRect={sceneContentRect}
               onSelectOption={(nodeId) => advanceDialogue(nodeId)}
-              onCursorMove={updatePlayerCursorFromMouseEvent}
-              onCursorEnter={updatePlayerCursorFromMouseEvent}
-              onCursorLeave={hidePlayerCursor}
+              onCursorMove={updateDialogueCursorFromMouseEvent}
+              onCursorEnter={updateDialogueCursorFromMouseEvent}
             />
 
             {endingNarratorLineText && sceneContentRect ? (
@@ -548,12 +731,17 @@ export function PlayerShell() {
                 style={{
                   left: sceneContentRect.x + sceneContentRect.w / 2,
                   top: sceneContentRect.y + sceneContentRect.h - 98,
+                  cursor: "none",
                 }}
               >
                 <button
                   type="button"
-                  className="rounded-2xl border-2 border-cyan-300/70 bg-cyan-800 px-8 py-4 text-base font-bold text-white shadow-2xl hover:bg-cyan-700"
-                  onClick={handleExitGame}
+                  className="rounded-2xl border-2 border-cyan-300/70 bg-cyan-800 px-8 py-4 text-base font-bold text-white shadow-2xl transition hover:bg-cyan-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200/80"
+                  style={{ cursor: "none" }}
+                  onClick={() => {
+                    hideAllCursors();
+                    handleExitGame();
+                  }}
                 >
                   Volver al inicio
                 </button>
@@ -577,16 +765,19 @@ export function PlayerShell() {
               <MapOverlay
                 gameState={gameState}
                 assetUrls={assetUrls}
+                initialCursorPosition={playerCursorPositionRef.current}
                 onClose={closeMap}
                 onTravelToRegion={travelToMapRegion}
               />
             ) : null}
 
-            <PlayerCursor
-              cursor={playerCursor}
-              src={effectivePlayerCursorSrc}
-              size={isUsingItem ? selectedItemCursorSize : PLAYER_CURSOR_DEFAULT_SIZE}
-            />
+            {!shouldHideGlobalCursorForOverlay ? (
+              <PlayerCursor
+                cursor={playerCursor}
+                src={effectivePlayerCursorSrc}
+                size={isUsingItem ? selectedItemCursorSize : PLAYER_CURSOR_DEFAULT_SIZE}
+              />
+            ) : null}
           </div>
         </div>
       </div>

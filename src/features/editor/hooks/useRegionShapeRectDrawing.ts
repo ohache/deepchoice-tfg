@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, DragEvent as ReactDragEvent, PointerEvent, MouseEvent } from "react";
 import type { RegionShape } from "@/domain/types";
 import type { Rect } from "@/features/editor/hooks/useObjectContainRect";
+import { DEFAULT_MIN_RECT_01, isValidRect01 } from "@/features/editor/hooks/regionShape";
 
 type DragState =
   | {
@@ -45,13 +46,16 @@ export type UseRegionShapeRectDrawingOptions = {
   contentRect: Rect | null;
   enabled: boolean;
   minPx?: number;
+  minRect01?: number;
   toContainerPx: (p: { x: number; y: number }) => { x: number; y: number } | null;
   onCommit: (shape: RegionShape) => void;
+  onRejectInvalidShape?: () => void;
   resetKey?: unknown;
 };
 
 /* Hook para dibujar una región rectangular sobre el área visible real del contenido */
-export function useRegionShapeRectDrawing({ contentRect, enabled, minPx = 6, toContainerPx, onCommit, resetKey }: UseRegionShapeRectDrawingOptions) {
+export function useRegionShapeRectDrawing({ contentRect, enabled, minPx = 6, minRect01 = DEFAULT_MIN_RECT_01, toContainerPx,
+  onCommit, onRejectInvalidShape, resetKey }: UseRegionShapeRectDrawingOptions) {
   const [drag, setDrag] = useState<DragState>({ kind: "idle" });
 
   const dragRef = useRef<DragState>({ kind: "idle" });
@@ -141,7 +145,6 @@ export function useRegionShapeRectDrawing({ contentRect, enabled, minPx = 6, toC
     setDrag(next);
   }, [enabled, contentRect, toContainerPx, clampToContent]);
 
-  // Sustituye finish por este:
   const finish = useCallback((pointerId: number) => {
     if (!enabled || !contentRect) {
       resetDrag();
@@ -155,7 +158,10 @@ export function useRegionShapeRectDrawing({ contentRect, enabled, minPx = 6, toC
 
     resetDrag();
 
-    if (rect.width < minPx || rect.height < minPx) return;
+    if (rect.width < minPx || rect.height < minPx) {
+      onRejectInvalidShape?.();
+      return;
+    }
 
     const shape: RegionShape = {
       type: "rect",
@@ -165,8 +171,13 @@ export function useRegionShapeRectDrawing({ contentRect, enabled, minPx = 6, toC
       h: rect.height / contentRect.h,
     };
 
+    if (!isValidRect01(shape, { min: minRect01 })) {
+      onRejectInvalidShape?.();
+      return;
+    }
+
     onCommit(shape);
-  }, [enabled, contentRect, minPx, onCommit, resetDrag]);
+  }, [enabled, contentRect, minPx, minRect01, onCommit, onRejectInvalidShape, resetDrag]);
 
   const onPointerUp = useCallback((event: PointerEvent<HTMLElement>) => {
     if (!enabled) return;

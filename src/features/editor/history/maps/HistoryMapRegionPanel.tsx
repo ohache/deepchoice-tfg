@@ -225,7 +225,7 @@ export function HistoryMapRegionsPanel({ mapId, mapVisualType, isRegionMode, pan
                   >
                     <div className="flex-1 min-w-0">
                       <div className="text-[13px] text-white truncate">
-                        {(region.label ?? "").trim() || "(Sin etiqueta)"}
+                        {(region.label ?? "").trim() || "(Sin nombre)"}
                       </div>
                     </div>
                   </button>
@@ -256,7 +256,7 @@ export function HistoryMapRegionsPanel({ mapId, mapVisualType, isRegionMode, pan
               )}
 
               <div className="space-y-1">
-                <div className="text-xs text-slate-100 mb-1.5 text-center">Etiqueta</div>
+                <div className="text-xs text-slate-100 mb-1.5 text-center">Nombre</div>
 
                 <div className="flex items-center gap-2">
                   <input
@@ -371,7 +371,7 @@ export function HistoryMapRegionsPanel({ mapId, mapVisualType, isRegionMode, pan
                     className="px-2 py-1 rounded-md border border-emerald-700 bg-emerald-800/30 text-white hover:bg-emerald-700/40 text-[11px]"
                     title={isDrawing ? "Termina o cancela el dibujo actual antes de guardar" : !hasShape
                       ? "Dibuja una región válida antes de guardar" : !(draft?.label ?? "").trim()
-                        ? "La etiqueta es obligatoria" : undefined}
+                        ? "El nombre es obligatorio" : undefined}
                   >
                     Guardar
                   </button>

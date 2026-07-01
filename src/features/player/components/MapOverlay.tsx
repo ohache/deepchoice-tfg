@@ -10,15 +10,24 @@ import { buildAssetIdToFile, resolveAssetIdToSrc } from "@/features/player/utils
 type MapOverlayProps = {
   gameState: GameState;
   assetUrls: Record<string, string>;
+  initialCursorPosition?: CursorPoint | null;
   onClose: () => void;
   onTravelToRegion: (regionId: ID) => void;
 };
 
-type ContentRect = { x: number; y: number; w: number; h: number };
+type RegionLabelPlacement = "above" | "below";
 
+type RegionLabelLayout = {
+  style: CSSProperties;
+  placement: RegionLabelPlacement;
+};
+
+type ContentRect = { x: number; y: number; w: number; h: number };
+type CursorPoint = { x: number; y: number };
 type CursorPosition = { visible: boolean; x: number; y: number };
 
 const REVEAL_REGIONS_MS = 2000;
+const REGION_LABEL_TOP_SAFE_MARGIN = 56;
 
 const INITIAL_CURSOR_POSITION: CursorPosition = { visible: false, x: 0, y: 0 };
 
@@ -53,13 +62,22 @@ function rectStyleFromRegionShape(region: MapRegion, contentRect: ContentRect | 
   };
 }
 
-function labelStyleFromRegionShape(region: MapRegion, contentRect: ContentRect): CSSProperties | null {
+function labelLayoutFromRegionShape(region: MapRegion, contentRect: ContentRect): RegionLabelLayout | null {
   const shape = region.shape;
   if (!shape || shape.type !== "rect") return null;
 
+  const regionTop = contentRect.y + shape.y * contentRect.h;
+  const regionBottom = contentRect.y + (shape.y + shape.h) * contentRect.h;
+  const regionCenterX = contentRect.x + (shape.x + shape.w / 2) * contentRect.w;
+
+  const placement: RegionLabelPlacement = regionTop < REGION_LABEL_TOP_SAFE_MARGIN ? "below" : "above";
+
   return {
-    left: `${contentRect.x + (shape.x + shape.w / 2) * contentRect.w}px`,
-    top: `${contentRect.y + shape.y * contentRect.h}px`,
+    placement,
+    style: {
+      left: `${regionCenterX}px`,
+      top: `${placement === "below" ? regionBottom : regionTop}px`,
+    },
   };
 }
 
@@ -115,10 +133,10 @@ function MapRegionButton(props: { region: MapRegion; contentRect: ContentRect; r
         onTravelToRegion(region.id);
       }}
       className={`absolute rounded-sm transition-colors focus:outline-none ${
-        revealRegions ? "border-2 border-emerald-400/80 bg-emerald-500/15 hover:bg-emerald-500/25" : "border border-transparent bg-transparent hover:bg-emerald-500/10"
+        revealRegions ? "border-2 rounded-md border-emerald-700 bg-emerald-700/30 hover:bg-emerald-5 00/25" : "border border-transparent bg-transparent hover:bg-emerald-500/10"
       }`}
     />
-  );
+  );  
 }
 
 function HoveredRegionLabel(props: { region: MapRegion | null; contentRect: ContentRect | null }) {
@@ -126,15 +144,18 @@ function HoveredRegionLabel(props: { region: MapRegion | null; contentRect: Cont
 
   if (!region || !contentRect) return null;
 
-  const style = labelStyleFromRegionShape(region, contentRect);
-  if (!style) return null;
+  const layout = labelLayoutFromRegionShape(region, contentRect);
+  if (!layout) return null;
+
+  const placementClass = layout.placement === "below" ? "-translate-x-1/2 translate-y-0 pt-2" : "-translate-x-1/2 -translate-y-full pb-2";
 
   return (
     <div
-      className="pointer-events-none absolute z-50 -translate-x-1/2 -translate-y-full pb-2"
-      style={style}
+      className={`pointer-events-none absolute z-50 ${placementClass}`}
+      style={layout.style}
     >
-      <div className="max-w-[280px] whitespace-normal rounded-md border border-slate-700 bg-slate-950/95 px-3 py-1.5 text-center text-xs font-medium leading-snug text-slate-100 shadow-xl">
+      <div className="max-w-[280px] whitespace-normal rounded-md border border-slate-700 bg-slate-950/95 px-3 py-1.5 
+        text-center text-xs font-medium leading-snug text-slate-100 shadow-xl">
         {region.label}
       </div>
     </div>
@@ -154,11 +175,12 @@ function MapCursor(props: { visible: boolean; src: string; position: CursorPosit
       draggable={false}
       className="pointer-events-none fixed z-60 select-none object-contain"
       style={{
-        left: position.x,
-        top: position.y,
+        left: 0,
+        top: 0,
         width: size.width,
         height: size.height,
-        transform: "translate(-50%, -50%)",
+        transform: `translate3d(${position.x}px, ${position.y}px, 0) translate(-50%, -50%)`,
+        willChange: "transform",
       }}
     />
   );
@@ -181,7 +203,7 @@ function EmptyMapOverlay({ onClose }: { onClose: () => void }) {
   );
 }
 
-export function MapOverlay({ gameState, assetUrls, onClose, onTravelToRegion }: MapOverlayProps) {
+export function MapOverlay({ gameState, assetUrls, initialCursorPosition = null, onClose, onTravelToRegion }: MapOverlayProps) {
   const assetIdToFile = useMemo(() => buildAssetIdToFile(gameState.project), [gameState.project]);
 
   const activeMap = useMemo(() => getActiveMap(gameState), [gameState]);
@@ -289,6 +311,12 @@ export function MapOverlay({ gameState, assetUrls, onClose, onTravelToRegion }: 
 
     applyCursorPosition({ ...cursorPosRef.current, visible: false });
   }, [applyCursorPosition]);
+
+  useEffect(() => {
+    if (!initialCursorPosition) return;
+
+    applyCursorPosition({ visible: true, x: initialCursorPosition.x,  y: initialCursorPosition.y });
+  }, [initialCursorPosition?.x, initialCursorPosition?.y, applyCursorPosition]);
 
   const handleHoverRegion = useCallback((regionId: ID) => {
     setHoveredRegionId((current) => (current === regionId ? current : regionId));

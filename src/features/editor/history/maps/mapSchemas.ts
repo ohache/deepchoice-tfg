@@ -19,7 +19,7 @@ export const MapDraftSchema = z.object({
 /* Base común de la región */
 const MapRegionBaseSchema = z.object({
   id: IdSchema,
-  label: z.string().trim().min(1, "La región necesita una etiqueta").max(60, "La etiqueta no puede superar 60 caracteres"),
+  label: z.string().trim().min(1, "La región necesita una nombre").max(60, "El nombre no puede superar 60 caracteres"),
   visible: z.boolean(),
   imageAssetId: IdSchema.optional(),
   musicTrackId: IdSchema.optional(),

@@ -21,7 +21,7 @@ type AssetBackedDraftSchema = {
     | { success: false; error: ZodError };
 };
 
-interface ValidateAssetDraftOptions {
+type ValidateAssetDraftOptions = {
   mode: "new" | "edit";
   project: Project;
   currentId?: ID;

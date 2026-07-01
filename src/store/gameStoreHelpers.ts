@@ -2,7 +2,7 @@ import type { ID, Project } from "@/domain/types";
 import type { GameState } from "@/engine/state/runtimeState";
 import { createInitialGameState, ensureNodeRuntime } from "@/engine/state/runtimeState";
 import { evaluateCondition } from "@/engine/conditions/evaluateConditions";
-import { musicSetTargetTrack } from "@/engine/state/slices/musicSlice";
+import { musicSetAutomaticTargetTrack } from "@/engine/state/slices/musicSlice";
 import { normalizeAssetPath, getPickedRelativePath } from "@/shared/directoryImport";
 import { pushBubbleMessage } from "@/engine/messages/uiMessageStore";
 
@@ -152,7 +152,7 @@ function withResolvedMusicTarget(state: GameState): GameState {
   if (state.gameEnded) return state;
 
   const targetTrackId = resolveCurrentMusicTrackId(state);
-  const nextMusic = musicSetTargetTrack(state.music, targetTrackId);
+  const nextMusic = musicSetAutomaticTargetTrack(state.music, targetTrackId, state.currentNodeId);
 
   if (nextMusic === state.music) return state;
 

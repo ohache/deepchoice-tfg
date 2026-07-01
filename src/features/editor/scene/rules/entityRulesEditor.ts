@@ -1,12 +1,5 @@
 import { useCallback, useMemo, useState, type Dispatch, type SetStateAction } from "react";
-import type {
-  BaseInteractionRule,
-  ClickRule,
-  ID,
-  InteractionRules,
-  RulePhrase,
-  UseItemRule,
-} from "@/domain/types";
+import type { BaseInteractionRule, ClickRule, ID, InteractionRules, RulePhrase, UseItemRule } from "@/domain/types";
 import type { RuleChannel } from "@/features/editor/scene/interactiveComponents/interactiveEditorTypes";
 import { generateId } from "@/utils/id";
 
@@ -42,6 +35,9 @@ type UseEntityRulesEditorResult = {
   removeClickRule: (index: number) => void;
   removeUseItemRule: (itemInstanceId: ID, indexInFiltered: number) => void;
 
+  moveClickRule: (fromIndex: number, toIndex: number) => void;
+  moveUseItemRule: (itemInstanceId: ID, fromIndex: number, toIndex: number) => void;
+
   closeRuleModal: () => void;
   saveRule: (rule: BaseInteractionRule) => void;
 };
@@ -56,8 +52,26 @@ function getRulesForItem(rules: UseItemRule[], itemInstanceId: ID): UseItemRule[
   return rules.filter((rule) => rule.itemInstanceId === itemInstanceId);
 }
 
-function createEmptyRule(id: ID): BaseInteractionRule {
-  return { id, effects: [] };
+function buildDefaultRuleLabel(rules: Array<Pick<BaseInteractionRule, "label">>): string {
+  const usedLabels = new Set(rules.map((rule) => (rule.label ?? "").trim().toLowerCase()).filter(Boolean));
+
+  let index = rules.length + 1;
+  let label = `Regla ${index}`;
+
+  while (usedLabels.has(label.toLowerCase())) {
+    index += 1;
+    label = `Regla ${index}`;
+  }
+
+  return label;
+}
+
+function normalizeRuleLabel(label: string | undefined, fallback: string): string {
+  return label?.trim() || fallback;
+}
+
+function createEmptyRule(id: ID, label: string): BaseInteractionRule {
+  return { id, label, effects: [] };
 }
 
 function normalizePhrase(phrase: RulePhrase | undefined): RulePhrase | undefined {
@@ -68,9 +82,10 @@ function normalizePhrase(phrase: RulePhrase | undefined): RulePhrase | undefined
   return { ...phrase, text };
 }
 
-function toBaseInteractionRule(rule: ClickRule | UseItemRule): BaseInteractionRule {
+function toBaseInteractionRule(rule: ClickRule | UseItemRule, fallbackLabel: string): BaseInteractionRule {
   return {
     id: rule.id,
+    label: normalizeRuleLabel(rule.label, fallbackLabel),
     ...(rule.when ? { when: rule.when } : {}),
     ...(rule.phrase ? { phrase: rule.phrase } : {}),
     effects: rule.effects ?? [],
@@ -82,6 +97,7 @@ function packClickRule(rule: BaseInteractionRule): ClickRule {
 
   return {
     id: rule.id,
+    label: rule.label.trim(),
     ...(rule.when ? { when: rule.when } : {}),
     ...(phrase ? { phrase } : {}),
     effects: rule.effects ?? [],
@@ -93,6 +109,7 @@ function packUseItemRule(rule: BaseInteractionRule, itemInstanceId: ID): UseItem
 
   return {
     id: rule.id,
+    label: rule.label.trim(),
     itemInstanceId,
     ...(rule.when ? { when: rule.when } : {}),
     ...(phrase ? { phrase } : {}),
@@ -130,6 +147,43 @@ function replaceUseItemRuleAt(rules: UseItemRule[], itemInstanceId: ID, indexInF
   return replaced ? nextRules : [...nextRules, nextRule];
 }
 
+function canReorder(length: number, fromIndex: number, toIndex: number): boolean {
+  if (fromIndex === toIndex) return false;
+  if (fromIndex < 0 || fromIndex >= length) return false;
+  if (toIndex < 0 || toIndex >= length) return false;
+
+  return true;
+}
+
+function reorderList<T>(items: T[], fromIndex: number, toIndex: number): T[] {
+  if (!canReorder(items.length, fromIndex, toIndex)) return items;
+
+  const next = items.slice();
+  const [moved] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, moved);
+
+  return next;
+}
+
+function reorderUseItemRuleAt(rules: UseItemRule[], itemInstanceId: ID, fromIndex: number, toIndex: number): UseItemRule[] {
+  const selectedRules = getRulesForItem(rules, itemInstanceId);
+
+  if (!canReorder(selectedRules.length, fromIndex, toIndex)) return rules;
+
+  const reorderedSelectedRules = reorderList(selectedRules, fromIndex, toIndex);
+
+  let selectedIndex = 0;
+
+  return rules.map((rule) => {
+    if (rule.itemInstanceId !== itemInstanceId) return rule;
+
+    const nextRule = reorderedSelectedRules[selectedIndex];
+    selectedIndex += 1;
+
+    return nextRule ?? rule;
+  });
+}
+
 /* Hook reutilizable para editar reglas de interacción de cualquier entidad */
 export function useEntityRulesEditor({ rules, onChangeRules, createId = defaultCreateId }: UseEntityRulesEditorArgs): UseEntityRulesEditorResult {
   const normalizedRules = useMemo<InteractionRules>(() => rules ?? EMPTY_RULES, [rules]);
@@ -153,18 +207,23 @@ export function useEntityRulesEditor({ rules, onChangeRules, createId = defaultC
     if (!ruleModalOpen || !editingInfo) return null;
 
     if (editingInfo.channel === "onClick") {
-      if (editingInfo.index < 0) return createEmptyRule(editingInfo.draftRuleId ?? createId());
+      const fallbackLabel = `Regla ${editingInfo.index + 1}`;
+
+      if (editingInfo.index < 0) return createEmptyRule(editingInfo.draftRuleId ?? createId(), buildDefaultRuleLabel(clickRules));
 
       const rule = clickRules[editingInfo.index];
 
-      return rule ? toBaseInteractionRule(rule) : createEmptyRule(editingInfo.draftRuleId ?? createId());
+      return rule ? toBaseInteractionRule(rule, fallbackLabel) : createEmptyRule(editingInfo.draftRuleId ?? createId(), buildDefaultRuleLabel(clickRules));
     }
 
-    if (editingInfo.index < 0) return createEmptyRule(editingInfo.draftRuleId ?? createId());
+    const itemRules = getRulesForItem(useItemRulesAll, editingInfo.itemInstanceId);
+    const fallbackLabel = `Regla ${editingInfo.index + 1}`;
 
-    const rule = getRulesForItem(useItemRulesAll, editingInfo.itemInstanceId)[editingInfo.index];
+    if (editingInfo.index < 0) return createEmptyRule(editingInfo.draftRuleId ?? createId(), buildDefaultRuleLabel(itemRules));
 
-    return rule ? toBaseInteractionRule(rule) : createEmptyRule(editingInfo.draftRuleId ?? createId());
+    const rule = itemRules[editingInfo.index];
+
+    return rule ? toBaseInteractionRule(rule, fallbackLabel) : createEmptyRule(editingInfo.draftRuleId ?? createId(), buildDefaultRuleLabel(itemRules));
   }, [ruleModalOpen, editingInfo, clickRules, useItemRulesAll, createId]);
 
   const openAddClickRule = useCallback(() => {
@@ -209,6 +268,22 @@ export function useEntityRulesEditor({ rules, onChangeRules, createId = defaultC
   }, [useItemRulesAll, normalizedRules, onChangeRules],
   );
 
+  const moveClickRule = useCallback((fromIndex: number, toIndex: number) => {
+    const nextClickRules = reorderList(clickRules, fromIndex, toIndex);
+
+    if (nextClickRules === clickRules) return;
+
+    onChangeRules({ ...normalizedRules, onClick: nextClickRules });
+  }, [clickRules, normalizedRules, onChangeRules]);
+
+  const moveUseItemRule = useCallback((itemInstanceId: ID, fromIndex: number, toIndex: number) => {
+    const nextUseItemRules = reorderUseItemRuleAt(useItemRulesAll, itemInstanceId, fromIndex, toIndex);
+
+    if (nextUseItemRules === useItemRulesAll) return;
+
+    onChangeRules({ ...normalizedRules, onUseItem: nextUseItemRules });
+  }, [useItemRulesAll, normalizedRules, onChangeRules]);
+
   const closeRuleModal = useCallback(() => {
     setRuleModalOpen(false);
     setEditingInfo(null);
@@ -242,7 +317,7 @@ export function useEntityRulesEditor({ rules, onChangeRules, createId = defaultC
   );
 
   return {
-    activeChannel, setActiveChannel, clickRules, useItemRulesAll, useItemRulesForSelected, selectedUseItemId, ruleModalOpen, editingInfo, currentRuleValue,
-    openAddClickRule, openEditClickRule, openAddUseItemRule, openEditUseItemRule, removeClickRule, removeUseItemRule, closeRuleModal, saveRule
+    activeChannel, setActiveChannel, clickRules, useItemRulesAll, useItemRulesForSelected, selectedUseItemId, ruleModalOpen, editingInfo, currentRuleValue, openAddClickRule,
+    openEditClickRule, openAddUseItemRule, openEditUseItemRule, removeClickRule, removeUseItemRule, moveClickRule, moveUseItemRule, closeRuleModal, saveRule
   }
 }

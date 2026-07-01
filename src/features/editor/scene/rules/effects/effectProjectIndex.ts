@@ -448,7 +448,7 @@ export function createProjectIndex(project: Project | null): ProjectIndex {
         (layer.placedPlayers ?? []).map((placedPlayer) => {
           const playerName = playerById.get(placedPlayer.playerId)?.name;
 
-          return { id: `player:${placedPlayer.playerId}` as const, label: `Player · ${getEntityLabel(playerName, placedPlayer.playerId)}` };
+          return { id: `player:${placedPlayer.playerId}` as const, label: `Jugador · ${getEntityLabel(playerName, placedPlayer.playerId)}` };
         }),
     );
 
@@ -456,7 +456,7 @@ export function createProjectIndex(project: Project | null): ProjectIndex {
         (layer.placedNpcs ?? []).map((placedNpc) => {
           const npcName = npcById.get(placedNpc.npcId)?.name;
 
-          return { id: `npc:${placedNpc.npcId}` as const, label: `NPC · ${getEntityLabel(npcName, placedNpc.npcId)}` };
+          return { id: `npc:${placedNpc.npcId}` as const, label: `PNJ · ${getEntityLabel(npcName, placedNpc.npcId)}` };
         }),
     );
 
@@ -467,9 +467,9 @@ export function createProjectIndex(project: Project | null): ProjectIndex {
     if (input.speakerKind === "narrator") return "Narrador";
     if (!input.speakerId) return "—";
 
-    if (input.speakerKind === "player") return `Player · ${getEntityLabel(playerById.get(input.speakerId)?.name, input.speakerId)}`;
+    if (input.speakerKind === "player") return `Jugador · ${getEntityLabel(playerById.get(input.speakerId)?.name, input.speakerId)}`;
 
-    return `NPC · ${getEntityLabel(npcById.get(input.speakerId)?.name, input.speakerId)}`;
+    return `PNJ · ${getEntityLabel(npcById.get(input.speakerId)?.name, input.speakerId)}`;
   };
 
   return {

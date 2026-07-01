@@ -29,7 +29,27 @@ export function canInteractWithPlaceable(state: GameState, runtimeState: Placeab
   return { allowed: true, state };
 }
 
+function findRuntimeInventoryRules(state: GameState, itemInstanceId: ID): InteractionRules | null {
+  for (const inventory of Object.values(state.playerInventory)) {
+    const entry = inventory.find((item) => item.itemInstanceId === itemInstanceId);
+
+    if (entry?.rules) return entry.rules;
+  }
+
+  for (const inventory of Object.values(state.npcInventory)) {
+    const entry = inventory.find((item) => item.itemInstanceId === itemInstanceId);
+
+    if (entry?.rules) return entry.rules;
+  }
+
+  return null;
+}
+
 export function findInventorySourceRules(state: GameState, itemInstanceId: ID): InteractionRules | null {
+  const runtimeRules = findRuntimeInventoryRules(state, itemInstanceId);
+
+  if (runtimeRules) return runtimeRules;
+
   for (const node of state.project.nodes ?? []) {
     for (const layer of node.layers ?? []) {
       const placedItem = (layer.placedItems ?? []).find((candidate) => candidate.itemInstanceId === itemInstanceId);

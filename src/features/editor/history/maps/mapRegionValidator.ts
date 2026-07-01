@@ -80,7 +80,7 @@ function applyBusinessRules(region: MapRegionLike, errors: MapRegionFieldErrors,
 
   if (region.entrySceneId && !region.sceneIds.includes(region.entrySceneId)) errors.entrySceneId ??= "La escena de entrada debe pertenecer a las escenas asociadas a la región.";
 
-  if (hasDuplicateRegionLabel(region, ctx?.project, ctx?.mapId)) errors.label ??= "Ya existe otra región con esa etiqueta dentro de este mapa.";
+  if (hasDuplicateRegionLabel(region, ctx?.project, ctx?.mapId)) errors.label ??= "Ya existe otra región con ese nombre dentro de este mapa.";
 
   if (!hasValidSubMap(region, ctx?.project, ctx?.mapId)) errors.subMapId ??= "El submapa seleccionado no existe o coincide con el propio mapa.";
 

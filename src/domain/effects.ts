@@ -1,4 +1,4 @@
-import type { ID, EndGameContent, Speaker } from "@/domain/types";
+import type { ID, EndGameContent, Speaker, InteractionRules } from "@/domain/types";
 
 type RuntimeValue = boolean | number;
 type MusicStartMode = "resume" | "restart";
@@ -8,10 +8,10 @@ export type Effect =
   | { type: "goToNode"; targetNodeId: ID }
 
   // Inventario
-  | { type: "addItem"; playerId: ID; itemInstanceId: ID }
-  | { type: "removeItem"; playerId: ID; itemInstanceId: ID }
-  | { type: "transformItem"; itemInstanceId: ID; resultItemId: ID; resultItemInstanceId: ID; resultItemLabel: string }
-  | { type: "combineItems"; itemAInstanceId: ID; itemBInstanceId: ID; resultItemId: ID; resultItemInstanceId: ID; resultItemLabel: string }
+  | { type: "addItem"; itemInstanceId: ID }
+  | { type: "removeItem"; itemInstanceId: ID }
+  | { type: "transformItem"; itemInstanceId: ID; resultItemId: ID; resultItemInstanceId: ID; resultItemLabel: string, resultItemRules?: InteractionRules }
+  | { type: "combineItems"; itemAInstanceId: ID; itemBInstanceId: ID; resultItemId: ID; resultItemInstanceId: ID; resultItemLabel: string, resultItemRules?: InteractionRules; }
 
   // Diálogo / PNJ
   | { type: "startDialogue"; nodeDialogueId: ID }

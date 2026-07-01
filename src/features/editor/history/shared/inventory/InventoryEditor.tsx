@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { ID, ItemInstance, Project } from "@/domain/types";
 import type { SaveInventoryItemResult } from "@/features/editor/history/shared/inventory/useEntityInventoryEditor";
 import { Select } from "@/components/Select";
@@ -14,6 +14,7 @@ type InventoryEditorProps = {
   value: ItemInstance[];
   openInventoryItemId: ID | null;
   fieldErrors: InventoryEditorFieldErrors;
+  savedInventoryItems?: readonly ItemInstance[];
 
   addInventoryRow: () => ID | null;
   updateInventoryRow: (itemInstanceId: ID, patch: Partial<ItemInstance>) => void;
@@ -33,28 +34,54 @@ type InventoryEditorProps = {
 
 export function InventoryEditor({ project, value, openInventoryItemId, fieldErrors, addInventoryRow, updateInventoryRow, removeInventoryRow,
   toggleInventoryItemOpen, saveInventoryRow, title = "Inventario inicial", addButtonLabel = "+ Añadir item",
-  buttonGroupClassName = "panel--inventory", renderRulesEditor}: InventoryEditorProps) {
+  buttonGroupClassName = "panel--inventory", savedInventoryItems = [], renderRulesEditor }: InventoryEditorProps) {
   const itemOptions = project.items ?? [];
+
+  const [savedItemById, setSavedItemById] = useState<Record<ID, ItemInstance>>({});
+
+  useEffect(() => {
+    const next: Record<ID, ItemInstance> = {};
+
+    for (const item of savedInventoryItems) next[item.itemInstanceId] = item;
+
+    setSavedItemById(next);
+  }, [savedInventoryItems]);
 
   /* Añade una fila de inventario o avisa si no hay items globales */
   const handleAddInventoryRow = () => {
     const id = addInventoryRow();
 
-    if (!id) toast.warning("No hay items", "Crea primero un item global.");
+    if (!id) toast.warning("No hay objetos", "Crea primero un objeto global.");
   };
 
   /* Guarda una fila concreta del inventario */
   const handleSaveInventoryRow = (item: ItemInstance) => {
-
     const result = saveInventoryRow(item);
 
     if (!result.ok) {
-      const message = result.errors.label ?? result.errors.itemId ?? "Corrige los errores del item.";
-      toast.warning("Item con errores", message);
+      const message = result.errors.label ?? result.errors.itemId ?? "Corrige los errores del objeto.";
+      toast.warning("Objeto con errores", message);
       return;
     }
 
-    toast.success("Item guardado", `“${result.item.label}”`);
+    setSavedItemById((prev) => ({
+      ...prev,
+      [result.item.itemInstanceId]: result.item,
+    }));
+
+    toast.success("Objeto guardado", `“${result.item.label}”`);
+  };
+
+  const handleCancelInventoryRow = (item: ItemInstance) => {
+    const savedItem = savedItemById[item.itemInstanceId];
+
+    if (savedItem) {
+      updateInventoryRow(item.itemInstanceId, savedItem);
+      toggleInventoryItemOpen(item.itemInstanceId);
+      return;
+    }
+
+    removeInventoryRow(item.itemInstanceId);
   };
 
   return (
@@ -67,7 +94,7 @@ export function InventoryEditor({ project, value, openInventoryItemId, fieldErro
           onClick={handleAddInventoryRow}
           className="btn btn-add-variant bg-rose-800 border-rose-600 text-[12px] disabled:opacity-40 disabled:cursor-not-allowed mt-1 mb-1"
           disabled={openInventoryItemId !== null}
-          title={openInventoryItemId ? "Termina la edición del item abierto." : "Añadir item"}
+          title={openInventoryItemId ? "Termina la edición del objeto abierto." : "Añadir objeto"}
         >
           {addButtonLabel}
         </button>
@@ -83,11 +110,12 @@ export function InventoryEditor({ project, value, openInventoryItemId, fieldErro
         {value.map((item) => {
           const isOpen = item.itemInstanceId === openInventoryItemId;
           const itemDef = itemOptions.find((option) => option.id === item.itemId);
+          const isSavedItem = Boolean(savedItemById[item.itemInstanceId]);
 
           return (
             <div
               key={item.itemInstanceId}
-              className={ "rounded-md border-2 border-slate-700 bg-slate-950 p-2 " +
+              className={"rounded-md border-2 border-slate-700 bg-slate-950 p-2 " +
                 (!isOpen ? "hover:bg-slate-900" : "")
               }
             >
@@ -97,11 +125,11 @@ export function InventoryEditor({ project, value, openInventoryItemId, fieldErro
                 className="w-full text-left text-[13px] text-slate-100"
               >
                 <span className="ml-1 font-semibold">
-                  {item.label || "Item sin nombre"}
+                  {item.label || "Objeto sin nombre"}
                 </span>
                 <span className="text-slate-300">
                   {" · "}
-                  {itemDef?.name ?? "Item desconocido"}
+                  {itemDef?.name ?? "Objeto desconocido"}
                 </span>
               </button>
 
@@ -109,12 +137,12 @@ export function InventoryEditor({ project, value, openInventoryItemId, fieldErro
                 <div className="-mx-2 mt-3 border-t border-slate-600 px-2 pt-3 space-y-2">
                   <div>
                     <label className="block text-[12px] text-center text-slate-100 mt-2 mb-2">
-                      Tipo de item
+                      Tipo de objeto
                     </label>
 
                     <Select<ID>
                       value={item.itemId}
-                      placeholder="Selecciona item…"
+                      placeholder="Selecciona objeto…"
                       options={itemOptions.map((option) => ({
                         id: option.id,
                         label: option.name,
@@ -157,22 +185,36 @@ export function InventoryEditor({ project, value, openInventoryItemId, fieldErro
                     ? renderRulesEditor({ item, onChange: (patch) => updateInventoryRow(item.itemInstanceId, patch) })
                     : null}
 
-                  <div className={`flex justify-end gap-2 ${buttonGroupClassName}`}>
-                    <button
-                      type="button"
-                      onClick={() => handleSaveInventoryRow(item)}
-                      className="btn btn-save text-[11px]"
-                    >
-                      Guardar
-                    </button>
+                  <div className={`flex items-center justify-between gap-2 ${buttonGroupClassName}`}>
+                    <div>
+                      {isSavedItem ? (
+                        <button
+                          type="button"
+                          onClick={() => removeInventoryRow(item.itemInstanceId)}
+                          className="btn btn-danger text-[11px]"
+                        >
+                          Eliminar
+                        </button>
+                      ) : null}
+                    </div>
 
-                    <button
-                      type="button"
-                      onClick={() => removeInventoryRow(item.itemInstanceId)}
-                      className="btn btn-danger text-[11px]"
-                    >
-                      Eliminar
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleCancelInventoryRow(item)}
+                        className="btn btn-cancel text-[11px]"
+                      >
+                        Cancelar
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleSaveInventoryRow(item)}
+                        className="btn btn-save text-[11px]"
+                      >
+                        Guardar
+                      </button>
+                    </div>
                   </div>
                 </div>
               ) : null}

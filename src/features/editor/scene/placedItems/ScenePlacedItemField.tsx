@@ -9,7 +9,8 @@ import { InteractiveListPanel, type InteractiveListEntry } from "@/features/edit
 import { useEntityRulesEditor } from "@/features/editor/scene/rules/entityRulesEditor";
 import { useEntityCollisionGuard } from "@/features/editor/scene/useEntityCollisionGuard";
 import { DEFAULT_MIN_RECT_01 } from "@/features/editor/hooks/regionShape";
-import { buildClickableRegions, buildProjectWithNodeDraft, useActiveSceneLayer, useFocusWhenEnabled } from "@/features/editor/scene/interactiveComponents/interactiveFieldHelpers";
+import { buildClickableRegions, buildProjectWithNodeDraft, buildLiveProjectWithInteractiveDraft,
+  useActiveSceneLayer, useFocusWhenEnabled } from "@/features/editor/scene/interactiveComponents/interactiveFieldHelpers";
 import { buildGameItemOptions } from "@/features/editor/scene/interactiveComponents/gameItemOptions";
 import { ToggleFieldBlock } from "@/features/editor/scene/SceneFieldBlocks";
 import { hasDuplicatedItemInstanceLabel } from "@/validation/itemInstanceLabels";
@@ -26,9 +27,10 @@ type ScenePlacedItemFieldProps = {
   active: boolean;
   onToggle: () => void;
   layerId: ID;
+  onSaveSceneDraft?: () => boolean;
 };
 
-export function ScenePlacedItemField({ label = "Objetos", active, onToggle, layerId }: ScenePlacedItemFieldProps) {
+export function ScenePlacedItemField({ label = "Objetos", active, onToggle, layerId, onSaveSceneDraft }: ScenePlacedItemFieldProps) {
   const project = useEditorStore((state) => state.project ?? null);
   const nodeDraft = useEditorStore((state) => state.nodeDraft);
 
@@ -89,11 +91,8 @@ export function ScenePlacedItemField({ label = "Objetos", active, onToggle, laye
 
   /* ---------------------------- Entidades de la capa --------------------------- */
   const hotspots = useMemo<Hotspot[]>(() => layer?.hotspots ?? [], [layer?.hotspots]);
-
   const placedItems = useMemo<ItemInstance[]>(() => layer?.placedItems ?? [], [layer?.placedItems]);
-
   const placedNpcs = useMemo<PlacedNpc[]>(() => layer?.placedNpcs ?? [], [layer?.placedNpcs]);
-
   const placedPlayers = useMemo<PlacedPlayer[]>(() => layer?.placedPlayers ?? [], [layer?.placedPlayers]);
 
   /* ------------------------------ Estado del draft ---------------------------- */
@@ -105,14 +104,19 @@ export function ScenePlacedItemField({ label = "Objetos", active, onToggle, laye
   const draftShape = draft?.placement?.shape ?? null;
   const draftInitialState = draft?.placement?.initialState;
 
+  const liveProject = useMemo(() =>
+    buildLiveProjectWithInteractiveDraft({ project, nodeDraft, interactiveDraft: draft ? { kind: "placedItem", layerId, draft } : null }),
+  [project, nodeDraft, layerId, draft],
+);
+
   /* ------------------------------- Derivados UI ------------------------------- */
   const selectedId = selectedInteractionKind === "placedItem" ? selectedInteractionId : null;
 
   const dupLabel = useMemo(() => {
-    if (!effectiveProject || !draft) return false;
+    if (!liveProject || !draft) return false;
 
-    return hasDuplicatedItemInstanceLabel(effectiveProject, draft.label, draft.itemInstanceId);
-  }, [effectiveProject, draft]);
+    return hasDuplicatedItemInstanceLabel(liveProject, draft.label, draft.itemInstanceId);
+  }, [liveProject, draft]);
 
   const isExistingPlacedItem = useMemo(() => {
     if (!draftItemInstanceId) return false;
@@ -126,8 +130,8 @@ export function ScenePlacedItemField({ label = "Objetos", active, onToggle, laye
   );
 
   /* --------------------------- Reglas / owner / items ------------------------- */
-  const useItemSourceOptions = useMemo(() => buildGameItemOptions(effectiveProject, draftItemInstanceId ?? undefined),
-    [effectiveProject, draftItemInstanceId],
+  const useItemSourceOptions = useMemo(() => buildGameItemOptions(liveProject, draftItemInstanceId ?? undefined),
+    [liveProject, draftItemInstanceId],
   );
 
   const owner = useMemo<EffectOwner | null>(() => {
@@ -141,7 +145,7 @@ export function ScenePlacedItemField({ label = "Objetos", active, onToggle, laye
   }, [draft, draftShape, draftInitialState, layerId]);
 
   const { activeChannel, setActiveChannel, clickRules, useItemRulesForSelected, ruleModalOpen, currentRuleValue, openAddClickRule, openEditClickRule,
-    openAddUseItemRule, openEditUseItemRule, removeClickRule, removeUseItemRule, closeRuleModal, saveRule } = useEntityRulesEditor({
+    openAddUseItemRule, openEditUseItemRule, removeClickRule, moveClickRule, removeUseItemRule, moveUseItemRule, closeRuleModal, saveRule } = useEntityRulesEditor({
     rules: draft?.rules, onChangeRules: setPlacedItemDraftRules });
 
   /* -------------------------------- Colisiones -------------------------------- */
@@ -226,12 +230,12 @@ export function ScenePlacedItemField({ label = "Objetos", active, onToggle, laye
     setEditorError(null);
 
     if (!hasLabel) {
-      setEditorError({ kind: "panel", message: "El objeto debe tener una etiqueta antes de guardarse." });
+      setEditorError({ kind: "panel", message: "El objeto debe tener un nombre antes de guardarse." });
       return;
     }
 
     if (dupLabel) {
-      toast.warning("Etiqueta duplicada", "Ya existe un objeto con esa etiqueta en la aventura.");
+      toast.warning("Nombre duplicado", "Ya existe un objeto con ese nombre en la aventura.");
       return;
     }
 
@@ -260,7 +264,7 @@ export function ScenePlacedItemField({ label = "Objetos", active, onToggle, laye
     setIsCreatingPlacedItem(false);
     setSelectedCatalogItemId("");
 
-    toast.success("Objeto guardado", "El objeto ya forma parte de la escena.");
+    onSaveSceneDraft?.();
   };
 
   const handleDelete = (id: ID) => {
@@ -386,18 +390,26 @@ export function ScenePlacedItemField({ label = "Objetos", active, onToggle, laye
               ruleModalOpen={ruleModalOpen}
               currentRuleValue={currentRuleValue}
               nodeId={nodeId}
-              project={effectiveProject}
+              project={liveProject}
               onOpenAddClickRule={openAddClickRule}
               onOpenEditClickRule={openEditClickRule}
               onRemoveClickRule={(index) => {
                 removeClickRule(index);
                 toast.success("Regla eliminada", "Se ha eliminado la regla.");
               }}
+              onMoveClickRule={(fromIndex, toIndex) => {
+                moveClickRule(fromIndex, toIndex);
+                toast.success("Orden actualizado", "Se ha actualizado la prioridad de las reglas.");
+              }}
               onOpenAddUseItemRule={openAddUseItemRule}
               onOpenEditUseItemRule={openEditUseItemRule}
               onRemoveUseItemRule={(itemId, index) => {
                 removeUseItemRule(itemId, index);
                 toast.success("Regla eliminada", "Se ha eliminado la regla.");
+              }}
+              onMoveUseItemRule={(itemId, fromIndex, toIndex) => {
+                moveUseItemRule(itemId, fromIndex, toIndex);
+                toast.success("Orden actualizado", "Se ha actualizado la prioridad de las reglas.");
               }}
               onCloseRuleModal={closeRuleModal}
               onSaveRule={(rule: { id: ID; when?: Condition; effects: Effect[] }) => saveRule(rule)}

@@ -27,7 +27,7 @@ function PlacedPlayerPreviewCard({ player, assetId, playerName, contentRectInCon
 
   if (!style) return null;
 
-  const label = playerName.trim() || "Player";
+  const label = playerName.trim() || "Jugador";
 
   const showLabel = canRenderPreviewLabel({ label, width: sizeInfo.width, height: sizeInfo.height });
 

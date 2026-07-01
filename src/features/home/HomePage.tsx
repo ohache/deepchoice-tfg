@@ -199,6 +199,7 @@ export function HomePage() {
       <UserManualModal
         open={isManualOpen}
         onClose={() => setIsManualOpen(false)}
+        manualSrc={publicPath("manual_usuario.pdf")}
       />
     </div>
   );

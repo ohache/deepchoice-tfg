@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef } from "react";
 import type { Hotspot, ID, ItemInstance, PlacedNpc, PlacedPlayer, Project, SceneImageLayer, Node } from "@/domain/types";
+import type { HotspotDraft } from "@/features/editor/scene/hotspots/hotspotEditorTypes";
+import type { PlacedItemDraft } from "@/features/editor/scene/placedItems/placedItemEditorTypes";
+import type { PlacedNpcDraft } from "@/features/editor/scene/placedNpcs/placedNpcEditorTypes";
 import type { ClickableRegion } from "@/features/editor/scene/clickableCollisions";
 
 
@@ -117,4 +120,128 @@ export function buildProjectWithNodeDraft(project: Project | null, nodeDraft: No
   else nextNodes.push(nodeDraft);
 
   return { ...project, nodes: nextNodes };
+}
+
+type LiveInteractiveDraft =
+  | { kind: "hotspot"; layerId: ID; draft: HotspotDraft | null | undefined }
+  | { kind: "placedItem"; layerId: ID; draft: PlacedItemDraft | null | undefined }
+  | { kind: "placedNpc"; layerId: ID; draft: PlacedNpcDraft | null | undefined };
+
+type BuildLiveProjectWithInteractiveDraftArgs = {
+  project: Project | null;
+  nodeDraft: Node | null | undefined;
+  interactiveDraft?: LiveInteractiveDraft | null;
+};
+
+function replaceOrAppend<T>(items: T[] | undefined, candidate: T, match: (item: T) => boolean): T[] {
+  const list = items ?? [];
+  const index = list.findIndex(match);
+
+  if (index < 0) return [...list, candidate];
+
+  const next = [...list];
+  next[index] = candidate;
+
+  return next;
+}
+
+function buildLiveHotspot(draft: HotspotDraft | null | undefined): Hotspot | null {
+  if (!draft?.shape) return null;
+  if (!draft.label.trim()) return null;
+
+  return {
+    id: draft.id,
+    label: draft.label.trim(),
+    shape: draft.shape,
+    initialState: draft.initialState,
+    vars: draft.vars ?? [],
+    rules: draft.rules ?? {},
+  };
+}
+
+function buildLivePlacedItem(draft: PlacedItemDraft | null | undefined): ItemInstance | null {
+  if (!draft?.placement.shape) return null;
+  if (!draft.itemId) return null;
+  if (!draft.label.trim()) return null;
+
+  return {
+    itemInstanceId: draft.itemInstanceId,
+    itemId: draft.itemId,
+    label: draft.label.trim(),
+    rules: draft.rules ?? {},
+    placement: {
+      shape: draft.placement.shape,
+      initialState: draft.placement.initialState,
+    },
+  };
+}
+
+function buildLivePlacedNpc(draft: PlacedNpcDraft | null | undefined): PlacedNpc | null {
+  if (!draft?.shape) return null;
+  if (!draft.npcId) return null;
+
+  return {
+    npcId: draft.npcId,
+    shape: draft.shape,
+    initialState: draft.initialState,
+    rules: draft.rules ?? {},
+  };
+}
+
+function patchLayerWithInteractiveDraft(layer: SceneImageLayer, interactiveDraft: LiveInteractiveDraft): SceneImageLayer {
+  switch (interactiveDraft.kind) {
+    case "hotspot": {
+      const hotspot = buildLiveHotspot(interactiveDraft.draft);
+      if (!hotspot) return layer;
+
+      return {
+        ...layer,
+        hotspots: replaceOrAppend(layer.hotspots, hotspot, (entry) => entry.id === hotspot.id),
+      };
+    }
+
+    case "placedItem": {
+      const placedItem = buildLivePlacedItem(interactiveDraft.draft);
+      if (!placedItem) return layer;
+
+      return {
+        ...layer,
+        placedItems: replaceOrAppend(layer.placedItems, placedItem, (entry) => entry.itemInstanceId === placedItem.itemInstanceId),
+      };
+    }
+
+    case "placedNpc": {
+      const placedNpc = buildLivePlacedNpc(interactiveDraft.draft);
+      if (!placedNpc) return layer;
+
+      return {
+        ...layer,
+        placedNpcs: replaceOrAppend(layer.placedNpcs, placedNpc, (entry) => entry.npcId === placedNpc.npcId),
+      };
+    }
+  }
+}
+
+export function buildLiveProjectWithInteractiveDraft({ project, nodeDraft, interactiveDraft }: BuildLiveProjectWithInteractiveDraftArgs): Project | null {
+  const baseProject = buildProjectWithNodeDraft(project, nodeDraft);
+
+  if (!baseProject) return null;
+  if (!nodeDraft) return baseProject;
+  if (!interactiveDraft) return baseProject;
+
+  const nextNodes = baseProject.nodes.map((node) => {
+    if (node.id !== nodeDraft.id) return node;
+
+    return {
+      ...node,
+      layers: (node.layers ?? []).map((layer) =>
+        layer.id === interactiveDraft.layerId ? patchLayerWithInteractiveDraft(layer, interactiveDraft) : layer,
+      ),
+    };
+  });
+
+  return {
+    ...baseProject,
+    nodes: nextNodes,
+  };
 }

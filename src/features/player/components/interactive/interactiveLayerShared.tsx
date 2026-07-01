@@ -14,46 +14,41 @@ export type RectPx = {
 export function rectPx(shape: RegionShape, content: { w: number; h: number }): RectPx | null {
   if (shape.type !== "rect") return null;
 
-  return {
-    left: shape.x * content.w, top: shape.y * content.h, width: shape.w * content.w, height: shape.h * content.h,
-  };
+  return { left: shape.x * content.w, top: shape.y * content.h, width: shape.w * content.w, height: shape.h * content.h };
 }
 
 export function buildRevealRingStyle(reveal: boolean, reachable: boolean): CSSProperties | undefined {
   if (!reveal) return undefined;
 
-  return reachable
-    ? 
-      { 
-        animation: "hotspotPulse 0.8s ease-in-out infinite",
-        boxShadow: "0 0 0 2px rgba(251,191,36,0.65), 0 0 28px rgba(251,191,36,0.45), inset 0 0 0 2px rgba(251,191,36,0.28)",
-        background: "rgba(251,191,36,0.12)",
-        borderRadius: 12,
-        backdropFilter: "blur(1px)",
-      }
-    : {
-        animation: "hotspotPulse 0.8s ease-in-out infinite",
-        boxShadow: "0 0 0 2px rgba(148,163,184,0.45), 0 0 22px rgba(148,163,184,0.28), inset 0 0 0 2px rgba(148,163,184,0.16)",
-        background: "rgba(148,163,184,0.08)",
-        borderRadius: 12,
-        backdropFilter: "blur(1px)",
-      };
+  return reachable ?
+    {
+      animation: "hotspotPulse 0.8s ease-in-out infinite",
+      boxShadow: "0 0 0 2px rgba(251,191,36,0.65), 0 0 28px rgba(251,191,36,0.45), inset 0 0 0 2px rgba(251,191,36,0.28)",
+      background: "rgba(251,191,36,0.12)",
+      borderRadius: 12,
+      backdropFilter: "blur(1px)",
+    } : {
+      animation: "hotspotPulse 0.8s ease-in-out infinite",
+      boxShadow: "0 0 0 2px rgba(148,163,184,0.45), 0 0 22px rgba(148,163,184,0.28), inset 0 0 0 2px rgba(148,163,184,0.16)",
+      background: "rgba(148,163,184,0.08)",
+      borderRadius: 12,
+      backdropFilter: "blur(1px)",
+    };
 }
 
 export function buildUseItemHoverStyle(isUsingItem: boolean | undefined, isHovered: boolean, reachable: boolean): CSSProperties | undefined {
   if (!isUsingItem || !isHovered) return undefined;
 
-  return reachable
-    ? {
-        boxShadow: "0 0 0 2px rgba(250,204,21,0.45), 0 0 16px rgba(250,204,21,0.22), inset 0 0 18px rgba(250,204,21,0.10)",
-        background: "rgba(250,204,21,0.06)",
-        borderRadius: 12,
-      }
-    : {
-        boxShadow: "0 0 0 2px rgba(148,163,184,0.35), 0 0 12px rgba(148,163,184,0.16), inset 0 0 16px rgba(148,163,184,0.08)",
-        background: "rgba(148,163,184,0.05)",
-        borderRadius: 12,
-      };
+  return reachable ?
+    {
+      boxShadow: "0 0 0 2px rgba(250,204,21,0.45), 0 0 16px rgba(250,204,21,0.22), inset 0 0 18px rgba(250,204,21,0.10)",
+      background: "rgba(250,204,21,0.06)",
+      borderRadius: 12,
+    } : {
+      boxShadow: "0 0 0 2px rgba(148,163,184,0.35), 0 0 12px rgba(148,163,184,0.16), inset 0 0 16px rgba(148,163,184,0.08)",
+      background: "rgba(148,163,184,0.05)",
+      borderRadius: 12,
+    };
 }
 
 export function renderPlacedImage(key: string, imageSrc: string | undefined, rect: RectPx, alt = "") {
@@ -99,6 +94,10 @@ export function InteractiveRegionButton<T>({ entity, entityId, ariaLabel, rect, 
     <button
       type="button"
       aria-label={ariaLabel}
+      onMouseDown={(e) => {
+        e.preventDefault();
+        e.currentTarget.blur();
+      }}
       onMouseEnter={(e) => {
         if (cursorBlocked) return;
 
@@ -113,14 +112,17 @@ export function InteractiveRegionButton<T>({ entity, entityId, ariaLabel, rect, 
         e.stopPropagation();
         onHover(entityId);
         clearHoveredExcept(kind);
-        onCursorMove?.(e, reachable ? interactionKind : "idle");
+        onCursorMove?.(e, reachable ? interactionKind : "inspect");
       }}
       onMouseLeave={(e) => {
         e.stopPropagation();
+        e.currentTarget.blur();
         onHover(null);
         onCursorMove?.(e, "idle");
       }}
-      onClick={() => {
+      onClick={(e) => {
+        e.currentTarget.blur();
+
         if (cursorBlocked) return;
 
         if (!reachable) {
@@ -135,12 +137,13 @@ export function InteractiveRegionButton<T>({ entity, entityId, ariaLabel, rect, 
 
         onPrimaryClick?.(entity);
       }}
-      className="absolute bg-transparent focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/70 focus-visible:ring-offset-0"
+      className="absolute bg-transparent outline-none focus:outline-none focus-visible:outline-none"
       style={{
         ...rect,
         ...buildRevealRingStyle(reveal, reachable),
         ...buildUseItemHoverStyle(isUsingItem, isHovered, reachable),
         cursor: cursorBlocked ? "auto" : "none",
+        outline: "none",
       }}
       tabIndex={-1}
     />

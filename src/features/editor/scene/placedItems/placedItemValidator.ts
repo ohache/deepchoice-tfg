@@ -19,7 +19,7 @@ function createPlacedItemFieldErrors(): PlacedItemFieldErrors {
 }
 
 function applyBusinessRules(item: PlacedItemValidationEntity, errors: PlacedItemFieldErrors, ctx?: PlacedItemValidationContext): void {
-  if (hasDuplicateUseItemRules(item)) errors.rules ??= "No puede haber dos reglas onUseItem para el mismo item.";;
+  if (hasDuplicateUseItemRules(item)) errors.rules ??= "No puede haber dos reglas onUseItem para el mismo objeto.";;
 
   if (!ctx?.project) return;
 

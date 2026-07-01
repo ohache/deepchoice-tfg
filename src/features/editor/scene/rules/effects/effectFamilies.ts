@@ -23,7 +23,7 @@ const EFFECT_FAMILIES: EffectFamilyDefinition[] = [
   },
   {
     id: "item",
-    label: "Item",
+    label: "Objeto",
     isAvailable: (factory) => factory.idx.getGameItemOptions().length > 0,
   },
   {
@@ -33,12 +33,12 @@ const EFFECT_FAMILIES: EffectFamilyDefinition[] = [
   },
   {
     id: "npc",
-    label: "NPC",
+    label: "PNJ",
     isAvailable: (factory) => factory.idx.getPlacedNpcs().length > 0 || factory.idx.getNpcOptions().length > 0,
   },
   {
     id: "player",
-    label: "Player",
+    label: "Jugador",
     isAvailable: (factory) => factory.idx.getPlacedPlayers().length > 0 || factory.idx.getPlayerOptions().length > 0,
   },
   {

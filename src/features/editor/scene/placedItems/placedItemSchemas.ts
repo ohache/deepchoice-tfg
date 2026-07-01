@@ -7,7 +7,7 @@ const ItemPlacementSchema = z.object({ shape: regionShapeSchema,  initialState: 
 const ItemDraftPlacementSchema = z.object({ shape: regionShapeSchema.nullable(), initialState: placeableStateSchema });
 
 const placedItemBaseSchema = z.object({ itemInstanceId: IdSchema, itemId: IdSchema,
-  label: z.string().trim().min(1, "El label del item es obligatorio").max(60, "Máximo 60 caracteres"),
+  label: z.string().trim().min(1, "El nombre del objeto es obligatorio").max(60, "Máximo 60 caracteres"),
   rules: interactionRulesSchema.default({}),
 });
 

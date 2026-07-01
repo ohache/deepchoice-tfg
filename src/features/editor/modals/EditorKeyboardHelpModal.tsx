@@ -2,7 +2,7 @@
 
 import { EDITOR_KEYBOARD_SHORTCUTS } from "@/shared/keyboard";
 
-interface EditorKeyboardHelpModalProps {
+type EditorKeyboardHelpModalProps = {
   open: boolean;
   onClose: () => void;
 }

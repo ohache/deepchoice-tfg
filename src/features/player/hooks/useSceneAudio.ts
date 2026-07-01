@@ -18,7 +18,16 @@ function normalizeSeconds(seconds: number): number {
 
 /* Sincroniza el estado musical del motor con un <audio> real del DOM */
 export function useSceneAudio(opts: UseSceneAudioOptions) {
-  const { targetTrackId, currentTrackId, musicSrc, savedPosition = 0, loop = true, onRememberPosition, onPlaybackStarted, onPlaybackStopped } = opts;
+  const {
+    targetTrackId,
+    currentTrackId,
+    musicSrc,
+    savedPosition = 0,
+    loop = true,
+    onRememberPosition,
+    onPlaybackStarted,
+    onPlaybackStopped,
+  } = opts;
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const appliedTrackIdRef = useRef<ID | null>(null);
@@ -29,7 +38,10 @@ export function useSceneAudio(opts: UseSceneAudioOptions) {
   const suppressRememberRef = useRef(false);
   const suppressReleaseTimerRef = useRef<number | null>(null);
 
-  const lastRememberedRef = useRef<{ trackId?: ID; seconds: number }>({ trackId: undefined, seconds: -1 });
+  const lastRememberedRef = useRef<{ trackId?: ID; seconds: number }>({
+    trackId: undefined,
+    seconds: -1,
+  });
 
   const rememberRef = useRef(onRememberPosition);
   const startedRef = useRef(onPlaybackStarted);
@@ -135,20 +147,26 @@ export function useSceneAudio(opts: UseSceneAudioOptions) {
     if (!targetTrackId || !musicSrc) {
       if (activeTrackId) safeRemember(activeTrackId, audio.currentTime);
 
-      if (appliedTrackIdRef.current !== null || audio.getAttribute("src")) resetAudioElement(audio);
+      if (appliedTrackIdRef.current !== null || audio.getAttribute("src")) {
+        resetAudioElement(audio);
+      }
 
       appliedTrackIdRef.current = null;
       stoppedRef.current?.(activeTrackId);
       return;
     }
 
-    const sameTrackAlreadyApplied = appliedTrackIdRef.current === targetTrackId && audio.getAttribute("src") === musicSrc;
+    const sameTrackAlreadyApplied =
+      appliedTrackIdRef.current === targetTrackId &&
+      audio.getAttribute("src") === musicSrc;
 
     if (sameTrackAlreadyApplied) {
       audio.loop = loop;
 
       if (audio.paused) {
-        void audio.play().then(() => {
+        void audio
+          .play()
+          .then(() => {
             startedRef.current?.(targetTrackId);
           })
           .catch(() => {
@@ -159,7 +177,9 @@ export function useSceneAudio(opts: UseSceneAudioOptions) {
       return;
     }
 
-    if (activeTrackId && activeTrackId !== targetTrackId) safeRemember(activeTrackId, audio.currentTime);
+    if (activeTrackId && activeTrackId !== targetTrackId) {
+      safeRemember(activeTrackId, audio.currentTime);
+    }
 
     if (!audio.paused) pauseSilently(audio);
 
@@ -167,7 +187,9 @@ export function useSceneAudio(opts: UseSceneAudioOptions) {
     audio.loop = loop;
     audio.currentTime = normalizeSeconds(savedPosition);
 
-    void audio.play().then(() => {
+    void audio
+      .play()
+      .then(() => {
         appliedTrackIdRef.current = targetTrackId;
         startedRef.current?.(targetTrackId);
       })

@@ -13,7 +13,7 @@ function createPlacedNpcFieldErrors(): PlacedNpcFieldErrors {
 }
 
 function applyBusinessRules(npc: PlacedNpcValidationEntity, errors: PlacedNpcFieldErrors): void {
-  if (hasDuplicateUseItemRules(npc)) errors.rules ??= "No puede haber dos reglas onUseItem para el mismo item.";
+  if (hasDuplicateUseItemRules(npc)) errors.rules ??= "No puede haber dos reglas onUseItem para el mismo objeto.";
 }
 
 const validators = createEntityValidators(PlacedNpcSchema, PlacedNpcDraftSchema, createPlacedNpcFieldErrors, applyBusinessRules);

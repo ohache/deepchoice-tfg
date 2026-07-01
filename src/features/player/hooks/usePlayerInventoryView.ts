@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type { ID, ItemDef, Project } from "@/domain/types";
-import type { GameState, InventoryEntry } from "@/engine/state/runtimeState";
+import { resolveInventoryPlayerId, type GameState, type InventoryEntry } from "@/engine/state/runtimeState";
 import type { InventoryItemView } from "@/features/player/components/InventoryOverlay";
 import { PLAYER_ITEM_CURSOR_FALLBACK_SIZE } from "@/features/player/hooks/usePlayerCursor";
 import { resolveAssetIdToSrc } from "@/features/player/utils/playerAssetResolution";
@@ -13,13 +13,6 @@ function buildItemById(project: Project | null): Map<ID, ItemDef> {
   return map;
 }
 
-/* Determina qué inventario de Player debe mostrarse */
-function resolveInventoryPlayerId(project: Project | null, playerId?: ID | null): ID | null {
-  if (playerId) return playerId;
-
-  return project?.players?.[0]?.id ?? null;
-}
-
 function getPlayerInventoryEntries(gameState: GameState | null, playerId: ID | null): InventoryEntry[] {
   if (!gameState || !playerId) return [];
 
@@ -30,8 +23,8 @@ export function usePlayerInventoryView(project: Project | null, gameState: GameS
   const itemById = useMemo(() => buildItemById(project), [project]);
 
   const inventoryPlayerId = useMemo(() => {
-    return resolveInventoryPlayerId(project, playerId);
-  }, [project, playerId]);
+    return resolveInventoryPlayerId(gameState, playerId);
+  }, [gameState, playerId]);
 
   const inventoryItems = useMemo<InventoryItemView[]>(() => {
     if (!gameState || !project) return [];

@@ -9,7 +9,7 @@ type NodeLayoutBatchItem = {
   pos: NodeLayout;
 };
 
-export type EditorHistoryViewSlice =  {
+export interface EditorHistoryViewSlice  {
   updateNodeLayoutsBatch: (items: NodeLayoutBatchItem[]) => void;
 }
 

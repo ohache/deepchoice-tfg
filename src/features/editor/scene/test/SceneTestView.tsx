@@ -184,17 +184,21 @@ export function SceneTestView() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 pb-4 space-y-3">
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="min-w-0 self-start">
-          <div className="w-full flex justify-center mb-2">
+          <div className="mb-2 space-y-2">
+            <div className="text-center text-xl font-semibold text-white">
+              {activeScene?.title ?? "Sin escena"}
+            </div>
 
-            <SceneTestToolbar
-              canGoPrevScene={canGoPrevScene}
-              canGoNextScene={canGoNextScene}
-              onPrevScene={goPrevScene}
-              onNextScene={goNextScene}
-            />
-
+            <div className="w-full flex justify-center">
+              <SceneTestToolbar
+                canGoPrevScene={canGoPrevScene}
+                canGoNextScene={canGoNextScene}
+                onPrevScene={goPrevScene}
+                onNextScene={goNextScene}
+              />
+            </div>
           </div>
 
           <SceneTest
@@ -227,53 +231,10 @@ export function SceneTestView() {
         </div>
 
         <aside className="min-w-0 space-y-3 xl:sticky xl:top-0 self-start -mt-0.5">
-          <div className="rounded-xl border-2 border-slate-700 bg-slate-900 px-4 py-2.5 space-y-2">
-            <div className="text-center text-lg font-semibold text-white">
-              {activeScene?.title ?? "Sin escena"}
-            </div>
-
-            <div className="text-center text-sm text-slate-300">
-              {activeLayer?.label ?? "Sin capa"}
-            </div>
-
-            <div className="flex flex-wrap items-center justify-center gap-2 text-xs">
-              {activeScene?.map && (
-                <span
-                  className={"rounded-md border px-2 py-1 " +
-                    (activeScene.map.isEntry
-                      ? "border-amber-500/60 bg-amber-500/10 text-amber-200"
-                      : "border-slate-600 bg-slate-950 text-slate-200")}
-                >
-                  {activeScene.map.mapName} · {activeScene.map.regionName}
-                </span>
-              )}
-
-              {activeLayer?.resolvedMusic && (
-                <span className="rounded-md border border-slate-600 bg-slate-950 px-2 py-1 text-slate-200">
-                  Música: {activeLayer.resolvedMusic.trackName} ({activeLayer.resolvedMusic.source})
-                </span>
-              )}
-
-              {activeScene?.isStart && (
-                <span className="rounded-md border border-emerald-500/60 bg-emerald-500/10 px-2 py-1 text-white">
-                  Inicio
-                </span>
-              )}
-
-              {activeScene?.isFinal && (
-                <span className="rounded-md border border-rose-500/60 bg-rose-500/10 px-2 py-1 text-white">
-                  Final
-                </span>
-              )}
-            </div>
-          </div>
-
-          <div className="max-h-[63vh] editor-scroll overflow-y-auto">
-            <SceneTestInfoCard
-              target={infoTarget}
-              pinned={Boolean(pinnedTarget)}
-            />
-          </div>
+          <SceneTestInfoCard
+            target={infoTarget}
+            pinned={Boolean(pinnedTarget)}
+          />
         </aside>
       </div>
     </div>

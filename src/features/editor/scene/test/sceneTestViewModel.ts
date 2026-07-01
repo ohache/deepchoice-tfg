@@ -3,6 +3,7 @@ import type { SceneTestBuildIndexes, SceneTestDialogueEntry, SceneTestHotspotEnt
   SceneTestMapSummary, SceneTestPlacedItemEntry, SceneTestPlacedNpcEntry, SceneTestPlacedPlayerEntry, SceneTestResolvedMusicSummary,
   SceneTestSceneEntry, SceneTestTextVariantEntry, SceneTestVarEntry, SceneTestViewModel } from "@/features/editor/scene/test/sceneTestTypes";
 import { formatCondition, formatRules } from "@/features/editor/scene/test/sceneTestFormatters";
+import { buildGameItemOptions } from "@/features/editor/scene/interactiveComponents/gameItemOptions";
 
 /* Helpers */
 function normalizeText(value: string | undefined | null): string {
@@ -52,17 +53,12 @@ function collectHotspotNames(project: Project): Record<ID, string> {
 }
 
 function collectPlacedItemNames(project: Project): Record<ID, string> {
-  const entries: Array<[ID, string]> = [];
-
-  for (const node of project.nodes ?? []) {
-    for (const layer of node.layers ?? []) {
-      for (const placedItem of layer.placedItems ?? []) {
-        entries.push([placedItem.itemInstanceId, normalizeText(placedItem.label) || "Item colocado"]);
-      }
-    }
-  }
-
-  return Object.fromEntries(entries);
+  return Object.fromEntries(
+    buildGameItemOptions(project).map((option) => [
+      option.id,
+      normalizeText(option.label) || option.id,
+    ]),
+  );
 }
 
 function collectDialogueNames(project: Project): Record<ID, string> {
@@ -207,10 +203,10 @@ function buildPlacedItemEntry(placedItem: ItemInstance, indexes: SceneTestBuildI
   return {
     type: "placedItem",
     id: placedItem.itemInstanceId,
-    label: normalizeText(placedItem.label) || "Item colocado",
+    label: normalizeText(placedItem.label) || "Objeto colocado",
     raw: placedItem,
     itemId: placedItem.itemId,
-    itemName: indexes.itemNameById[placedItem.itemId] ?? unknownLabel("Item"),
+    itemName: indexes.itemNameById[placedItem.itemId] ?? unknownLabel("Objeto"),
     initialState: buildInitialStateSummary(placedItem.placement?.initialState),
     rules: formatRules(placedItem.rules, indexes),
   };
@@ -224,7 +220,7 @@ function buildPlacedNpcEntry(placedNpc: PlacedNpc, project: Project, indexes: Sc
     id: placedNpc.npcId,
     raw: placedNpc,
     npcId: placedNpc.npcId,
-    npcName: indexes.npcNameById[placedNpc.npcId] ?? unknownLabel("NPC"),
+    npcName: indexes.npcNameById[placedNpc.npcId] ?? unknownLabel("PNJ"),
     initialState: buildInitialStateSummary(placedNpc.initialState),
     vars: (npc?.vars ?? []).map(buildVarEntry),
     rules: formatRules(placedNpc.rules, indexes),
@@ -239,7 +235,7 @@ function buildPlacedPlayerEntry(placedPlayer: PlacedPlayer, project: Project, in
     id: placedPlayer.playerId,
     raw: placedPlayer,
     playerId: placedPlayer.playerId,
-    playerName: indexes.playerNameById[placedPlayer.playerId] ?? unknownLabel("Player"),
+    playerName: indexes.playerNameById[placedPlayer.playerId] ?? unknownLabel("Jugador"),
     initialState: { visible: placedPlayer.initialState?.visible },
     initialImageId: placedPlayer.initialImageId,
     initialImageName: indexes.assetNameById[placedPlayer.initialImageId] ?? unknownLabel("Imagen"),
@@ -253,9 +249,9 @@ function buildDialogueEntry(dialogue: Dialogue, indexes: SceneTestBuildIndexes):
     id: dialogue.id,
     title: normalizeText(dialogue.title) || "Diálogo",
     playerId: dialogue.playerId,
-    playerName: indexes.playerNameById[dialogue.playerId] ?? unknownLabel("Player"),
+    playerName: indexes.playerNameById[dialogue.playerId] ?? unknownLabel("Jugador"),
     npcId: dialogue.npcId,
-    npcName: indexes.npcNameById[dialogue.npcId] ?? unknownLabel("NPC"),
+    npcName: indexes.npcNameById[dialogue.npcId] ?? unknownLabel("PNJ"),
     when: formatCondition(dialogue.when, indexes),
   };
 }

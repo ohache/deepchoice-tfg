@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { buildInlineErrorMapByPath } from "@/shared/zodIssues";
+import type { InteractionRules } from "@/domain/types";
 import { effectSchema } from "@/validation/rulesSchemas";
 import type { FactoryCtx } from "@/features/editor/scene/rules/effects/effectShared";
 import {
@@ -9,8 +10,10 @@ import {
 import { getAvailableEffectFamilies } from "@/features/editor/scene/rules/effects/effectFamilies";
 import { EffectLeafEditor } from "@/features/editor/scene/rules/effects/EffectLeafEditor";
 import { hasDuplicatedItemInstanceLabel } from "@/validation/itemInstanceLabels";
+import { useEntityRulesEditor } from "@/features/editor/scene/rules/entityRulesEditor";
+import { InteractionRulesSection } from "@/features/editor/scene/interactiveComponents/InteractionRulesSection";
 import { Select, type Option } from "@/components/Select";
-import { Pencil, Trash2 } from "lucide-react";
+import { Pencil, Trash2, Ruler } from "lucide-react";
 import { toast } from "@/shared/toast/toastStore";
 
 type Props = {
@@ -68,6 +71,14 @@ function isItemCreationEffect(effect: EnabledEffect): effect is Extract<EnabledE
   return effect.type === "combineItems" || effect.type === "transformItem";
 }
 
+function countInteractionRules(rules: InteractionRules | undefined): number {
+  return (rules?.onClick?.length ?? 0) + (rules?.onUseItem?.length ?? 0);
+}
+
+function hasInteractionRules(rules: InteractionRules | undefined): boolean {
+  return countInteractionRules(rules) > 0;
+}
+
 function normalizeLabel(value: string): string {
   return value.trim().toLowerCase();
 }
@@ -79,10 +90,10 @@ function validateEffectWithContext(factory: FactoryCtx, draft: EnabledEffect, er
 
   const label = draft.resultItemLabel?.trim() ?? "";
 
-  if (!label) return { [`${errorPrefix}.resultItemLabel`]: "El nombre del nuevo item no puede estar vacío." };
+  if (!label) return { [`${errorPrefix}.resultItemLabel`]: "El nombre del nuevo objeto no puede estar vacío." };
 
   if (hasDuplicatedItemInstanceLabel(project, label, draft.resultItemInstanceId)) {
-    return { [`${errorPrefix}.resultItemLabel`]: "Ya existe un item instanciado con ese nombre." };
+    return { [`${errorPrefix}.resultItemLabel`]: "Ya existe un objeto instanciado con ese nombre." };
   }
 
   const normalized = normalizeLabel(label);
@@ -95,7 +106,7 @@ function validateEffectWithContext(factory: FactoryCtx, draft: EnabledEffect, er
     return normalizeLabel(effect.resultItemLabel ?? "") === normalized;
   });
 
-  if (duplicatedInCurrentDraft) return { [`${errorPrefix}.resultItemLabel`]: "Ya existe otro efecto que crea un item con ese nombre." };
+  if (duplicatedInCurrentDraft) return { [`${errorPrefix}.resultItemLabel`]: "Ya existe otro efecto que crea un objeto con ese nombre." };
 
   return {};
 }
@@ -108,8 +119,27 @@ function shouldWarnAboutVariableBounds(effect: EnabledEffect): boolean {
 function showVariableBoundsToastIfNeeded(effect: EnabledEffect): void {
   if (!shouldWarnAboutVariableBounds(effect)) return;
 
-  toast.info("Valores limitados", "Durante la partida, el juego respetará el mínimo y el máximo permitidos para esa variable.");
+  toast.info("Valores limitados", "Durante la partida, el juego respetará el mínimo y el máximo permitidos para esta variable.");
 }
+
+const singleGoToNodeMessage = "Cada regla solo puede tener como máximo un efecto de tipo Ir a escena.";
+
+function countGoToNodeEffects(effects: EnabledEffect[], excludeIndex?: number): number {
+  return effects.reduce((count, effect, index) => {
+    if (excludeIndex !== undefined && index === excludeIndex) return count;
+
+    return count + (effect.type === "goToNode" ? 1 : 0);
+  }, 0);
+}
+
+function exceedsGoToNodeLimit(effect: EnabledEffect, siblingEffects: EnabledEffect[], editingIndex?: number): boolean {
+  return effect.type === "goToNode" && countGoToNodeEffects(siblingEffects, editingIndex) > 0;
+}
+
+function showGoToNodeLimitToast(): void {
+  toast.warning("Destino duplicado", singleGoToNodeMessage);
+}
+
 
 function getEffectPanelScopeKey(factory: FactoryCtx): string {
   const owner = factory.ctx.owner;
@@ -157,8 +187,6 @@ function carryOverItemFields(prev: EnabledEffect, next: EnabledEffect): EnabledE
   const primaryItemInstanceId = getPrimaryItemInstanceId(prev);
   const out: Record<string, unknown> = { ...next };
 
-  if ("playerId" in prev && "playerId" in next) out.playerId = prev.playerId;
-
   if ("itemInstanceId" in next) out.itemInstanceId = primaryItemInstanceId;
 
   if (next.type === "combineItems") {
@@ -171,6 +199,8 @@ function carryOverItemFields(prev: EnabledEffect, next: EnabledEffect): EnabledE
     out.resultItemId = prev.resultItemId;
     out.resultItemInstanceId = prev.resultItemInstanceId;
     out.resultItemLabel = prev.resultItemLabel;
+
+    if (prev.resultItemRules) out.resultItemRules = prev.resultItemRules;
   }
 
   return out as EnabledEffect;
@@ -266,7 +296,7 @@ function getPreferredTypeForFamily(family: EffectFamilyId, availableTypes: Enabl
 }
 
 function shouldWaitForTypeSelection(family: EffectFamilyId, typeCount: number): boolean {
-  return (family === "progress" || family === "item") && typeCount > 1;
+  return family === "progress" && typeCount > 1;
 }
 
 function makeInitialDraftForFamily(factory: FactoryCtx, family: EffectFamilyId, availableTypes: EnabledEffectType[]): EnabledEffect | null {
@@ -278,6 +308,7 @@ function makeInitialDraftForFamily(factory: FactoryCtx, family: EffectFamilyId, 
 
 export function EffectPanel({ factory, effects, onChange, inlineErrorsByPath, setInlineErrorsByPath }: Props) {
   const [activeEditor, setActiveEditor] = useState<ActiveEditorState>(null);
+  const [resultRulesEffectIndex, setResultRulesEffectIndex] = useState<number | null>(null);
 
   const editorScopeKey = getEffectPanelScopeKey(factory);
 
@@ -295,18 +326,16 @@ export function EffectPanel({ factory, effects, onChange, inlineErrorsByPath, se
     setInlineErrorsByPath((map) => removePrefixedErrors(map, "effects"));
   }, [setInlineErrorsByPath]);
 
-  const clearEffectErrorsForIndex = useCallback(
-    (index: number) => {
-      setInlineErrorsByPath((map) => removePrefixedErrors(map, `effects.${index}`));
-    }, [setInlineErrorsByPath],
+  const clearEffectErrorsForIndex = useCallback((index: number) => {
+    setInlineErrorsByPath((map) => removePrefixedErrors(map, `effects.${index}`));
+  }, [setInlineErrorsByPath],
   );
 
-  const clearEditorErrors = useCallback(
-    (editor: ActiveEditorState) => {
-      if (!editor) return;
-      if (editor.mode === "create") clearNewEffectErrors();
-      if (editor.mode === "edit") clearEffectErrorsForIndex(editor.index);
-    }, [clearNewEffectErrors, clearEffectErrorsForIndex],
+  const clearEditorErrors = useCallback((editor: ActiveEditorState) => {
+    if (!editor) return;
+    if (editor.mode === "create") clearNewEffectErrors();
+    if (editor.mode === "edit") clearEffectErrorsForIndex(editor.index);
+  }, [clearNewEffectErrors, clearEffectErrorsForIndex],
   );
 
   const clearActiveEditorErrors = useCallback(() => {
@@ -319,15 +348,14 @@ export function EffectPanel({ factory, effects, onChange, inlineErrorsByPath, se
     setActiveEditor({ mode: "create", family: "", draft: null, showErrors: false });
   }, [clearActiveEditorErrors]);
 
-  const openEditEffect = useCallback(
-    (index: number) => {
-      const effect = effects[index];
-      if (!effect) return;
+  const openEditEffect = useCallback((index: number) => {
+    const effect = effects[index];
+    if (!effect) return;
 
-      clearNewEffectErrors();
+    clearNewEffectErrors();
 
-      setActiveEditor({ mode: "edit", index, family: effectFamilyOf(effect.type), draft: effect, showErrors: false });
-    }, [effects, clearNewEffectErrors],
+    setActiveEditor({ mode: "edit", index, family: effectFamilyOf(effect.type), draft: effect, showErrors: false });
+  }, [effects, clearNewEffectErrors],
   );
 
   const closeEditor = useCallback(() => {
@@ -335,24 +363,22 @@ export function EffectPanel({ factory, effects, onChange, inlineErrorsByPath, se
     setActiveEditor(null);
   }, [clearActiveEditorErrors]);
 
-  const setEffectAt = useCallback(
-    (index: number, effect: EnabledEffect) => {
-      const next = [...effects];
-      next[index] = effect;
-      onChange(next);
-    }, [effects, onChange],
+  const setEffectAt = useCallback((index: number, effect: EnabledEffect) => {
+    const next = [...effects];
+    next[index] = effect;
+    onChange(next);
+  }, [effects, onChange],
   );
 
-  const removeEffectAt = useCallback(
-    (index: number) => {
-      const next = [...effects];
-      next.splice(index, 1);
-      onChange(next);
+  const removeEffectAt = useCallback((index: number) => {
+    const next = [...effects];
+    next.splice(index, 1);
+    onChange(next);
 
-      clearAllEffectErrors();
+    clearAllEffectErrors();
 
-      if (activeEditor?.mode === "edit" && activeEditor.index === index) setActiveEditor(null);
-    }, [effects, onChange, clearAllEffectErrors, activeEditor],
+    if (activeEditor?.mode === "edit" && activeEditor.index === index) setActiveEditor(null);
+  }, [effects, onChange, clearAllEffectErrors, activeEditor],
   );
 
   const validateEffectDraft = useCallback((draft: EnabledEffect, errorPrefix: string, editingIndex?: number): ValidationResult => {
@@ -367,6 +393,14 @@ export function EffectPanel({ factory, effects, onChange, inlineErrorsByPath, se
     }
 
     const parsedEffect = parsed.data as EnabledEffect;
+
+    if (exceedsGoToNodeLimit(parsedEffect, effects, editingIndex)) {
+      setInlineErrorsByPath((map) => removePrefixedErrors(map, errorPrefix));
+      showGoToNodeLimitToast();
+
+      return { ok: false };
+    }
+
     const contextErrors = validateEffectWithContext(factory, parsedEffect, errorPrefix, effects, editingIndex);
 
     if (Object.keys(contextErrors).length > 0) {
@@ -425,7 +459,7 @@ export function EffectPanel({ factory, effects, onChange, inlineErrorsByPath, se
 
         if (prev.mode === "edit") return prev;
 
-        return { ...prev, family: "", draft: null, showErrors: false};
+        return { ...prev, family: "", draft: null, showErrors: false };
       });
 
       return;
@@ -442,20 +476,19 @@ export function EffectPanel({ factory, effects, onChange, inlineErrorsByPath, se
   }, [availableFamilies, clearActiveEditorErrors, factory],
   );
 
-  const handleChangeEditorType = useCallback(
-    (picked: EnabledEffectType) => {
-      clearActiveEditorErrors();
+  const handleChangeEditorType = useCallback((picked: EnabledEffectType) => {
+    clearActiveEditorErrors();
 
-      setActiveEditor((prev) => {
-        if (!prev) return prev;
+    setActiveEditor((prev) => {
+      if (!prev) return prev;
 
-        const nextBase = createDefaultEffect(factory, picked);
-        const next = carryOverCommonFields(prev.draft, nextBase);
-        const family = effectFamilyOf(picked);
+      const nextBase = createDefaultEffect(factory, picked);
+      const next = carryOverCommonFields(prev.draft, nextBase);
+      const family = effectFamilyOf(picked);
 
-        return { ...prev, family, draft: next, showErrors: false } as ActiveEditorState;
-      });
-    }, [clearActiveEditorErrors, factory],
+      return { ...prev, family, draft: next, showErrors: false } as ActiveEditorState;
+    });
+  }, [clearActiveEditorErrors, factory],
   );
 
   const handleChangeEditorDraft = useCallback((next: EnabledEffect) => {
@@ -477,139 +510,188 @@ export function EffectPanel({ factory, effects, onChange, inlineErrorsByPath, se
     return family.effectTypes.map((type) => ({ id: type, label: effectLabel(type) }));
   }, [availableFamilies, editorFamily]);
 
+  const resultRulesEffect = useMemo(() => {
+    if (resultRulesEffectIndex === null) return null;
+
+    const effect = effects[resultRulesEffectIndex];
+
+    return effect && isItemCreationEffect(effect) ? effect : null;
+  }, [effects, resultRulesEffectIndex]);
+
+  const resultItemUseOptions = useMemo(() => {
+    if (!resultRulesEffect) return [];
+
+    return factory.idx
+      .getGameItemOptions()
+      .filter((option) => option.id !== resultRulesEffect.resultItemInstanceId);
+  }, [factory.idx, resultRulesEffect]);
+
+  const updateResultItemRules = useCallback(
+    (nextRules: InteractionRules) => {
+      if (resultRulesEffectIndex === null) return;
+
+      const effect = effects[resultRulesEffectIndex];
+      if (!effect || !isItemCreationEffect(effect)) return;
+
+      const nextEffects = [...effects];
+
+      if (hasInteractionRules(nextRules)) {
+        nextEffects[resultRulesEffectIndex] = {
+          ...effect,
+          resultItemRules: nextRules,
+        };
+      } else {
+        const { resultItemRules: _removed, ...cleanEffect } = effect;
+        nextEffects[resultRulesEffectIndex] = cleanEffect as EnabledEffect;
+      }
+
+      onChange(nextEffects);
+    },
+    [effects, onChange, resultRulesEffectIndex],
+  );
+
+  const resultRulesEditor = useEntityRulesEditor({
+    rules: resultRulesEffect?.resultItemRules,
+    onChangeRules: updateResultItemRules,
+  });
+
+  const closeResultRulesEditor = useCallback(() => {
+    setResultRulesEffectIndex(null);
+  }, []);
+
   return (
-    <div className="rounded-lg border-2 border-slate-600 bg-slate-950/90 p-3 h-[72vh] overflow-y-auto editor-scroll">
-      <div className="text-[16px] font-semibold text-slate-100 pb-3">
-        Efectos
-      </div>
+    <>
+      <div className="rounded-lg border-2 border-slate-600 bg-slate-950/90 p-3 h-[72vh] overflow-y-auto editor-scroll">
+        <div className="text-[16px] font-semibold text-slate-100 pb-3">
+          Efectos
+        </div>
 
-      <div className="sticky top-0 z-20 bg-slate-950/90 backdrop-blur border-b-2 border-slate-800 py-2 flex justify-center mt-2">
-        {!activeEditor ? (
-          <button
-            type="button"
-            className="btn btn-add-condition"
-            onClick={openCreateEffect}
-            title="Añadir efecto"
-          >
-            + Añadir efecto
-          </button>
-        ) : null}
-      </div>
+        <div className="sticky top-0 z-20 bg-slate-950/90 backdrop-blur border-b-2 border-slate-800 py-2 flex justify-center mt-2">
+          {!activeEditor ? (
+            <button
+              type="button"
+              className="btn btn-add-condition"
+              onClick={openCreateEffect}
+              title="Añadir efecto"
+            >
+              + Añadir efecto
+            </button>
+          ) : null}
+        </div>
 
-      <div className="pt-3">
-        {activeEditor ? (
-          <div className="mt-3 bg-slate-950/35 p-3">
-            <div className="h-full overflow-y-auto editor-scroll p-3 space-y-3">
-              <div className="grid grid-cols-1 md:grid-cols-12 gap-2 items-end">
-                <div className="md:col-span-12 ml-1.5 min-w-62">
-                  <Select<EffectFamilyId | "">
-                    value={editorFamily}
-                    placeholder="Selecciona la familia del efecto"
-                    onChange={handleChangeEditorFamily}
-                    options={familyOptions}
-                  />
+        <div className="pt-3">
+          {activeEditor ? (
+            <div className="mt-3 bg-slate-950/35 p-3">
+              <div className="h-full overflow-y-auto editor-scroll p-3 space-y-3">
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-2 items-end">
+                  <div className="md:col-span-12 ml-1.5 min-w-62">
+                    <Select<EffectFamilyId | "">
+                      value={editorFamily}
+                      placeholder="Selecciona la familia del efecto"
+                      onChange={handleChangeEditorFamily}
+                      options={familyOptions}
+                    />
+                  </div>
                 </div>
-              </div>
 
-              {editorFamily ? (
-                <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
-                  <div className="md:col-span-12 ml-1.5">
-                    <div className="bg-slate-950/25 p-2">
-                      <div onClick={(event) => event.stopPropagation()}>
-                        <EffectLeafEditor
-                          factory={factory}
-                          eff={editorEffect}
-                          selectedFamily={editorFamily}
-                          familyTypeOptions={editorTypeOptions}
-                          onChangeType={handleChangeEditorType}
-                          onChange={handleChangeEditorDraft}
-                          errorsByPath={activeEditor.mode === "create" && !activeEditor.showErrors ? {} : inlineErrorsByPath}
-                          errorPrefix={editorErrorPrefix}
-                          showLocalErrors={activeEditor.showErrors}
-                        />
+                {editorFamily ? (
+                  <div className="grid grid-cols-1 md:grid-cols-12 gap-2">
+                    <div className="md:col-span-12 ml-1.5">
+                      <div className="bg-slate-950/25 p-2">
+                        <div onClick={(event) => event.stopPropagation()}>
+                          <EffectLeafEditor
+                            factory={factory}
+                            eff={editorEffect}
+                            selectedFamily={editorFamily}
+                            familyTypeOptions={editorTypeOptions}
+                            onChangeType={handleChangeEditorType}
+                            onChange={handleChangeEditorDraft}
+                            errorsByPath={activeEditor.mode === "create" && !activeEditor.showErrors ? {} : inlineErrorsByPath}
+                            errorPrefix={editorErrorPrefix}
+                            showLocalErrors={activeEditor.showErrors}
+                          />
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              ) : null}
-            </div>
+                ) : null}
+              </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center mt-3">
-              <div className="md:col-span-12 ml-1.5 flex items-center justify-between">
-                <div className="flex items-center">
-                  <button
-                    type="button"
-                    className={"btn btn-danger-condition " +
-                      (activeEditor.mode !== "edit" ? "opacity-40" : "")}
-                    onClick={() => {
-                      if (activeEditor.mode !== "edit") return;
-                      removeEffectAt(activeEditor.index);
-                    }}
-                    disabled={activeEditor.mode !== "edit"}
-                    title={activeEditor.mode === "edit" ? "Eliminar efecto" : "Solo disponible al editar un efecto existente"}
-                  >
-                    Eliminar
-                  </button>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    className="btn btn-close-condition"
-                    onClick={closeEditor}
-                  >
-                    Cerrar
-                  </button>
-
-                  {activeEditor.mode === "create" ? (
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center mt-3">
+                <div className="md:col-span-12 ml-1.5 flex items-center justify-between">
+                  <div className="flex items-center">
                     <button
                       type="button"
-                      className={"btn btn-create-condition " +
-                        (!editorHasDraft ? "opacity-40" : "")}
-                      onClick={handleCreate}
-                      disabled={!editorHasDraft}
-                      title={!editorHasDraft ? "Selecciona una opción de efecto" : "Crear efecto"}
+                      className={"btn btn-danger-condition " +
+                        (activeEditor.mode !== "edit" ? "opacity-40" : "")}
+                      onClick={() => {
+                        if (activeEditor.mode !== "edit") return;
+                        removeEffectAt(activeEditor.index);
+                      }}
+                      disabled={activeEditor.mode !== "edit"}
+                      title={activeEditor.mode === "edit" ? "Eliminar efecto" : "Solo disponible al editar un efecto existente"}
                     >
-                      Crear efecto
+                      Eliminar
                     </button>
-                  ) : (
+                  </div>
+
+                  <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      className={"btn btn-create-condition " +
-                        (!editorHasDraft ? "opacity-40" : "")}
-                      onClick={handleSaveEdit}
-                      disabled={!editorHasDraft}
-                      title={!editorHasDraft ? "No hay cambios que guardar" : "Guardar"}
+                      className="btn btn-close-condition"
+                      onClick={closeEditor}
                     >
-                      Guardar
+                      Cerrar
                     </button>
-                  )}
+
+                    {activeEditor.mode === "create" ? (
+                      <button
+                        type="button"
+                        className={"btn btn-create-condition " +
+                          (!editorHasDraft ? "opacity-40" : "")}
+                        onClick={handleCreate}
+                        disabled={!editorHasDraft}
+                        title={!editorHasDraft ? "Selecciona una opción de efecto" : "Crear efecto"}
+                      >
+                        Crear efecto
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className={"btn btn-create-condition " +
+                          (!editorHasDraft ? "opacity-40" : "")}
+                        onClick={handleSaveEdit}
+                        disabled={!editorHasDraft}
+                        title={!editorHasDraft ? "No hay cambios que guardar" : "Guardar"}
+                      >
+                        Guardar
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        ) : null}
+          ) : null}
 
-        {!activeEditor ? (
-          <div className="space-y-3 mt-6">
-            {(effects ?? []).map((effect, index) => (
-              <div
-                key={`${effect.type}-${index}`}
-                className="rounded-lg border-2 border-slate-700 bg-slate-900/40 p-2 cursor-pointer hover:bg-fuchsia-950/30 hover:border-fuchsia-900"
-                onClick={() => openEditEffect(index)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ")
-                    openEditEffect(index);
-                }}
-                title="Click para editar"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="text-[13px] font-semibold text-slate-50 mt-1 ml-2">
+          {!activeEditor ? (
+            <div className="space-y-3 mt-6">
+              {(effects ?? []).map((effect, index) => (
+                <div
+                  key={`${effect.type}-${index}`}
+                  className="relative min-h-11 rounded-lg border-2 border-slate-700 bg-slate-900/40 p-2 pr-32 cursor-pointer hover:bg-fuchsia-950/30 hover:border-fuchsia-900"
+                  onClick={() => openEditEffect(index)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ")
+                      openEditEffect(index);
+                  }}
+                  title="Click para editar"
+                >
+                  <div className="min-w-0 text-left">
+                    <div className="mt-1 ml-2 text-left text-[13px] font-semibold leading-5 text-slate-50">
                       {effectLabel(effect.type)}:
-                      <span className="font-normal text-slate-300">
+                      <span className="font-normal text-slate-300 wrap-break-word">
                         {" "}
                         {summarizeEffect(factory, effect)}
                       </span>
@@ -617,9 +699,20 @@ export function EffectPanel({ factory, effects, onChange, inlineErrorsByPath, se
                   </div>
 
                   <div
-                    className="flex items-center gap-2"
+                    className="absolute right-2 top-2 flex items-center gap-2"
                     onClick={(event) => event.stopPropagation()}
                   >
+                    {isItemCreationEffect(effect) ? (
+                      <button
+                        type="button"
+                        className="btn btn-add-rule bg-slate-950 hover:bg-slate-800 text-[12px] px-2"
+                        onClick={() => setResultRulesEffectIndex(index)}
+                        title="Editar reglas del nuevo objeto"
+                      >
+                        <Ruler size={14} />
+                      </button>
+                    ) : null}
+
                     <button
                       type="button"
                       className="btn btn-close-condition bg-slate-950 hover:bg-slate-800 text-[12px] px-2"
@@ -639,17 +732,58 @@ export function EffectPanel({ factory, effects, onChange, inlineErrorsByPath, se
                     </button>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        ) : null}
+              ))}
+            </div>
+          ) : null}
 
-        {inlineErrorsByPath.effects ? (
-          <div className="pt-2 text-[12px] text-rose-300">
-            {inlineErrorsByPath.effects}
-          </div>
-        ) : null}
+          {inlineErrorsByPath.effects ? (
+            <div className="pt-2 text-[12px] text-rose-300">
+              {inlineErrorsByPath.effects}
+            </div>
+          ) : null}
+        </div>
       </div>
-    </div>
+
+      {resultRulesEffect ? (
+        <div
+          className="fixed inset-0 z-1000 flex items-center justify-center"
+          role="dialog"
+          aria-modal="true"
+        >
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/70"
+            onClick={closeResultRulesEditor}
+            aria-label="Cerrar reglas del objeto resultante"
+          />
+
+          <div className="relative w-[96%] max-w-[500px] rounded-xl border-2 border-slate-600 bg-slate-900 p-5 shadow-xl">
+            <InteractionRulesSection
+              owner={factory.ctx.owner}
+              project={factory.ctx.project}
+              nodeId={factory.ctx.nodeId}
+              disableAllEditorFields={false}
+              activeChannel={resultRulesEditor.activeChannel}
+              setActiveChannel={resultRulesEditor.setActiveChannel}
+              clickRules={resultRulesEditor.clickRules}
+              useItemRulesForSelected={resultRulesEditor.useItemRulesForSelected}
+              useItemOptions={resultItemUseOptions}
+              ruleModalOpen={resultRulesEditor.ruleModalOpen}
+              currentRuleValue={resultRulesEditor.currentRuleValue}
+              onOpenAddClickRule={resultRulesEditor.openAddClickRule}
+              onOpenEditClickRule={resultRulesEditor.openEditClickRule}
+              onRemoveClickRule={resultRulesEditor.removeClickRule}
+              onMoveClickRule={resultRulesEditor.moveClickRule}
+              onOpenAddUseItemRule={resultRulesEditor.openAddUseItemRule}
+              onOpenEditUseItemRule={resultRulesEditor.openEditUseItemRule}
+              onRemoveUseItemRule={resultRulesEditor.removeUseItemRule}
+              onMoveUseItemRule={resultRulesEditor.moveUseItemRule}
+              onCloseRuleModal={resultRulesEditor.closeRuleModal}
+              onSaveRule={resultRulesEditor.saveRule}
+            />
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }

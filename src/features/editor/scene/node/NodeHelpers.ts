@@ -147,7 +147,7 @@ export function reconcileNodeMapEntries(nodes: Node[], nodeId: ID, prevLoc?: Nod
   return nextNodes;
 }
 
-/* Repara la entrada de región cuando se elimina una escena */  // MOVER A DELETE REFERENCE CLEANER
+/* Repara la entrada de región cuando se elimina una escena */
 export function reconcileRegionEntryAfterNodeMapRemoval(nodes: Node[], removedLoc?: NodeMapLocation): Node[] {
   if (!removedLoc?.isEntry) return nodes;
 

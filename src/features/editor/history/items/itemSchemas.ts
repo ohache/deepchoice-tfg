@@ -9,7 +9,7 @@ export const ItemImageFileSchema = createFileSchema({
 });
 
 export const ItemDraftSchema = z.object({
-  name: z.string().trim().min(1, "El item necesita un nombre").max(60, "El nombre no puede superar 60 caracteres"),
+  name: z.string().trim().min(1, "El objeto necesita un nombre").max(60, "El nombre no puede superar 60 caracteres"),
   description: z.string().trim().max(200, "La descripción no puede superar 200 caracteres").optional(),
   file: ItemImageFileSchema.optional(),
 })

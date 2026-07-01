@@ -15,28 +15,28 @@ export function formatCondition(condition?: Condition, ctx?: SceneTestFormatCont
 function conditionToText(condition: Condition, ctx?: SceneTestFormatContext): string {
   switch (condition.type) {
     case "and":
-      return condition.all.map((child) => `(${conditionToText(child, ctx)})`).join(" Y ");
+      return condition.all.map((child) => `${conditionToText(child, ctx)}`).join(" y ");
 
     case "or":
-      return condition.any.map((child) => `(${conditionToText(child, ctx)})`).join(" O ");
+      return condition.any.map((child) => `${conditionToText(child, ctx)}`).join(" o ");
 
     case "not":
-      return `NO (${conditionToText(condition.cond, ctx)})`;
+      return `no ${conditionToText(condition.cond, ctx)}`;
 
     case "nodeVisited":
       return `Escena ${resolveNodeName(condition.nodeId, ctx)} visitada ${opToText(condition.op)} ${boolToText(condition.value)}`;
 
     case "hasItem":
-      return `El player tiene ${resolvePlacedItemName(condition.itemInstanceId, ctx)} ${opToText(condition.op)} ${boolToText(condition.value)}`;
+      return `El jugador tiene ${resolvePlacedItemName(condition.itemInstanceId, ctx)} ${opToText(condition.op)} ${boolToText(condition.value)}`;
 
     case "npcHasItem":
-      return `El NPC ${resolveNpcName(condition.npcId, ctx)} tiene ${resolvePlacedItemName(condition.itemInstanceId, ctx)} ${opToText(condition.op)} ${boolToText(condition.value)}`;
+      return `El PNJ ${resolveNpcName(condition.npcId, ctx)} tiene ${resolvePlacedItemName(condition.itemInstanceId, ctx)} ${opToText(condition.op)} ${boolToText(condition.value)}`;
 
     case "playerVar":
-      return `Variable de player ${resolvePlayerName(condition.playerId, ctx)}.${resolvePlayerVarName(condition.playerId, condition.varId, ctx)} ${opToText(condition.op)} ${valueToText(condition.value)}`;
+      return `Variable de jugador ${resolvePlayerName(condition.playerId, ctx)}.${resolvePlayerVarName(condition.playerId, condition.varId, ctx)} ${opToText(condition.op)} ${valueToText(condition.value)}`;
 
     case "npcVar":
-      return `Variable de NPC ${resolveNpcName(condition.npcId, ctx)}.${resolveNpcVarName(condition.npcId, condition.varId, ctx)} ${opToText(condition.op)} ${valueToText(condition.value)}`;
+      return `Variable de PNJ ${resolveNpcName(condition.npcId, ctx)}.${resolveNpcVarName(condition.npcId, condition.varId, ctx)} ${opToText(condition.op)} ${valueToText(condition.value)}`;
 
     case "hotspotVar":
       return `Variable de hotspot ${resolveHotspotName(condition.hotspotId, ctx)}.${resolveHotspotVarName(condition.hotspotId, condition.varId, ctx)} ${opToText(condition.op)} ${valueToText(condition.value)}`;
@@ -48,22 +48,22 @@ function conditionToText(condition: Condition, ctx?: SceneTestFormatContext): st
       return `Hotspot ${resolveHotspotName(condition.hotspotId, ctx)} alcanzable ${opToText(condition.op)} ${boolToText(condition.value)}`;
 
     case "placedItemVisible":
-      return `Item colocado ${resolvePlacedItemName(condition.itemInstanceId, ctx)} visible ${opToText(condition.op)} ${boolToText(condition.value)}`;
+      return `Objeto colocado ${resolvePlacedItemName(condition.itemInstanceId, ctx)} visible ${opToText(condition.op)} ${boolToText(condition.value)}`;
 
     case "placedItemReachable":
-      return `Item colocado ${resolvePlacedItemName(condition.itemInstanceId, ctx)} alcanzable ${opToText(condition.op)} ${boolToText(condition.value)}`;
+      return `Objeto colocado ${resolvePlacedItemName(condition.itemInstanceId, ctx)} alcanzable ${opToText(condition.op)} ${boolToText(condition.value)}`;
 
     case "placedNpcVisible":
-      return `NPC ${resolveNpcName(condition.npcId, ctx)} visible ${opToText(condition.op)} ${boolToText(condition.value)}`;
+      return `PNJ ${resolveNpcName(condition.npcId, ctx)} visible ${opToText(condition.op)} ${boolToText(condition.value)}`;
 
     case "placedNpcReachable":
-      return `NPC ${resolveNpcName(condition.npcId, ctx)} alcanzable ${opToText(condition.op)} ${boolToText(condition.value)}`;
+      return `PNJ ${resolveNpcName(condition.npcId, ctx)} alcanzable ${opToText(condition.op)} ${boolToText(condition.value)}`;
 
     case "placedPlayerVisible":
-      return `Player ${resolvePlayerName(condition.playerId, ctx)} visible ${opToText(condition.op)} ${boolToText(condition.value)}`;
+      return `Jugador ${resolvePlayerName(condition.playerId, ctx)} visible ${opToText(condition.op)} ${boolToText(condition.value)}`;
 
     case "placedPlayerImage":
-      return `Imagen de player ${resolvePlayerName(condition.playerId, ctx)} es ${resolveImageName(condition.imageId, ctx)} ${opToText(condition.op)} ${boolToText(condition.value)}`;
+      return `Imagen de jugador ${resolvePlayerName(condition.playerId, ctx)} es ${resolveImageName(condition.imageId, ctx)} ${opToText(condition.op)} ${boolToText(condition.value)}`;
 
     case "musicPlaying":
       return `Música ${resolveMusicName(condition.trackId, ctx)} sonando ${opToText(condition.op)} ${boolToText(condition.value)}`;
@@ -87,10 +87,10 @@ function effectToText(effect: Effect, ctx?: SceneTestFormatContext): string {
       return `Ir a escena ${resolveNodeName(effect.targetNodeId, ctx)}`;
 
     case "addItem":
-      return `Añadir item ${resolvePlacedItemName(effect.itemInstanceId, ctx)}`;
+      return `Añadir objeto ${resolvePlacedItemName(effect.itemInstanceId, ctx)}`;
 
     case "removeItem":
-      return `Eliminar item ${resolvePlacedItemName(effect.itemInstanceId, ctx)}`;
+      return `Eliminar objeto ${resolvePlacedItemName(effect.itemInstanceId, ctx)}`;
 
     case "transformItem": {
       const source = resolvePlacedItemName(effect.itemInstanceId, ctx);
@@ -291,19 +291,19 @@ function resolveNodeName(id: string, ctx?: SceneTestFormatContext): string {
 }
 
 function resolvePlacedItemName(id: string, ctx?: SceneTestFormatContext): string {
-  return resolveFromIndex(ctx?.placedItemNamesById ?? ctx?.placedItemNamesById, id, "Item");
+  return resolveFromIndex(ctx?.placedItemNamesById ?? ctx?.placedItemNamesById, id, "Objeto colocado");
 }
 
 function resolveItemName(id: string, ctx?: SceneTestFormatContext): string {
-  return resolveFromIndex(ctx?.itemNameById ?? ctx?.itemNameById, id, "Item");
+  return resolveFromIndex(ctx?.itemNameById ?? ctx?.itemNameById, id, "Objeto");
 }
 
 function resolveNpcName(id: string, ctx?: SceneTestFormatContext): string {
-  return resolveFromIndex(ctx?.npcNameById ?? ctx?.npcNameById, id, "NPC");
+  return resolveFromIndex(ctx?.npcNameById ?? ctx?.npcNameById, id, "PNJ");
 }
 
 function resolvePlayerName(id: string, ctx?: SceneTestFormatContext): string {
-  return resolveFromIndex(ctx?.playerNameById ?? ctx?.playerNameById, id, "Player");
+  return resolveFromIndex(ctx?.playerNameById ?? ctx?.playerNameById, id, "Jugador");
 }
 
 function resolveHotspotName(id: string, ctx?: SceneTestFormatContext): string {

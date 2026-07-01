@@ -16,7 +16,7 @@ type PlayerSettingsOverlayProps = {
 };
 
 const MIN_DIALOGUE_DELAY_MS = 500;
-const MAX_DIALOGUE_DELAY_MS = 4000;
+const MAX_DIALOGUE_DELAY_MS = 8000;
 
 export function PlayerSettingsOverlay({ open, musicVolume, sfxVolume, dialogueDelayMs, onClose, onContinue, onSaveGame, onLoadGame, onExit,
   onMusicVolumeChange, onDialogueDelayChange, onSfxVolumeChange }: PlayerSettingsOverlayProps) {
@@ -191,32 +191,35 @@ export function PlayerSettingsOverlay({ open, musicVolume, sfxVolume, dialogueDe
                       step={0.01}
                       value={sfxVolume}
                       onChange={(event) => onSfxVolumeChange(Number(event.target.value))}
-                      className="w-full"
-                    />
-                  </label>
+                        className="w-full"
+                      />
+                    </label>
 
-                  <label className="block">
-                    <div className="mb-1 flex items-center justify-between text-xs text-slate-300">
-                      <span>Velocidad diálogos</span>
-                      <span>{dialogueDelayMs} ms</span>
-                    </div>
+                    <label className="block">
+                      <div className="mb-1 flex items-center justify-between text-xs text-slate-300">
+                        <span>Velocidad diálogos</span>
+                        <span>{dialogueDelayMs} ms</span>
+                      </div>
 
-                    <input
-                      type="range"
-                      min={MIN_DIALOGUE_DELAY_MS}
-                      max={MAX_DIALOGUE_DELAY_MS}
-                      step={100}
-                      value={dialogueDelayMs}
-                      onChange={(event) => onDialogueDelayChange(Number(event.target.value))}
-                      className="w-full"
-                    />
-                  </label>
-                </div>
-              ) : null}
+                      <input
+                        type="range"
+                        min={MIN_DIALOGUE_DELAY_MS}
+                        max={MAX_DIALOGUE_DELAY_MS}
+                        step={100}
+                        value={MAX_DIALOGUE_DELAY_MS + MIN_DIALOGUE_DELAY_MS - dialogueDelayMs}
+                        onChange={(event) => {
+                          const visualValue = Number(event.target.value);
+                          onDialogueDelayChange(MAX_DIALOGUE_DELAY_MS + MIN_DIALOGUE_DELAY_MS - visualValue);
+                        }}
+                        className="w-full"
+                      />
+                    </label>
+                  </div>
+                ) : null}
 
-              <button type="button" className="btn btn-add-condition" onClick={handleContinue}>
-                Seguir jugando
-              </button>
+                <button type="button" className="btn btn-add-condition" onClick={handleContinue}>
+                  Seguir jugando
+                </button>
 
               <button type="button" className="btn btn-danger" onClick={onExit}>
                 Salir

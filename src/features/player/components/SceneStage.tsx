@@ -13,6 +13,7 @@ import { rectPx } from "@/features/player/components/interactive/interactiveLaye
 type ContentRect = { x: number; y: number; w: number; h: number };
 
 type SceneStageSceneProps = {
+  nodeId?: ID | null;
   imageSrc?: string;
   revealSignal?: number;
   keyboardBlocked?: boolean;
@@ -75,7 +76,7 @@ function isVisible(runtime?: { visible: boolean }): boolean {
 export function SceneStage(props: SceneStageProps) {
   const { scene, entities, dialogue, itemUse, cursor, interactions, onContentRectChange } = props;
 
-  const { imageSrc, revealSignal, keyboardBlocked, gameEnded = false } = scene;
+  const { nodeId, imageSrc, revealSignal, keyboardBlocked, gameEnded = false } = scene;
 
   const { hotspots = [], placedItems = [], placedPlayers = [], placedNpcs = [] } = entities;
 
@@ -106,11 +107,9 @@ export function SceneStage(props: SceneStageProps) {
   const stageRef = useRef<HTMLDivElement | null>(null);
 
   const { revealHotspots, hoveredHotspotId, hoveredPlacedItemId, hoveredPlacedNpcId, setHoveredHotspotId, setHoveredPlacedItemId, setHoveredPlacedNpcId,
-    triggerReveal, clearHoveredExcept } = useSceneInteractionReveal({ resetKey: imageSrc, revealSignal, keyboardBlocked, gameEnded, isUsingItem, onCursorLeave });
+    triggerReveal, clearHoveredExcept, clearHoveredTargets } = useSceneInteractionReveal({ resetKey: nodeId ?? imageSrc, revealSignal, keyboardBlocked, gameEnded, isUsingItem, onCursorLeave });
 
-  useEffect(() => {
-    stageRef.current?.focus();
-  }, [imageSrc]);
+  useEffect(() => stageRef.current?.focus(), [nodeId, imageSrc]);
 
   useEffect(() => {
     onContentRectChange?.(contentRect);
@@ -173,8 +172,11 @@ export function SceneStage(props: SceneStageProps) {
 
     const clickedInteractionButton = target.closest("button[aria-label]");
 
-    if (clickedStageBackground || !clickedInteractionButton) onSceneBackgroundClick?.();
-  }, [gameEnded, containerElement, imageElement, onSceneBackgroundClick]);
+    if (clickedStageBackground || !clickedInteractionButton) {
+      clearHoveredTargets();
+      onSceneBackgroundClick?.();
+    }
+  }, [gameEnded, containerElement, imageElement, clearHoveredTargets, onSceneBackgroundClick]);
 
   return (
     <div className="relative h-full bg-black">
@@ -189,6 +191,12 @@ export function SceneStage(props: SceneStageProps) {
           onMouseDown={handleStageMouseDown}
           onMouseMove={(e) => {
             if (cursorBlocked) return;
+
+            const target = e.target as HTMLElement;
+            const movingOverStageBackground = target === e.currentTarget || target === containerElement || target === imageElement;
+
+            if (movingOverStageBackground) clearHoveredTargets();
+
             onCursorMove?.(e, "idle");
           }}
           onMouseEnter={(e) => {
@@ -199,7 +207,7 @@ export function SceneStage(props: SceneStageProps) {
             onCursorLeave?.();
           }}
           className="relative z-10 flex h-full w-full items-center justify-center bg-black outline-none"
-          style={{ cursor: cursorBlocked ? "auto" : "none" }}
+          style={{ cursor: cursorBlocked && !gameEnded ? "auto" : "none" }}
         >
           <div ref={containerRef} className="relative w-full h-full flex items-center justify-center">
             <img

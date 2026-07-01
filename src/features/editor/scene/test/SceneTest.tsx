@@ -1,16 +1,19 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { ID, RegionShape, TextDock } from "@/domain/types";
+import type {
+  SceneTestHotspotEntry, SceneTestInspectableRef, SceneTestPlacedItemEntry, SceneTestPlacedNpcEntry,
+  SceneTestPlacedPlayerEntry
+} from "@/features/editor/scene/test/sceneTestTypes";
+import { useEditorStore } from "@/store/editorStore";
 import { useResolvedAssetUrl } from "@/features/editor/hooks/useResolvedAssetUrl";
 import { useImageContentRect } from "@/features/player/hooks/useImageContentRect";
-import { useEditorStore } from "@/store/editorStore";
 import { countBrokenTokens, ResolvedTextRenderer, resolveTextTokensToParts } from "@/shared/textTokens/ResolveTextTokens";
-import type { SceneTestHotspotEntry, SceneTestInspectableRef, SceneTestPlacedItemEntry, SceneTestPlacedNpcEntry,
-  SceneTestPlacedPlayerEntry } from "@/features/editor/scene/test/sceneTestTypes";
 import { canRenderPreviewLabel } from "@/features/editor/scene/preview/previewRenderHelpers";
 import { useSceneTestTransition } from "@/features/editor/scene/test/useSceneTestTransition";
 
 const TOOLTIP_DELAY_MS = 350;
+export const HORIZONTAL_TEXT_DOCK_HEIGHT = 110;
+export const VERTICAL_TEXT_DOCK_WIDTH = 250;
 
 type SceneTestVisualSnapshot = {
   imageAssetId?: ID | null;
@@ -67,7 +70,7 @@ function isTextFirst(hasText: boolean, dock: TextDock) {
   return dock === "top" || dock === "left";
 }
 
-function baseOverlayStyle(isHovered: boolean, isPinned: boolean): CSSProperties | undefined {
+function baseOverlayStyle(isHovered: boolean, isPinned: boolean): CSSProperties {
   if (isPinned) {
     return {
       boxShadow: "0 0 0 2px rgba(250,204,21,0.95), 0 0 26px rgba(250,204,21,0.42), inset 0 0 0 2px rgba(250,204,21,0.22)",
@@ -84,7 +87,11 @@ function baseOverlayStyle(isHovered: boolean, isPinned: boolean): CSSProperties 
     };
   }
 
-  return undefined;
+  return {
+    boxShadow: "inset 0 0 0 1px rgba(226,232,240,0.18)",
+    background: "rgba(15,23,42,0.15)",
+    borderRadius: 12,
+  };
 }
 
 function InlineNavButton({ children, disabled = false, onClick }: { children: string; disabled?: boolean; onClick?: () => void }) {
@@ -182,15 +189,18 @@ export function SceneTest({ title, imageAssetId, text, textLabel, textDock = "bo
   const effectiveText = displayedSnapshot.text ?? "";
   const hasText = effectiveText.trim().length > 0;
   const effectiveTextLabel = (displayedSnapshot.textLabel ?? "").trim() || "Base";
-  const showTextHeader = Boolean(effectiveTextLabel) || showTextNav;
+  const showTextHeader = showTextNav;
   const effectiveTextDock: TextDock = displayedSnapshot.textDock === "top" || displayedSnapshot.textDock === "left" || displayedSnapshot.textDock === "right" ||
-    displayedSnapshot.textDock === "bottom" ? displayedSnapshot.textDock: "bottom";
+    displayedSnapshot.textDock === "bottom" ? displayedSnapshot.textDock : "bottom";
+  const isVerticalTextDock = effectiveTextDock === "left" || effectiveTextDock === "right";
   const textFirst = isTextFirst(hasText, effectiveTextDock);
 
   const parts = useMemo(() => resolveTextTokensToParts(effectiveText, project), [effectiveText, project]);
   const brokenCount = useMemo(() => countBrokenTokens(parts), [parts]);
 
-  useEffect(() => stageRef.current?.focus(), [imageSrc]);
+  useEffect(() => {
+    stageRef.current?.focus({ preventScroll: true });
+  }, [imageSrc]);
 
   useEffect(() => {
     return () => {
@@ -274,60 +284,73 @@ export function SceneTest({ title, imageAssetId, text, textLabel, textDock = "bo
 
   const renderTextPanel = () => (
     <div
-      className={"bg-black overflow-hidden shrink-0 min-h-0 flex items-center justify-center" +
-        (effectiveTextDock === "left" ? " h-full w-[280px] border-r border-slate-800" : effectiveTextDock === "right"
-          ? " h-full w-[280px] border-l border-slate-800" : effectiveTextDock === "top"
-            ? " w-full h-40 border-b border-slate-800" : " w-full h-40 border-t border-slate-800")}
+      className={"relative z-20 overflow-hidden shrink-0 min-h-0 select-none flex items-center justify-center border-slate-700/70" +
+        (effectiveTextDock === "left" ? " h-full border-r" : effectiveTextDock === "right"
+          ? " h-full border-l" : effectiveTextDock === "top"
+            ? " w-full border-b" : " w-full border-t")}
+      style={{
+        ...(isVerticalTextDock
+          ? { width: VERTICAL_TEXT_DOCK_WIDTH }
+          : { height: HORIZONTAL_TEXT_DOCK_HEIGHT }),
+        padding: isVerticalTextDock ? "22px 24px" : "24px 34px",
+        background: "linear-gradient(180deg, rgba(15,23,42,0.98), rgba(2,6,23,0.98))",
+        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.05), 0 18px 48px rgba(0,0,0,0.45)",
+      }}
     >
-      <div className="h-full min-h-0 w-full flex flex-col px-5 py-4">
-        {showTextHeader && (
-          <div className="grid grid-cols-[auto_1fr_auto] items-center gap-3 mb-3 shrink-0">
-            <div className="justify-self-start">
-              {showTextNav ? (
-                <InlineNavButton disabled={!canGoPrevText} onClick={onPrevText}>
-                  Anterior
-                </InlineNavButton>
-              ) : (
-                <div />
-              )}
-            </div>
+      <div className="pointer-events-none absolute inset-x-8 top-3 h-px bg-linear-to-r from-transparent via-amber-200/20 to-transparent" />
+      <div className="pointer-events-none absolute inset-x-8 bottom-3 h-px bg-linear-to-r from-transparent via-cyan-200/10 to-transparent" />
 
-            <div className="min-w-0 text-center">
-              <div className="text-sm font-semibold text-slate-100 truncate">
-                {effectiveTextLabel}
-              </div>
-            </div>
+      {showTextHeader && (
+        <div className="absolute inset-x-5 top-5 z-20 grid grid-cols-[auto_1fr_auto] items-center gap-3">
+          <div className="justify-self-start">
+            <InlineNavButton disabled={!canGoPrevText} onClick={onPrevText}>
+              Anterior
+            </InlineNavButton>
+          </div>
 
-            <div className="justify-self-end">
-              {showTextNav ? (
-                <InlineNavButton disabled={!canGoNextText} onClick={onNextText}>
-                  Siguiente
-                </InlineNavButton>
-              ) : (
-                <div />
-              )}
+          <div className="min-w-0 text-center">
+            <div className="text-sm font-semibold text-slate-100 truncate">
+              {effectiveTextLabel}
             </div>
           </div>
-        )}
 
-        <div className="min-h-0 flex-1 overflow-auto flex items-center justify-center">
-          <div className="w-full max-w-3xl">
-            {brokenCount > 0 ? (
-              <div className="mb-2 rounded-md border border-rose-500/40 bg-rose-950/30 px-2 py-1 text-[11px] text-rose-200">
-                Hay {brokenCount} referencia{brokenCount === 1 ? "" : "s"} rota
-                {brokenCount === 1 ? "" : "s"} en el texto.
-              </div>
-            ) : null}
-
-            <ResolvedTextRenderer
-              parts={parts}
-              emptyText="Esta capa no tiene texto para la variante seleccionada."
-              wrapperClassName="wrap-break-word whitespace-pre-wrap text-center text-sm leading-relaxed text-slate-100"
-              resolvedTokenClassName="font-mono text-sm text-fuchsia-200"
-              brokenTokenClassName="font-mono text-sm text-red-200"
-              brokenTokenTitle="Referencia rota"
-            />
+          <div className="justify-self-end">
+            <InlineNavButton disabled={!canGoNextText} onClick={onNextText}>
+              Siguiente
+            </InlineNavButton>
           </div>
+        </div>
+      )}
+
+      <div
+        className={`relative z-10 max-h-full w-full ${brokenCount > 0 || showTextHeader ? "pt-11" : ""
+          } editor-scroll overflow-y-auto pr-2`}
+      >
+        {brokenCount > 0 ? (
+          <div className="mb-2 rounded-md border border-rose-500/40 bg-rose-950/30 px-2 py-1 text-[11px] text-rose-200">
+            Hay {brokenCount} referencia{brokenCount === 1 ? "" : "s"} rota
+            {brokenCount === 1 ? "" : "s"} en el texto.
+          </div>
+        ) : null}
+
+        <div
+          lang="es"
+          className={`mx-auto select-none whitespace-pre-line font-light tracking-[0.01em] text-slate-100/95 
+            ${isVerticalTextDock ? "max-w-none text-xs leading-5" : "max-w-[78ch] text-sm leading-6"}`}
+          style={{
+            textAlign: "justify",
+            textAlignLast: "left",
+            hyphens: "auto",
+          }}
+        >
+          <ResolvedTextRenderer
+            parts={parts}
+            emptyText=""
+            wrapperClassName="contents"
+            resolvedTokenClassName="font-mono text-sm text-fuchsia-200"
+            brokenTokenClassName="font-mono text-sm text-red-200"
+            brokenTokenTitle="Referencia rota"
+          />
         </div>
       </div>
     </div>
@@ -344,7 +367,7 @@ export function SceneTest({ title, imageAssetId, text, textLabel, textDock = "bo
             : "w-full min-h-0 flex-1 flex flex-col"
         }
       >
-        {textFirst && renderTextPanel()}
+        {hasText && textFirst && renderTextPanel()}
 
         <div className="relative flex-1 min-h-0 bg-black flex flex-col">
           {imageSrc ? (
@@ -413,7 +436,7 @@ export function SceneTest({ title, imageAssetId, text, textLabel, textDock = "bo
                             type="button"
                             aria-label={entry.label}
                             className="absolute bg-transparent focus:outline-none"
-                            style={{ ...rect, ...(baseOverlayStyle(isHovered, isPinned) ?? {}) }}
+                            style={{ ...rect, ...baseOverlayStyle(isHovered, isPinned) }}
                             onMouseEnter={() => handleHoverTarget(ref)}
                             onMouseLeave={handleLeave}
                             onClick={() => handleSelectTarget(ref)}
@@ -444,7 +467,7 @@ export function SceneTest({ title, imageAssetId, text, textLabel, textDock = "bo
                             type="button"
                             aria-label={entry.label}
                             className="absolute bg-transparent focus:outline-none"
-                            style={{ ...rect, ...(baseOverlayStyle(isHovered, isPinned) ?? {}) }}
+                            style={{ ...rect, ...baseOverlayStyle(isHovered, isPinned) }}
                             onMouseEnter={() => handleHoverTarget(ref)}
                             onMouseLeave={handleLeave}
                             onClick={() => handleSelectTarget(ref)}
@@ -467,7 +490,7 @@ export function SceneTest({ title, imageAssetId, text, textLabel, textDock = "bo
                             type="button"
                             aria-label={entry.npcName}
                             className="absolute bg-transparent focus:outline-none"
-                            style={{ ...rect, ...(baseOverlayStyle(isHovered, isPinned) ?? {}) }}
+                            style={{ ...rect, ...baseOverlayStyle(isHovered, isPinned) }}
                             onMouseEnter={() => handleHoverTarget(ref)}
                             onMouseLeave={handleLeave}
                             onClick={() => handleSelectTarget(ref)}
@@ -490,7 +513,7 @@ export function SceneTest({ title, imageAssetId, text, textLabel, textDock = "bo
                             type="button"
                             aria-label={entry.playerName}
                             className="absolute bg-transparent focus:outline-none"
-                            style={{ ...rect, ...(baseOverlayStyle(isHovered, isPinned) ?? {}) }}
+                            style={{ ...rect, ...baseOverlayStyle(isHovered, isPinned) }}
                             onMouseEnter={() => handleHoverTarget(ref)}
                             onMouseLeave={handleLeave}
                             onClick={() => handleSelectTarget(ref)}
@@ -513,7 +536,7 @@ export function SceneTest({ title, imageAssetId, text, textLabel, textDock = "bo
           )}
         </div>
 
-        {!textFirst && renderTextPanel()}
+        {hasText && !textFirst && renderTextPanel()}
       </div>
 
       <div

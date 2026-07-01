@@ -14,7 +14,7 @@ function createHotspotFieldErrors(): HotspotFieldErrors {
 }
 
 function applyBusinessRules(hotspot: HotspotValidationEntity, errors: HotspotFieldErrors): void {
-  if (hasDuplicateUseItemRules(hotspot)) errors.rules ??= "No puede haber dos reglas onUseItem para el mismo item.";
+  if (hasDuplicateUseItemRules(hotspot)) errors.rules ??= "No puede haber dos reglas onUseItem para el mismo objeto.";
 }
 
 const validators = createEntityValidators(HotspotSchema, HotspotDraftSchema, createHotspotFieldErrors, applyBusinessRules);

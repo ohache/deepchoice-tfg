@@ -2,7 +2,7 @@ import type { Project } from "@/domain/types";
 import type { IssueLike } from "@/shared/zodIssues";
 import { ProjectSchema } from "@/validation/projectSchemas";
 
-interface LoadedProjectFromDirectory {
+type LoadedProjectFromDirectory = {
   project: Project;
   files: File[];
 }

@@ -122,15 +122,18 @@ X  `src/features/editor/core/editorDataUtils.ts`
 
 
 // BORRADO
--  `src/features/editor/delete/deleteTypes.ts`
--  `src/features/editor/delete/deleteImpactAnalyzer.ts`
+X  `src/features/editor/delete/deleteTypes.ts`
+X  `src/features/editor/delete/deleteCascadeContext.ts`
+X  `src/features/editor/delete/deleteImpactAnalyzer.ts`
 -  `src/features/editor/delete/DeleteImpactModal.tsx`
--  `src/features/editor/delete/deleteReferenceCleaner.ts`
--  `src/features/editor/delete/deleteReferenceQueries.ts`
-
--  `src/features/editor/delete/editorDeleteSlice.ts`
+X  `src/features/editor/delete/deleteReferenceCleaner.ts`
+X  `src/features/editor/delete/deleteReferenceTransforms.ts`
+X  `src/features/editor/delete/deleteReferenceQueries.ts`
+X  `src/features/editor/delete/editorDeleteSlice.ts`
+X  `src/features/editor/delete/editorDeleteHelpers.ts`
 -  `src/features/editor/delete/projectDiagnostics.ts`
--  `src/features/editor/core/editorProjectWalkers.ts`
+X  `src/features/editor/delete/projectReferencesIndexes.ts`
+X  `src/features/editor/core/editorProjectWalkers.ts`
 
 
 // VISTA
@@ -151,6 +154,7 @@ X  `src/features/editor/scene/node/nodeValidator.ts`
 X  `src/features/editor/scene/node/nodeHelpers.ts` -- Funciones a Delete
 X  `src/features/editor/scene/node/editorNodeSlice.ts`
 X  `src/features/editor/scene/SceneEditorView.tsx`
+X  `src/features/editor/scene/SceneDiagnosticsPanel.tsx`
 X  `src/features/editor/scene/SceneCommon.tsx`
 X  `src/features/editor/scene/SceneFieldBlocks.tsx`
 X  `src/features/editor/scene/fields/SceneTitleField.tsx`

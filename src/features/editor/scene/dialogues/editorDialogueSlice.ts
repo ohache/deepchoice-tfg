@@ -208,7 +208,7 @@ export function createEditorDialoguesSlice(set: (partial: Partial<EditorStoreLik
       withDialogueDraft((dialogue) => {
         if (dialogue.id !== dialogueId) return dialogue;
 
-        const next = safeTrim(title ?? "");
+        const next = title ?? "";
         if ((dialogue.title ?? "") === next) return dialogue;
 
         return { ...dialogue, title: next };
@@ -218,7 +218,7 @@ export function createEditorDialoguesSlice(set: (partial: Partial<EditorStoreLik
       withDialogueDraft((dialogue) => {
         if (dialogue.id !== dialogueId) return dialogue;
 
-        const next = safeTrim(description ?? "");
+        const next = description ?? "";
         if ((dialogue.description ?? "") === next) return dialogue;
 
         return { ...dialogue, description: next || undefined };

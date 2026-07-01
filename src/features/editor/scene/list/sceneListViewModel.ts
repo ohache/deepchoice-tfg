@@ -10,35 +10,36 @@ export type SceneListLeafItem =
 export type SceneListLayerGroup =
   | { key: "texts"; kind: "list"; label: "Textos"; count: number; items: SceneListLeafItem[] }
   | { key: "hotspots"; kind: "list"; label: "Hotspots"; count: number; items: SceneListLeafItem[] }
-  | { key: "placedItems"; kind: "list"; label: "Items"; count: number; items: SceneListLeafItem[] }
-  | { key: "placedNpcs"; kind: "list"; label: "NPCs"; count: number; items: SceneListLeafItem[] }
-  | { key: "placedPlayers"; kind: "list"; label: "Players"; count: number; items: SceneListLeafItem[] }
-  | { key: "music"; kind: "single"; label: "Música"; trackName: string };
+  | { key: "placedItems"; kind: "list"; label: "Objetos"; count: number; items: SceneListLeafItem[] }
+  | { key: "placedNpcs"; kind: "list"; label: "PNJs"; count: number; items: SceneListLeafItem[] }
+  | { key: "placedPlayers"; kind: "list"; label: "Jugadores"; count: number; items: SceneListLeafItem[] }
+  | { key: "music"; kind: "single"; label: "Música"; trackName: string; sourceLabel: string };
 
-export interface SceneListLayerEntry {
+export type SceneListLayerEntry = {
   id: ID;
   label: string;
   groups: SceneListLayerGroup[];
 }
 
-export interface SceneListDialogueEntry {
+export type SceneListDialogueEntry = {
   id: ID;
   title: string;
   playerName: string;
   npcName: string;
 }
 
-export interface SceneListMapSummary {
+export type SceneListMapSummary = {
   mapName: string;
   regionName: string;
   isEntry: boolean;
 }
 
-export interface SceneListMusicSummary {
+export type SceneListMusicSummary = {
   trackName: string;
+  sourceLabel: string;
 }
 
-export interface SceneListSceneEntry {
+export type SceneListSceneEntry = {
   id: ID;
   title: string;
   searchText: string;
@@ -91,14 +92,14 @@ function buildHotspotGroup(layer: SceneImageLayer): SceneListLayerGroup | null {
 function buildPlacedItemsGroup(layer: SceneImageLayer, itemNameById: Record<ID, string>): SceneListLayerGroup | null {
   const items = (layer.placedItems ?? []).map((entry: ItemInstance) => ({
     id: entry.itemInstanceId,
-    label: normalizeText(entry.label) || "Item sin label",
-    itemName: itemNameById[entry.itemId] ?? unknownLabel("Item"),
+    label: normalizeText(entry.label) || "Objeto sin label",
+    itemName: itemNameById[entry.itemId] ?? unknownLabel("Objeto"),
     kind: "placedItem" as const,
   }));
 
   if (items.length === 0) return null;
 
-  return { key: "placedItems", kind: "list", label: "Items", count: items.length, items };
+  return { key: "placedItems", kind: "list", label: "Objetos", count: items.length, items };
 }
 
 function buildPlacedNpcsGroup(layer: SceneImageLayer, npcNameById: Record<ID, string>): SceneListLayerGroup | null {
@@ -110,29 +111,29 @@ function buildPlacedNpcsGroup(layer: SceneImageLayer, npcNameById: Record<ID, st
 
   if (npcs.length === 0) return null;
 
-  return { key: "placedNpcs", kind: "list", label: "NPCs", count: npcs.length, items: npcs };
+  return { key: "placedNpcs", kind: "list", label: "PNJs", count: npcs.length, items: npcs };
 }
 
 function buildPlacedPlayersGroup(layer: SceneImageLayer, playerNameById: Record<ID, string>): SceneListLayerGroup | null {
   const players = (layer.placedPlayers ?? []).map((entry: PlacedPlayer, index) => ({
     id: `${layer.id}:${entry.playerId}:${index}`,
-    playerName: playerNameById[entry.playerId] ?? unknownLabel("Player"),
+    playerName: playerNameById[entry.playerId] ?? unknownLabel("Jugador"),
     kind: "placedPlayer" as const,
   }));
 
   if (players.length === 0) return null;
 
-  return { key: "placedPlayers", kind: "list", label: "Players", count: players.length, items: players };
+  return { key: "placedPlayers", kind: "list", label: "Jugadores", count: players.length, items: players };
 }
 
 function buildLayerMusicGroup(layer: SceneImageLayer, musicNameById: Record<ID, string>): SceneListLayerGroup | null {
   if (!layer.musicTrackId) return null;
 
-  return { key: "music", kind: "single", label: "Música", trackName: musicNameById[layer.musicTrackId] ?? unknownLabel("Pista") };
+  return { key: "music", kind: "single", label: "Música", trackName: musicNameById[layer.musicTrackId] ?? unknownLabel("Pista"), sourceLabel: "Capa" };
 }
 
 function buildLayerEntry(layer: SceneImageLayer, index: number,
-   refs: { itemNameById: Record<ID, string>; npcNameById: Record<ID, string>; playerNameById: Record<ID, string>; musicNameById: Record<ID, string> }): SceneListLayerEntry {
+  refs: { itemNameById: Record<ID, string>; npcNameById: Record<ID, string>; playerNameById: Record<ID, string>; musicNameById: Record<ID, string> }): SceneListLayerEntry {
   const groups = [
     buildTextGroup(layer),
     buildHotspotGroup(layer),
@@ -149,8 +150,8 @@ function buildDialogueEntry(dialogue: Dialogue, refs: { playerNameById: Record<I
   return {
     id: dialogue.id,
     title: normalizeText(dialogue.title) || "Diálogo sin título",
-    playerName: refs.playerNameById[dialogue.playerId] ?? unknownLabel("Player"),
-    npcName: refs.npcNameById[dialogue.npcId] ?? unknownLabel("NPC"),
+    playerName: refs.playerNameById[dialogue.playerId] ?? unknownLabel("Jugador"),
+    npcName: refs.npcNameById[dialogue.npcId] ?? unknownLabel("PNJ"),
   };
 }
 
@@ -170,14 +171,38 @@ function buildMapSummary(project: Project, node: Node): SceneListMapSummary | un
   };
 }
 
-function buildSceneMusicSummary(node: Node, musicNameById: Record<ID, string>): SceneListMusicSummary | undefined {
-  if (!node.musicTrackId) return undefined;
+function buildSceneMusicSummary(project: Project, node: Node, musicNameById: Record<ID, string>): SceneListMusicSummary | undefined {
+  if (node.musicTrackId) {
+    return { trackName: musicNameById[node.musicTrackId] ?? unknownLabel("Pista"), sourceLabel: "Escena" };
+  }
 
-  return { trackName: musicNameById[node.musicTrackId] ?? unknownLabel("Pista") };
+  const location = node.mapLocation;
+  if (location) {
+    const map = (project.maps ?? []).find((entry) => entry.id === location.mapId);
+    const region = map?.regions.find((entry) => entry.id === location.regionId);
+
+    if (region?.musicTrackId) {
+      return { trackName: musicNameById[region.musicTrackId] ?? unknownLabel("Pista"), sourceLabel: "Región" };
+    }
+  }
+
+  const layersWithMusic = node.layers.filter((layer) => Boolean(layer.musicTrackId));
+
+  if (layersWithMusic.length === 1) {
+    const trackId = layersWithMusic[0]!.musicTrackId!;
+
+    return { trackName: musicNameById[trackId] ?? unknownLabel("Pista"), sourceLabel: "Capa" };
+  }
+
+  if (layersWithMusic.length > 1) {
+    return { trackName: `${layersWithMusic.length} pistas`, sourceLabel: "Capas" };
+  }
+
+  return undefined;
 }
 
 function buildSceneSearchText(args: { scene: Pick<SceneListSceneEntry, "title">; map?: SceneListMapSummary; music?: SceneListMusicSummary;
-  layers: SceneListLayerEntry[]; dialogues: SceneListDialogueEntry[]}): string {
+  layers: SceneListLayerEntry[]; dialogues: SceneListDialogueEntry[] }): string {
   const values: string[] = [];
 
   values.push(args.scene.title);
@@ -223,7 +248,7 @@ export function buildSceneListEntries(project: Project | null): SceneListSceneEn
   return (project.nodes ?? []).map((node, index) => {
     const title = fallbackSceneTitle(node, index);
     const map = buildMapSummary(project, node);
-    const music = buildSceneMusicSummary(node, musicNameById);
+    const music = buildSceneMusicSummary(project, node, musicNameById);
 
     const layers = node.layers.map((layer, layerIndex) => buildLayerEntry(layer, layerIndex, { itemNameById, npcNameById, playerNameById, musicNameById }));
 
@@ -231,6 +256,9 @@ export function buildSceneListEntries(project: Project | null): SceneListSceneEn
 
     const searchText = buildSceneSearchText({ scene: { title }, map, music, layers, dialogues });
 
-    return { id: node.id, title, searchText, isStart: Boolean(node.isStart), isFinal: Boolean(node.isFinal), layerCount: node.layers.length,
-      dialogueCount: (node.dialogues ?? []).length, map, music, layers, dialogues }});
+    return {
+      id: node.id, title, searchText, isStart: Boolean(node.isStart), isFinal: Boolean(node.isFinal), layerCount: node.layers.length,
+      dialogueCount: (node.dialogues ?? []).length, map, music, layers, dialogues
+    }
+  });
 }

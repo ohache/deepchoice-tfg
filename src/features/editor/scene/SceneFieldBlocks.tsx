@@ -1,7 +1,7 @@
 import type React from "react";
 import { useId } from "react";
 
-interface ToggleFieldBlockProps {
+type ToggleFieldBlockProps = {
   label: string;
   active: boolean;
   onToggle: () => void;

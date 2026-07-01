@@ -7,6 +7,7 @@ import { validateHotspot } from "@/features/editor/scene/hotspots/hotspotValidat
 import { validatePlacedItem } from "@/features/editor/scene/placedItems/placedItemValidator";
 import { validatePlacedNpc } from "@/features/editor/scene/placedNpcs/placedNpcValidator";
 import { validatePlacedPlayer } from "@/features/editor/scene/placedPlayers/placedPlayerValidator";
+import { isValidRect01 } from "@/features/editor/hooks/regionShape";
 import { generateId } from "@/utils/id";
 
 function defaultInitialState(): PlaceableState {
@@ -33,6 +34,10 @@ function isLabelUnique<T>(label: string, items: T[], getId: (item: T) => ID, get
     if (selfId && getId(item) === selfId) return false;
     return getLabel(item).trim().toLowerCase() === nextLabel;
   });
+}
+
+function hasValidShape(shape: RegionShape | null | undefined): shape is RegionShape {
+  return isValidRect01(shape);
 }
 
 /* ------------------------------- Hotspots ----------------------------------- */
@@ -80,7 +85,7 @@ function buildHotspotCandidateFromDraft(draft: HotspotDraft & { shape: RegionSha
 export function validateHotspotDraftCandidate(draft: HotspotDraft | null) {
   if (!draft) return { ok: false as const, error: "No hay borrador de hotspot." };
 
-  if (!draft.shape) return { ok: false as const, error: "Debes dibujar un área válida antes de guardar el hotspot." };
+  if (!hasValidShape(draft.shape)) return { ok: false as const, error: "Debes dibujar un área válida antes de guardar el hotspot." };
 
   const candidate = buildHotspotCandidateFromDraft({ ...draft, shape: draft.shape });
 
@@ -104,12 +109,30 @@ export const initialPlacedItemEditorState: PlacedItemEditorState = {
   drawing: null,
 };
 
-export function buildEmptyPlacedItemDraft(input: { itemId: ID; label?: string }): PlacedItemDraft {
+function buildDefaultPlacedItemRules(itemInstanceId: ID): InteractionRules {
   return {
-    itemInstanceId: generateId.itemInstance(),
+    onClick: [
+      {
+        id: generateId.rule(),
+        effects: [
+          {
+            type: "addItem",
+            itemInstanceId,
+          },
+        ],
+      },
+    ],
+  };
+}
+
+export function buildEmptyPlacedItemDraft(input: { itemId: ID; label?: string }): PlacedItemDraft {
+  const itemInstanceId = generateId.itemInstance();
+
+  return {
+    itemInstanceId,
     itemId: input.itemId,
     label: input.label?.trim() ?? "",
-    rules: defaultRules(),
+    rules: buildDefaultPlacedItemRules(itemInstanceId),
     placement: { shape: null, initialState: defaultInitialState() },
   };
 }
@@ -143,10 +166,10 @@ export function validatePlacedItemDraftCandidate(draft: PlacedItemDraft | null, 
 
   const shape = draft.placement.shape;
 
-  if (!shape) return { ok: false as const, error: "Debes dibujar un área válida antes de guardar el item." };
+  if (!hasValidShape(shape)) return { ok: false as const, error: "Debes dibujar un área válida antes de guardar el objeto." };
 
   if (!isLabelUnique(draft.label, placedItems, (item) => item.itemInstanceId, (item) => item.label, draft.itemInstanceId)) {
-    return { ok: false as const, error: "El label del placedItem debe ser único en la capa activa." };
+    return { ok: false as const, error: "El nombre del objeto colocado debe ser único en la capa activa." };
   }
 
   const candidate = buildPlacedItemCandidateFromDraft({ ...draft, placement: { ...draft.placement, shape }});
@@ -154,7 +177,7 @@ export function validatePlacedItemDraftCandidate(draft: PlacedItemDraft | null, 
   const result = validatePlacedItem(candidate);
 
   if (!result.ok) {
-    const message = result.errors.rules ?? result.errors.label ?? result.errors.itemId ?? result.errors.itemInstanceId ?? result.errors.placement ?? "El item colocado no es válido.";
+    const message = result.errors.rules ?? result.errors.label ?? result.errors.itemId ?? result.errors.itemInstanceId ?? result.errors.placement ?? "El objeto colocado no es válido.";
 
     return { ok: false as const, error: message };
   }
@@ -201,14 +224,14 @@ function buildPlacedNpcCandidateFromDraft(draft: PlacedNpcDraft & { shape: Regio
 export function validatePlacedNpcDraftCandidate(draft: PlacedNpcDraft | null) {
   if (!draft) return { ok: false as const, error: "No hay borrador de placedNpc." };
 
-  if (!draft.shape) return { ok: false as const, error: "Debes dibujar un área válida antes de guardar el NPC." };
+  if (!hasValidShape(draft.shape)) return { ok: false as const, error: "Debes dibujar un área válida antes de guardar el PNJ." };
 
   const candidate = buildPlacedNpcCandidateFromDraft({ ...draft, shape: draft.shape });
 
   const result = validatePlacedNpc(candidate);
 
   if (!result.ok) {
-    const message = result.errors.rules ?? result.errors.npcId ?? result.errors.shape ?? result.errors.initialState ?? "El NPC colocado no es válido.";
+    const message = result.errors.rules ?? result.errors.npcId ?? result.errors.shape ?? result.errors.initialState ?? "El PNJ colocado no es válido.";
 
     return { ok: false as const, error: message };
   }
@@ -255,14 +278,14 @@ function buildPlacedPlayerCandidateFromDraft(draft: PlacedPlayerDraft & { shape:
 export function validatePlacedPlayerDraftCandidate(draft: PlacedPlayerDraft | null) {
   if (!draft) return { ok: false as const, error: "No hay borrador de placedPlayer." };
 
-  if (!draft.shape) return { ok: false as const, error: "Debes dibujar un área válida antes de guardar el player." };
+  if (!hasValidShape(draft.shape)) return { ok: false as const, error: "Debes dibujar un área válida antes de guardar el jugador." };
 
   const candidate = buildPlacedPlayerCandidateFromDraft({ ...draft, shape: draft.shape });
 
   const result = validatePlacedPlayer(candidate);
 
   if (!result.ok) {
-    const message = result.errors.initialImageId ?? result.errors.playerId ?? result.errors.shape ?? result.errors.initialState ?? "El player colocado no es válido.";
+    const message = result.errors.initialImageId ?? result.errors.playerId ?? result.errors.shape ?? result.errors.initialState ?? "El jugador colocado no es válido.";
 
     return { ok: false as const, error: message };
   }

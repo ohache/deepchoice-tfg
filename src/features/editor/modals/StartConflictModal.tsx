@@ -1,4 +1,4 @@
-interface StartConflictModalProps {
+type StartConflictModalProps = {
   open: boolean;
   currentStartTitle: string;
   editingTitle: string;

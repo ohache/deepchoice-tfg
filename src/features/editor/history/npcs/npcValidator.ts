@@ -19,20 +19,20 @@ function validateNpcInitialInventoryDraft(input: NpcDraftInput, project: Project
   for (const item of inventory) {
     if (!item.itemId) {
       out.inventoryItemById ??= {};
-      out.inventoryItemById[item.itemInstanceId] = "Selecciona un item.";
+      out.inventoryItemById[item.itemInstanceId] = "Selecciona un objeto.";
       continue;
     }
 
     const exists = project.items.some((p) => p.id === item.itemId);
     if (!exists) {
       out.inventoryItemById ??= {};
-      out.inventoryItemById[item.itemInstanceId] = "El item seleccionado no existe.";
+      out.inventoryItemById[item.itemInstanceId] = "El objeto seleccionado no existe.";
       continue;
     }
 
     if (hasDuplicatedItemInstanceLabel(project, item.label, item.itemInstanceId)) {
       out.inventoryItemById ??= {};
-      out.inventoryItemById[item.itemInstanceId] = "Ya existe otro item instanciado con ese nombre.";
+      out.inventoryItemById[item.itemInstanceId] = "Ya existe otro objeto instanciado con ese nombre.";
     }
   }
 

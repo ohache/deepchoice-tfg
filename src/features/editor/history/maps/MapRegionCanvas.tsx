@@ -129,7 +129,7 @@ export function MapRegionCanvas({ mapId, mapVisualType, setPanelError }:
   const collisionSummary = useMemo(() => {
     if (!collidingRegions.length) return "";
 
-    return collidingRegions.map((region) => region.label?.trim() || "Región sin etiqueta").slice(0, 2).join(", ");
+    return collidingRegions.map((region) => region.label?.trim() || "Región sin nombre").slice(0, 2).join(", ");
   }, [collidingRegions]);
 
   /* Si hay colisión, invalida el shape actual y reinicia el dibujo */

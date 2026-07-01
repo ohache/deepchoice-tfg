@@ -1,4 +1,4 @@
-import type { ID, Speaker } from "@/domain/types";
+import type { ID, Speaker, InteractionRules } from "@/domain/types";
 import type { Effect } from "@/domain/effects";
 import type { Option } from "@/components/Select";
 import type { FactoryCtx } from "@/features/editor/scene/rules/effects/effectShared";
@@ -47,8 +47,10 @@ type EffectSpec<T extends EnabledEffectType> = {
   normalize: (factory: FactoryCtx, effect: EffectByType<T>) => EffectByType<T>;
 };
 
-type VariableEffect = Extract<EnabledEffect, { type: "setHotspotVar" | "toggleHotspotVar" | "incHotspotVar" | "decHotspotVar" | "setPlayerVar"
-      | "togglePlayerVar" | "incPlayerVar" | "decPlayerVar" | "setNpcVar" | "toggleNpcVar" | "incNpcVar" | "decNpcVar" }>;
+type VariableEffect = Extract<EnabledEffect, {
+  type: "setHotspotVar" | "toggleHotspotVar" | "incHotspotVar" | "decHotspotVar" | "setPlayerVar"
+  | "togglePlayerVar" | "incPlayerVar" | "decPlayerVar" | "setNpcVar" | "toggleNpcVar" | "incNpcVar" | "decNpcVar"
+}>;
 
 const ENABLED_EFFECT_TYPES: EnabledEffectType[] = ["showMessage", "goToNode", "addItem", "removeItem", "transformItem", "combineItems", "startDialogue",
   "endDialogue", "giveItemToNpc", "receiveItemFromNpc", "setPlacedItemVisible", "setPlacedItemReachable", "setHotspotVisible", "setHotspotReachable",
@@ -67,6 +69,13 @@ function normalizeNumber(value: unknown, fallback = 0): number {
 
 function normalizeId(value: unknown): ID {
   return String(value ?? "").trim();
+}
+
+function normalizeResultItemRules(rules: InteractionRules | undefined): { resultItemRules?: InteractionRules } {
+  const hasClickRules = (rules?.onClick?.length ?? 0) > 0;
+  const hasUseItemRules = (rules?.onUseItem?.length ?? 0) > 0;
+
+  return hasClickRules || hasUseItemRules ? { resultItemRules: rules } : {};
 }
 
 function optionOf(id: string, label?: string): Option<string> {
@@ -89,14 +98,6 @@ function getOwnerItemInstanceId(factory: FactoryCtx): ID {
     default:
       return "";
   }
-}
-
-function getOwnerPlayerId(factory: FactoryCtx): ID {
-  const owner = factory.ctx.owner;
-
-  if (owner.kind === "playerInventoryItem") return owner.playerId;
-
-  return factory.idx.getPlayerOptions()[0]?.id ?? "";
 }
 
 function getSceneOwnerLayerId(factory: FactoryCtx): ID | null {
@@ -151,26 +152,17 @@ function nodeField(path = "targetNodeId", label = "Destino"): EffectFieldSpec {
   return { key: path, label, path, control: "id-select", optionsResolver: (factory) => factory.idx.getNodeOptions({ excludeNodeId: factory.ctx.nodeId }) };
 }
 
-function gameItemField(path = "itemInstanceId", label = "Item"): EffectFieldSpec {
+function gameItemField(path = "itemInstanceId", label = "Objeto"): EffectFieldSpec {
   return { key: path, label, path, control: "id-select", optionsResolver: (factory) => factory.idx.getGameItemOptions() };
 }
 
-function playerInventoryItemField(path = "itemInstanceId", label = "Item"): EffectFieldSpec {
-  return { key: path, label, path, control: "id-select", optionsResolver: (factory, effect) => {
-      if (effect.type !== "removeItem") return [];
-
-      return factory.idx.getPlayerInventoryItemOptionsForPlayer(effect.playerId);
-    },
-    disabledWhen: (_factory, effect) => effect.type !== "removeItem" || !effect.playerId,
-  };
-}
-
-function placedItemField(path = "itemInstanceId", label = "Item colocado"): EffectFieldSpec {
+function placedItemField(path = "itemInstanceId", label = "Objeto colocado"): EffectFieldSpec {
   return { key: path, label, path, control: "id-select", optionsResolver: (factory) => factory.idx.getPlacedItemOptions() };
 }
 
 function secondGameItemField(path = "itemBInstanceId", label = "Combinar con"): EffectFieldSpec {
-  return { key: path, label, path, control: "id-select",
+  return {
+    key: path, label, path, control: "id-select",
     optionsResolver: (factory, effect) => {
       const firstId = effect.type === "combineItems" ? effect.itemAInstanceId : "";
       return factory.idx.getCombinableInventoryItemOptions(firstId).filter((option) => option.id !== firstId);
@@ -183,11 +175,11 @@ function itemDefField(path = "resultItemId", label = "Tipo resultante"): EffectF
   return { key: path, label, path, control: "id-select", optionsResolver: (factory) => factory.idx.getItemOptions() };
 }
 
-function npcField(path = "npcId", label = "NPC"): EffectFieldSpec {
+function npcField(path = "npcId", label = "PNJ"): EffectFieldSpec {
   return { key: path, label, path, control: "id-select", optionsResolver: (factory) => factory.idx.getNpcOptions() };
 }
 
-function playerField(path = "playerId", label = "Player"): EffectFieldSpec {
+function playerField(path = "playerId", label = "Jugador"): EffectFieldSpec {
   return { key: path, label, path, control: "id-select", optionsResolver: (factory) => factory.idx.getPlayerOptions() };
 }
 
@@ -196,7 +188,8 @@ function hotspotField(): EffectFieldSpec {
 }
 
 function hotspotVarField(): EffectFieldSpec {
-  return { key: "varId", label: "Variable", path: "varId", control: "id-select",
+  return {
+    key: "varId", label: "Variable", path: "varId", control: "id-select",
     optionsResolver: (factory, effect) => {
       if (!isHotspotVarEffect(effect)) return [];
       const hotspot = factory.idx.getHotspotById(effect.hotspotId);
@@ -207,57 +200,64 @@ function hotspotVarField(): EffectFieldSpec {
 }
 
 function playerVarField(): EffectFieldSpec {
-  return { key: "varId", label: "Variable", path: "varId", control: "id-select",
+  return {
+    key: "varId", label: "Variable", path: "varId", control: "id-select",
     optionsResolver: (factory, effect) => isPlayerVarEffect(effect) ? factory.idx.getPlayerVarOptions(effect.playerId) : [],
     disabledWhen: (_factory, effect) => !isPlayerVarEffect(effect) || !effect.playerId,
   };
 }
 
 function npcVarField(): EffectFieldSpec {
-  return { key: "varId", label: "Variable", path: "varId", control: "id-select",
+  return {
+    key: "varId", label: "Variable", path: "varId", control: "id-select",
     optionsResolver: (factory, effect) => isNpcVarEffect(effect) ? factory.idx.getNpcVarOptions(effect.npcId) : [],
     disabledWhen: (_factory, effect) => !isNpcVarEffect(effect) || !effect.npcId,
   };
 }
 
-function placedNpcField(path = "npcId", label = "NPC"): EffectFieldSpec {
+function placedNpcField(path = "npcId", label = "PNJ"): EffectFieldSpec {
   return { key: path, label, path, control: "id-select", optionsResolver: (factory) => factory.idx.getPlacedNpcOptions() };
 }
 
 function placedNpcNodeField(): EffectFieldSpec {
-  return { key: "nodeId", label: "Escena", path: "nodeId", control: "id-select",
+  return {
+    key: "nodeId", label: "Escena", path: "nodeId", control: "id-select",
     optionsResolver: (factory, effect) => isPlacedNpcEffect(effect) ? factory.idx.getPlacedNpcNodeOptions(effect.npcId) : [],
     disabledWhen: (_factory, effect) => !isPlacedNpcEffect(effect) || !effect.npcId,
   };
 }
 
 function placedNpcLayerField(): EffectFieldSpec {
-  return { key: "layerId", label: "Capa", path: "layerId", control: "id-select",
+  return {
+    key: "layerId", label: "Capa", path: "layerId", control: "id-select",
     optionsResolver: (factory, effect) => isPlacedNpcEffect(effect) ? factory.idx.getPlacedNpcLayerOptions(effect.npcId, effect.nodeId) : [],
     disabledWhen: (_factory, effect) => !isPlacedNpcEffect(effect) || !effect.npcId || !effect.nodeId,
   };
 }
 
-function placedPlayerField(path = "playerId", label = "Player"): EffectFieldSpec {
+function placedPlayerField(path = "playerId", label = "Jugador"): EffectFieldSpec {
   return { key: path, label, path, control: "id-select", optionsResolver: (factory) => factory.idx.getPlacedPlayerOptions() };
 }
 
 function placedPlayerNodeField(): EffectFieldSpec {
-  return { key: "nodeId", label: "Escena", path: "nodeId", control: "id-select",
+  return {
+    key: "nodeId", label: "Escena", path: "nodeId", control: "id-select",
     optionsResolver: (factory, effect) => isPlacedPlayerEffect(effect) ? factory.idx.getPlacedPlayerNodeOptions(effect.playerId) : [],
     disabledWhen: (_factory, effect) => !isPlacedPlayerEffect(effect) || !effect.playerId,
   };
 }
 
 function placedPlayerLayerField(): EffectFieldSpec {
-  return { key: "layerId", label: "Capa", path: "layerId", control: "id-select",
+  return {
+    key: "layerId", label: "Capa", path: "layerId", control: "id-select",
     optionsResolver: (factory, effect) => isPlacedPlayerEffect(effect) ? factory.idx.getPlacedPlayerLayerOptions(effect.playerId, effect.nodeId) : [],
     disabledWhen: (_factory, effect) => !isPlacedPlayerEffect(effect) || !effect.playerId || !effect.nodeId,
   };
 }
 
 function placedPlayerImageField(): EffectFieldSpec {
-  return { key: "imageId", label: "Imagen", path: "imageId", control: "id-select",
+  return {
+    key: "imageId", label: "Imagen", path: "imageId", control: "id-select",
     optionsResolver: (factory, effect) => effect.type === "setPlacedPlayerImage" ? factory.idx.getPlayerImageOptions(effect.playerId) : [],
     disabledWhen: (_factory, effect) => effect.type !== "setPlacedPlayerImage" || !effect.playerId,
   };
@@ -268,7 +268,8 @@ function mapField(): EffectFieldSpec {
 }
 
 function mapRegionField(): EffectFieldSpec {
-  return { key: "regionId", label: "Región", path: "regionId", control: "id-select",
+  return {
+    key: "regionId", label: "Región", path: "regionId", control: "id-select",
     optionsResolver: (factory, effect) => effect.type === "setMapRegionAvailable" ? factory.idx.getMapRegionOptions(effect.mapId) : [],
     disabledWhen: (_factory, effect) => effect.type !== "setMapRegionAvailable" || !effect.mapId,
   };
@@ -283,14 +284,15 @@ function musicField(path = "trackId", label = "Pista"): EffectFieldSpec {
 }
 
 function speakerField(): EffectFieldSpec {
-  return { key: "speaker", label: "Emisor", path: "speaker", control: "id-select",
+  return {
+    key: "speaker", label: "Emisor", path: "speaker", control: "id-select",
     optionsResolver: (factory, effect) => {
       const current = effect.type === "showMessage" ? speakerToOption(factory, effect.speaker) : "narrator";
       const options = factory.idx.getMessageSpeakerOptions({ nodeId: factory.ctx.nodeId, layerId: getSceneOwnerLayerId(factory) });
 
       if (options.some((option) => option.id === current)) return options;
 
-      return [ ...options, { id: current, label: effect.type === "showMessage" ? speakerLabel(factory, effect.speaker) : "Narrador" }];
+      return [...options, { id: current, label: effect.type === "showMessage" ? speakerLabel(factory, effect.speaker) : "Narrador" }];
     },
   };
 }
@@ -343,7 +345,7 @@ function normalizeAmount(value: unknown): number {
 
 function normalizeSpeaker(factory: FactoryCtx, effect: EffectByType<"showMessage"> & Record<string, unknown>): Speaker | undefined {
   const fromLegacy = speakerFromOption(factory, effect.speakerKind === "player" || effect.speakerKind === "npc"
-      ? `${effect.speakerKind}:${String(effect.speakerId ?? "")}` : effect.speakerKind === "narrator" ? "narrator" : undefined);
+    ? `${effect.speakerKind}:${String(effect.speakerId ?? "")}` : effect.speakerKind === "narrator" ? "narrator" : undefined);
 
   const speaker = effect.speaker ?? fromLegacy ?? { kind: "narrator" };
 
@@ -375,7 +377,6 @@ function canUseEffectType(factory: FactoryCtx, type: EnabledEffectType): boolean
   const hasTargetNodes = factory.idx.getNodeOptions({ excludeNodeId: factory.ctx.nodeId }).length > 0;
   const hasGameItems = factory.idx.getGameItemOptions().length > 0;
   const hasPlayers = factory.idx.getPlayerOptions().length > 0;
-  const hasPlayerInventoryItems = factory.idx.getPlayerOptions().some((player) => factory.idx.getPlayerInventoryItemOptionsForPlayer(player.id).length > 0);
   const hasPlacedItems = factory.idx.getPlacedItems().length > 0;
   const hasItemDefs = factory.idx.getItemOptions().length > 0;
   const hasHotspots = factory.idx.getHotspots().length > 0;
@@ -400,10 +401,8 @@ function canUseEffectType(factory: FactoryCtx, type: EnabledEffectType): boolean
       return hasTargetNodes;
 
     case "addItem":
-      return hasPlayers && hasGameItems;
-
     case "removeItem":
-      return hasPlayers && hasPlayerInventoryItems;
+      return hasPlayers && hasGameItems;
 
     case "transformItem":
       return hasGameItems && hasItemDefs;
@@ -509,40 +508,34 @@ const EFFECT_REGISTRY: { [K in EnabledEffectType]: EffectSpec<K> } = {
   addItem: {
     familyId: "item",
     label: "Añadir al inventario",
-    ui: { layoutClassName: "grid grid-cols-1 md:grid-cols-2 gap-2", fields: [gameItemField(), playerField()] },
-    makeDefault: (factory) => ({ type: "addItem", playerId: getOwnerPlayerId(factory), itemInstanceId: "" }),
+    ui: { layoutClassName: "grid grid-cols-1 gap-2", fields: [gameItemField()] },
+    makeDefault: (factory) => ({ type: "addItem", itemInstanceId: getOwnerItemInstanceId(factory) }),
     summarize: ({ idx }, effect) => {
       const item = idx.getGameItemLabel(effect.itemInstanceId);
-      const player = idx.getPlayerLabel(effect.playerId);
-      
-      return `${item} → ${player}`;
+      return `${item} → inventario`;
     },
-    normalize: (factory, effect) => ({ type: "addItem", playerId: normalizeId(effect.playerId || getOwnerPlayerId(factory)),
-      itemInstanceId: normalizeId(effect.itemInstanceId) }),
+    normalize: (_factory, effect) => ({ type: "addItem", itemInstanceId: normalizeId(effect.itemInstanceId) }),
   },
 
   removeItem: {
     familyId: "item",
     label: "Eliminar del inventario",
-    ui: { layoutClassName: "grid grid-cols-1 md:grid-cols-2 gap-2", fields: [playerInventoryItemField(), playerField()] },
-    makeDefault: (factory) => ({ type: "removeItem", playerId: getOwnerPlayerId(factory), itemInstanceId: "" }),
+    ui: { layoutClassName: "grid grid-cols-1 gap-2", fields: [gameItemField()] },
+    makeDefault: (factory) => ({ type: "removeItem", itemInstanceId: getOwnerItemInstanceId(factory) }),
     summarize: ({ idx }, effect) => {
-      const item = idx.getPlayerInventoryItemLabelForPlayer(effect.playerId, effect.itemInstanceId);
-      const player = idx.getPlayerLabel(effect.playerId);
-      
-      return `${item} de ${player}`;
+      const item = idx.getGameItemLabel(effect.itemInstanceId);
+      return `${item} del inventario`;
     },
-    normalize: (factory, effect) => ({ type: "removeItem", playerId: normalizeId(effect.playerId || getOwnerPlayerId(factory)),
-      itemInstanceId: normalizeId(effect.itemInstanceId) }),
+    normalize: (_factory, effect) => ({ type: "removeItem", itemInstanceId: normalizeId(effect.itemInstanceId) }),
   },
 
   transformItem: {
     familyId: "item",
-    label: "Transformar item",
+    label: "Transformar objeto",
     ui: {
       layoutClassName: "grid grid-cols-1 md:grid-cols-2 gap-2",
       fields: [
-        gameItemField("itemInstanceId", "Item original"),
+        gameItemField("itemInstanceId", "Objeto original"),
         itemDefField("resultItemId", "Tipo resultante"),
         textField("resultItemLabel", "Nombre de la nueva instancia"),
       ],
@@ -565,17 +558,18 @@ const EFFECT_REGISTRY: { [K in EnabledEffectType]: EffectSpec<K> } = {
       resultItemId: normalizeId(effect.resultItemId),
       resultItemInstanceId: normalizeId(effect.resultItemInstanceId || generateId.itemInstance()),
       resultItemLabel: String(effect.resultItemLabel ?? ""),
+      ...normalizeResultItemRules(effect.resultItemRules),
     }),
   },
 
   combineItems: {
     familyId: "item",
-    label: "Combinar items",
+    label: "Combinar objetos",
     ui: {
       layoutClassName: "grid grid-cols-1 md:grid-cols-2 gap-2",
       fields: [
-        gameItemField("itemAInstanceId", "Item A"),
-        secondGameItemField("itemBInstanceId", "Item B"),
+        gameItemField("itemAInstanceId", "Objeto A"),
+        secondGameItemField("itemBInstanceId", "Objeto B"),
         itemDefField("resultItemId", "Tipo creado"),
         textField("resultItemLabel", "Nombre de la nueva instancia"),
       ],
@@ -601,6 +595,7 @@ const EFFECT_REGISTRY: { [K in EnabledEffectType]: EffectSpec<K> } = {
       resultItemId: normalizeId(effect.resultItemId),
       resultItemInstanceId: normalizeId(effect.resultItemInstanceId || generateId.itemInstance()),
       resultItemLabel: String(effect.resultItemLabel ?? ""),
+      ...normalizeResultItemRules(effect.resultItemRules),
     }),
   },
 
@@ -635,7 +630,7 @@ const EFFECT_REGISTRY: { [K in EnabledEffectType]: EffectSpec<K> } = {
 
   giveItemToNpc: {
     familyId: "npc",
-    label: "Dar item",
+    label: "Dar objeto",
     ui: { layoutClassName: "grid grid-cols-1 md:grid-cols-2 gap-2", fields: [npcField(), gameItemField()] },
     makeDefault: () => ({ type: "giveItemToNpc", npcId: "", itemInstanceId: "" }),
     summarize: ({ idx }, effect) => `${idx.getGameItemLabel(effect.itemInstanceId)} a ${idx.getNpcLabel(effect.npcId)}`,
@@ -644,7 +639,7 @@ const EFFECT_REGISTRY: { [K in EnabledEffectType]: EffectSpec<K> } = {
 
   receiveItemFromNpc: {
     familyId: "npc",
-    label: "Recibir item",
+    label: "Recibir objeto",
     ui: { layoutClassName: "grid grid-cols-1 md:grid-cols-2 gap-2", fields: [npcField(), gameItemField()] },
     makeDefault: () => ({ type: "receiveItemFromNpc", npcId: "", itemInstanceId: "" }),
     summarize: ({ idx }, effect) => `${idx.getGameItemLabel(effect.itemInstanceId)} de ${idx.getNpcLabel(effect.npcId)}`,
@@ -904,10 +899,6 @@ const EFFECT_REGISTRY: { [K in EnabledEffectType]: EffectSpec<K> } = {
 function clearDependentFields(prev: EnabledEffect, next: EnabledEffect): EnabledEffect {
   if (prev.type !== next.type) return next;
 
-  if (next.type === "removeItem" && prev.type === "removeItem") {
-    if (prev.playerId !== next.playerId) return { ...next, itemInstanceId: "" };
-  }
-
   if (next.type === "combineItems" && prev.type === "combineItems") {
     if (prev.itemAInstanceId !== next.itemAInstanceId && next.itemBInstanceId === next.itemAInstanceId) return { ...next, itemBInstanceId: "" };
   }
@@ -1065,9 +1056,14 @@ export function getAvailableEffectTypesForCurrentSelection(factory: FactoryCtx, 
     const inventoryTypes: EnabledEffectType[] = ["addItem", "removeItem", "transformItem", "combineItems"];
     const placedTypes: EnabledEffectType[] = ["setPlacedItemVisible", "setPlacedItemReachable"];
 
-    if (!primaryItemId) return enabled;
+    const currentTypeIsPlacedEffect = placedTypes.includes(effect.type);
+
+    if (!primaryItemId) {
+      return enabled.filter((type) => inventoryTypes.includes(type) || currentTypeIsPlacedEffect && placedTypes.includes(type));
+    }
 
     const isPlacedItem = factory.idx.isPlacedItemInstance(primaryItemId);
+
     return enabled.filter((type) => inventoryTypes.includes(type) || (isPlacedItem && placedTypes.includes(type)));
   }
 
@@ -1082,7 +1078,7 @@ export function getAvailableEffectTypesForCurrentSelection(factory: FactoryCtx, 
 
     const kind = getEffectVarKind(factory, effect);
     const variableTypes: EnabledEffectType[] = kind === "boolean" ? ["setHotspotVar", "toggleHotspotVar"] : kind === "number"
-          ? ["setHotspotVar", "incHotspotVar", "decHotspotVar"] : ["setHotspotVar"];
+      ? ["setHotspotVar", "incHotspotVar", "decHotspotVar"] : ["setHotspotVar"];
 
     return enabled.filter((type) => structural.includes(type) || variableTypes.includes(type));
   }
@@ -1096,7 +1092,7 @@ export function getAvailableEffectTypesForCurrentSelection(factory: FactoryCtx, 
 
     const kind = getEffectVarKind(factory, effect);
     const variableTypes: EnabledEffectType[] = kind === "boolean" ? ["setNpcVar", "toggleNpcVar"] : kind === "number"
-          ? ["setNpcVar", "incNpcVar", "decNpcVar"] : ["setNpcVar"];
+      ? ["setNpcVar", "incNpcVar", "decNpcVar"] : ["setNpcVar"];
 
     return enabled.filter((type) => structural.includes(type) || variableTypes.includes(type));
   }
@@ -1113,7 +1109,7 @@ export function getAvailableEffectTypesForCurrentSelection(factory: FactoryCtx, 
 
     const kind = getEffectVarKind(factory, effect);
     const variableTypes: EnabledEffectType[] = kind === "boolean" ? ["setPlayerVar", "togglePlayerVar"] : kind === "number"
-          ? ["setPlayerVar", "incPlayerVar", "decPlayerVar"] : ["setPlayerVar"];
+      ? ["setPlayerVar", "incPlayerVar", "decPlayerVar"] : ["setPlayerVar"];
 
     return enabled.filter((type) => structural.includes(type) || variableTypes.includes(type));
   }

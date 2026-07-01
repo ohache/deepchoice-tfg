@@ -106,8 +106,8 @@ export function HistoryPlayersPanel() {
   });
 
   /* Editor de variables del Player */
-  const { draftVars, openVarId, varNameRefs, computeRowErrors, updateVarRow, switchVarType, addVarRow, toggleVarOpen, removeVarRow, saveVarRow, syncFromVars }
-    = useEntityVarsEditor({
+  const { draftVars, openVarId, varNameRefs, computeRowErrors, updateVarRow, switchVarType, addVarRow, toggleVarOpen, removeVarRow,
+    saveVarRow, validateVarRows, persistValidatedVars,syncFromVars } = useEntityVarsEditor({
       initialVars: selectedPlayer?.vars ?? [],
       onPersistRemove: (varId) => { if (mode === "edit" && selectedPlayerId && selectedPlayerVarIds.has(varId)) removePlayerVar(selectedPlayerId, varId) },
       onPersistSave: (variable, existedBefore) => {
@@ -139,6 +139,14 @@ export function HistoryPlayersPanel() {
     syncFromInventory(selectedPlayer?.initialInventory ?? []);
   }, [selectedPlayer?.id, syncFromVars, syncFromInventory]);
 
+  /* Limpia variables e inventario al crear un Jugador nuevo */
+  useEffect(() => {
+    if (mode !== "new") return;
+
+    syncFromVars([]);
+    syncFromInventory([]);
+  }, [mode, syncFromVars, syncFromInventory]);
+
   const resolvedPreviewUrl = useResolvedAssetUrl(images.previewSource && !images.previewSource.startsWith("blob:") ? images.previewSource : undefined);
 
   const previewDefaultSrc = images.previewSource?.startsWith("blob:") ? images.previewSource : resolvedPreviewUrl;
@@ -159,7 +167,7 @@ export function HistoryPlayersPanel() {
   /* Valida el formulario completo del Jugador */
   const validateDraft = (input: { vars: VarDef[]; initialInventory: ItemInstance[] }): boolean => {
     if (!project) {
-      toast.warning("No hay proyecto", "No se puede validar el Jugador porque no hay un proyecto cargado.");
+      toast.warning("No hay proyecto", "No se puede validar el jugador porque no hay un proyecto cargado.");
       return false;
     }
 
@@ -188,20 +196,14 @@ export function HistoryPlayersPanel() {
 
   /* Convierte las filas draft de variables en VarDef persistibles */
   const buildValidatedVars = (): VarDef[] | null => {
-    const varsOut: VarDef[] = [];
+    const result = validateVarRows();
+  
+    if (!result.ok) {
+      toast.warning("Variables con errores", "Corrige los errores de las variables antes de guardar el jugador.");
+      return null;
+     }
 
-    for (const row of draftVars) {
-      const result = saveVarRow(row);
-
-      if (!result.ok) {
-        toast.warning("Variables con errores", "Corrige los errores de las variables antes de guardar el PNJ.");
-        return null;
-      }
-
-      varsOut.push(result.variable);
-    }
-
-    return varsOut;
+    return result.variables;
   };
 
   /* Convierte las filas draft de inventario en ItemInstance persistibles */
@@ -212,7 +214,7 @@ export function HistoryPlayersPanel() {
       const result = saveInventoryRow(item);
 
       if (!result.ok) {
-        toast.warning("Inventario con errores", "Corrige los errores del inventario antes de guardar el PNJ.");
+        toast.warning("Inventario con errores", "Corrige los errores del inventario antes de guardar el jugador.");
         return null;
       }
 
@@ -226,7 +228,7 @@ export function HistoryPlayersPanel() {
   const handleCreate = (varsOut: VarDef[], inventoryOut: ItemInstance[]) => {
     const imagesWithFile = images.draftImages.filter((image) => image.file instanceof File);
     if (imagesWithFile.length === 0) {
-      toast.error("Falta imagen", "Selecciona al menos una imagen para el personaje.");
+      toast.error("Falta imagen", "Selecciona al menos una imagen para el jugador.");
       return false;
     }
 
@@ -238,7 +240,7 @@ export function HistoryPlayersPanel() {
        images: imagesWithFile.map((image) => ({ name: image.name.trim() || "Imagen", file: image.file as File }))});
 
     if (!id) {
-      toast.error("Error inesperado", "No se pudo crear el Jugador.");
+      toast.error("Error inesperado", "No se pudo crear el jugador.");
       return false;
     }
 
@@ -292,7 +294,10 @@ export function HistoryPlayersPanel() {
     if (!validateDraft({ vars: varsOut, initialInventory: inventoryOut })) return;
 
     if (mode === "new") handleCreate(varsOut, inventoryOut);
-    else if (mode === "edit") handleUpdate();
+    else if (mode === "edit") {
+      persistValidatedVars(varsOut);
+      handleUpdate();
+    }
   };
 
   /* Solicita la eliminación del Jugador seleccionado */
@@ -314,13 +319,13 @@ export function HistoryPlayersPanel() {
             onClick={panel.startNew}
             className="px-3 py-2 text-base font-semibold bg-emerald-800 hover:bg-emerald-700 text-white rounded-t-lg"
           >
-            + Añadir personaje
+            + Añadir jugador
           </button>
 
           <div className="flex-1 overflow-y-auto text-[15px]">
             {playerList.length === 0 ? (
               <p className="p-4 text-[12px] text-slate-320 text-center">
-                Aún no hay personajes en el proyecto
+                Aún no hay jugadores en el proyecto
               </p>
             ) : (
               <ul className="divide-y-2 divide-slate-700">
@@ -622,6 +627,7 @@ export function HistoryPlayersPanel() {
                   value={draftInventory}
                   openInventoryItemId={openInventoryItemId}
                   fieldErrors={fieldErrors}
+                  savedInventoryItems={selectedPlayerInitialInventory}
                   addInventoryRow={addInventoryRow}
                   updateInventoryRow={updateInventoryRow}
                   removeInventoryRow={removeInventoryRow}
@@ -646,7 +652,7 @@ export function HistoryPlayersPanel() {
                       disabled={!selectedPlayerId}
                       className="btn btn-danger text-[12px] disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      Eliminar Player
+                      Eliminar Jugador
                     </button>
                   </div>
 
@@ -664,7 +670,7 @@ export function HistoryPlayersPanel() {
                       onClick={handleSave}
                       className="btn btn-save"
                     >
-                      Guardar Player
+                      Guardar Jugador
                     </button>
                   </div>
                 </div>

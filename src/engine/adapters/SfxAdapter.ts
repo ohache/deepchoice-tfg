@@ -7,6 +7,7 @@ export type AudioAdapter = {
   playSfx(state: GameState, sfxId: ID): void;
   playSfxUrl(url: string): void;
   setSfxVolume(volume: number): void;
+  stopAllSfx(): void;
   dispose(): void;
 }
 
@@ -47,6 +48,8 @@ export function createAudioAdapter(resolveAssetUrl: ResolveAssetUrl): AudioAdapt
   }
 
   function playSfxUrl(url: string) {
+    stopAllSfx();
+
     const audio = new Audio(url);
     audio.preload = "auto";
     audio.volume = sfxVolume;
@@ -66,11 +69,15 @@ export function createAudioAdapter(resolveAssetUrl: ResolveAssetUrl): AudioAdapt
     playSfxUrl(url);
   }
 
-  function dispose() {
-    for (const audio of activeSfx) cleanupAudioElement(audio);
+  function stopAllSfx() {
+    for (const audio of Array.from(activeSfx)) cleanupAudioElement(audio);
 
     activeSfx.clear();
   }
 
-  return { playSfx, playSfxUrl, setSfxVolume, dispose };
+  function dispose() {
+    stopAllSfx();
+  }
+
+  return { playSfx, playSfxUrl, setSfxVolume, stopAllSfx, dispose };
 }

@@ -68,23 +68,23 @@ export function useEntityInventoryEditor({ project, initialInventory, itemOption
     (item: ItemInstance): SaveInventoryItemResult => {
       const errors: InventoryItemErrors = {};
 
-      if (!item.itemId)  errors.itemId = "Selecciona un tipo de item.";
+      if (!item.itemId)  errors.itemId = "Selecciona un tipo de objeto.";
       else {
         const itemExists = itemOptions.some((option) => option.id === item.itemId);
 
-        if (!itemExists) errors.itemId = "El item seleccionado no existe.";
+        if (!itemExists) errors.itemId = "El objeto seleccionado no existe.";
       }
 
       const label = item.label.trim();
 
-      if (!label) errors.label = "El item necesita una etiqueta.";
-      else if (label.length > 60) errors.label = "La etiqueta no puede superar 60 caracteres.";
+      if (!label) errors.label = "El objeto necesita un nombre.";
+      else if (label.length > 60) errors.label = "El nombre no puede superar 60 caracteres.";
 
       const duplicatedInDraft = draftInventory.some((other) => other.itemInstanceId !== item.itemInstanceId && other.label.trim().toLowerCase() === label.toLowerCase());
 
-      if (duplicatedInDraft) errors.label = "Ya hay otro item del inventario con ese nombre.";
+      if (duplicatedInDraft) errors.label = "Ya hay otro objeto del inventario con ese nombre.";
 
-      if (project && !errors.label && hasDuplicatedItemInstanceLabel(project, label, item.itemInstanceId)) errors.label = "Ya existe otro item instanciado con ese nombre.";
+      if (project && !errors.label && hasDuplicatedItemInstanceLabel(project, label, item.itemInstanceId)) errors.label = "Ya existe otro objeto instanciado con ese nombre.";
 
       if (Object.keys(errors).length > 0) return { ok: false, errors };
 

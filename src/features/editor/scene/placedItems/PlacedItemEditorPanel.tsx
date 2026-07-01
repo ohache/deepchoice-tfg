@@ -57,12 +57,14 @@ type PlacedItemEditorPanelProps = {
   onOpenAddClickRule: () => void;
   onOpenEditClickRule: (index: number) => void;
   onRemoveClickRule: (index: number) => void;
+  onMoveClickRule: (fromIndex: number, toIndex: number) => void;
   onOpenAddUseItemRule: (itemInstanceId: ID) => void;
   onOpenEditUseItemRule: (itemInstanceId: ID, index: number) => void;
   onRemoveUseItemRule: (itemInstanceId: ID, index: number) => void;
+  onMoveUseItemRule: (itemInstanceId: ID, fromIndex: number, toIndex: number) => void;
 
   onCloseRuleModal: () => void;
-  onSaveRule: (rule: { id: ID; when?: Condition; phrase?: RulePhrase; effects: Effect[] }) => void;
+  onSaveRule: (rule: { id: ID; label: string; when?: Condition; phrase?: RulePhrase; effects: Effect[] }) => void;
 
   panelError: string | null;
 
@@ -78,15 +80,15 @@ export function PlacedItemEditorPanel({ draft, selectedCatalogItemId, projectIte
   disableNotReachableText, initialVisible, initialReachable, initialNotReachableText, onItemChange, labelInputRef, notReachableInputRef,
   onLabelChange, onStartRedrawShape, onVisibleChange, onReachableChange, onNotReachableTextChange, owner, activeChannel, setActiveChannel,
   clickRules, useItemRulesForSelected, ruleModalOpen, currentRuleValue, nodeId, project, onOpenAddClickRule, onOpenEditClickRule,
-  onRemoveClickRule, onOpenAddUseItemRule, onOpenEditUseItemRule, onRemoveUseItemRule, onCloseRuleModal, onSaveRule, panelError,
-  useItemSourceOptions, onDelete, onCancel, onCommit }: PlacedItemEditorPanelProps) {
+  onRemoveClickRule, onMoveClickRule, onOpenAddUseItemRule, onOpenEditUseItemRule, onRemoveUseItemRule, onMoveUseItemRule, onCloseRuleModal,
+  onSaveRule, panelError, useItemSourceOptions, onDelete, onCancel, onCommit }: PlacedItemEditorPanelProps) {
   const itemOptions: Option<ID>[] = projectItems.map((item) => ({ id: item.id, label: item.name || item.id }));
 
   const saveButtonTitle = isDrawing ? "Termina o cancela el dibujo actual antes de guardar" : !hasShape
     ? "Dibuja una región válida antes de guardar" : !draft?.itemId
       ? "Debes seleccionar un objeto" : !draft?.label.trim()
-        ? "La etiqueta es obligatoria" : dupLabel
-          ? "Etiqueta duplicada" : hasCollisions
+        ? "El nombre es obligatorio" : dupLabel
+          ? "Nombre duplicado" : hasCollisions
             ? "Colisión con otro clicable" : undefined;
 
   const selectButtonClassName = "w-full rounded-md border-2 border-slate-700 bg-slate-900/30 px-2 py-1.5 text-xs text-slate-100"
@@ -108,7 +110,7 @@ export function PlacedItemEditorPanel({ draft, selectedCatalogItemId, projectIte
               value={selectedCatalogItemId}
               onChange={onSelectedCatalogItemIdChange}
               options={itemOptions}
-              placeholder="Seleccionar item"
+              placeholder="Seleccionar objeto"
               disabled={!projectItems.length}
               buttonClassName={selectButtonClassName}
             />
@@ -182,7 +184,7 @@ export function PlacedItemEditorPanel({ draft, selectedCatalogItemId, projectIte
 
         {dupLabel ? (
           <div className="mt-2 rounded-md border border-rose-500/40 bg-rose-950/20 px-2 py-1 text-[11px] text-rose-100">
-            Ya existe un objeto con esa etiqueta en la aventura. Usa un nombre distinto.
+            Ya existe un objeto con ese nombre en la aventura. Usa un nombre distinto.
           </div>
         ) : null}
       </div>
@@ -221,9 +223,11 @@ export function PlacedItemEditorPanel({ draft, selectedCatalogItemId, projectIte
         onOpenAddClickRule={onOpenAddClickRule}
         onOpenEditClickRule={onOpenEditClickRule}
         onRemoveClickRule={onRemoveClickRule}
+        onMoveClickRule={onMoveClickRule}
         onOpenAddUseItemRule={onOpenAddUseItemRule}
         onOpenEditUseItemRule={onOpenEditUseItemRule}
         onRemoveUseItemRule={onRemoveUseItemRule}
+        onMoveUseItemRule={onMoveUseItemRule}
         onCloseRuleModal={onCloseRuleModal}
         onSaveRule={onSaveRule}
       />

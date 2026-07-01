@@ -20,6 +20,7 @@ type BaseRuleFromSchema = z.infer<typeof baseInteractionRuleSchema>;
 
 type RulePayload = {
   id: ID;
+  label: string;
   when?: Condition;
   phrase?: RulePhrase;
   effects: Effect[];
@@ -38,9 +39,9 @@ type Props = {
   nodeId: ID;
   owner: EffectOwner;
   interactionKind?: "onClick" | "onUseItem";
-  value?: { id: ID; when?: Condition | null; phrase?: RulePhrase; effects?: unknown[] } | null;
+  value?: { id: ID; label?: string; when?: Condition | null; phrase?: RulePhrase; effects?: unknown[] } | null;
   onClose: () => void;
-  onSave: (rule: { id: ID; when?: Condition; phrase?: RulePhrase; effects: Effect[] }) => void;
+  onSave: (rule: { id: ID; label: string; when?: Condition; phrase?: RulePhrase; effects: Effect[] }) => void;
 };
 
 /* Firma estable del estado de la regla */
@@ -51,7 +52,7 @@ function signatureOfRule(draft: RuleDraft, condDraft: UiDraft): string {
     groups: (cleaned.groups ?? []).map((group) => ({ atoms: (group.atoms ?? []).map((atom) => ({ not: Boolean(atom.not), cond: atom.cond })) })),
   };
 
-  return JSON.stringify({ cond: minimalCond, phrase: draft.phrase, effects: draft.effects ?? [] });
+  return JSON.stringify({ label: draft.label, cond: minimalCond, phrase: draft.phrase, effects: draft.effects ?? [] });
 }
 
 /*Normaliza el valor inicial recibido desde fuera para trabajar siempre con un draft consistente en UI */
@@ -60,7 +61,14 @@ function makeInitialDraft(value: Props["value"]): RuleDraft {
 
   const effects = rawEffects.filter((effect): effect is EnabledEffect => isEnabledEffect(effect as Effect));
 
-  return { id: value?.id ?? (crypto.randomUUID() as ID), when: value?.when ?? null, phrase: normalizePhrase(value?.phrase), effects };
+  return {
+    id: value?.id ?? (crypto.randomUUID() as ID), label: normalizeRuleLabel(value?.label),
+    when: value?.when ?? null, phrase: normalizePhrase(value?.phrase), effects
+  };
+}
+
+function normalizeRuleLabel(label?: string | null): string {
+  return (label ?? "").trim() || "Regla";
 }
 
 function normalizePhrase(phrase?: RulePhrase): RulePhrase {
@@ -87,6 +95,12 @@ function speakerFromOptionId(factory: FactoryCtx, value: string): Speaker {
   if (parsed.speakerKind === "npc") return { kind: "npc", npcId: parsed.speakerId ?? "" };
 
   return { kind: "narrator" };
+}
+
+const singleGoToNodeMessage = "Cada regla solo puede tener como máximo un efecto de tipo Ir a escena.";
+
+function hasTooManyGoToNodeEffects(effects: Effect[]): boolean {
+  return effects.filter((effect) => effect.type === "goToNode").length > 1;
 }
 
 export function RuleBuilderModal({ open, project, nodeId, owner, interactionKind, value, onClose, onSave }: Props) {
@@ -184,11 +198,21 @@ export function RuleBuilderModal({ open, project, nodeId, owner, interactionKind
       whenForPayload = parsedCond.data;
     }
 
+    const trimmedLabel = draft.label.trim();
     const trimmedPhrase = draft.phrase.text.trim();
 
-    const payload: RulePayload = { id: draft.id, when: whenForPayload,
-      phrase: trimmedPhrase ? { text: trimmedPhrase, speaker: draft.phrase.speaker ?? { kind: "narrator" }} : undefined, effects: draft.effects ?? [],
+    const payload: RulePayload = {
+      id: draft.id, label: trimmedLabel, when: whenForPayload,
+      phrase: trimmedPhrase ? { text: trimmedPhrase, speaker: draft.phrase.speaker ?? { kind: "narrator" } } : undefined,
+      effects: draft.effects ?? [],
     };
+
+    if (hasTooManyGoToNodeEffects(payload.effects)) {
+      setInlineErrorsByPath((prev) => ({ ...prev, effects: singleGoToNodeMessage }));
+      toast.warning("Destino duplicado", singleGoToNodeMessage);
+
+      return null;
+    }
 
     const parsed = baseInteractionRuleSchema.safeParse(payload);
 
@@ -205,14 +229,17 @@ export function RuleBuilderModal({ open, project, nodeId, owner, interactionKind
 
     setInlineErrorsByPath({});
 
-    return { id: parsed.data.id, when: parsed.data.when as Condition | undefined, phrase: parsed.data.phrase as RulePhrase | undefined, effects: parsed.data.effects as Effect[] };
-  }, [condBusy, condDraft, draft.id, draft.phrase, draft.effects, effectsRequired]);
+    return {
+      id: parsed.data.id, label: parsed.data.label, when: parsed.data.when as Condition | undefined,
+      phrase: parsed.data.phrase as RulePhrase | undefined, effects: parsed.data.effects as Effect[]
+    };
+  }, [condBusy, condDraft, draft.id, draft.label, draft.phrase, draft.effects, effectsRequired]);
 
   const handleSave = useCallback((): boolean => {
     const result = validateAndBuild();
 
     if (!result) {
-      toast.error("Regla inválida", "Revisa la condición, la phrase o los efectos antes de guardar.");
+      toast.error("Regla inválida", "Revisa el nombre, la condición, la phrase o los efectos antes de guardar.");
       return false;
     }
 
@@ -257,6 +284,43 @@ export function RuleBuilderModal({ open, project, nodeId, owner, interactionKind
       />
 
       <div className="relative w-[98%] max-w-[1360px] rounded-xl border-2 border-slate-600 bg-slate-900 p-5 shadow-xl">
+
+        {!isDialogue ? (
+          <div className="mx-auto rounded-lg border-2 border-slate-600 bg-slate-950/90 p-3">
+            <label className="mx-auto grid max-w-[400px] grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
+              <span className="text-[14px] font-semibold text-slate-100">
+                Nombre
+              </span>
+
+              <input
+                value={draft.label}
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+
+                  setDraft((prev) => ({ ...prev, label: value }));
+
+                  if (inlineErrorsByPath["label"]) {
+                    setInlineErrorsByPath((prev) => {
+                      const next = { ...prev };
+                      delete next.label;
+                      return next;
+                    });
+                  }
+                }}
+                placeholder="Ej: Abrir puerta con llave"
+                className="w-full rounded-md border-2 border-slate-700 bg-slate-900/70 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 
+                  focus:outline-none focus:border-transparent focus:ring-2 focus:ring-fuchsia-500"
+              />
+            </label>
+
+            {inlineErrorsByPath["label"] ? (
+              <div className="mx-auto max-w-[560px] pt-2 text-right text-[12px] text-rose-300">
+                {inlineErrorsByPath["label"]}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         <div className="pt-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
           <div className="rounded-lg border-2 border-slate-600 bg-slate-950/90 p-3 h-[72vh] overflow-hidden flex flex-col">
             <div className="text-[16px] font-semibold text-slate-100">Condiciones</div>
@@ -304,7 +368,7 @@ export function RuleBuilderModal({ open, project, nodeId, owner, interactionKind
 
                     <Select<string>
                       value={selectedPhraseSpeakerId}
-                      onChange={(value) => {setDraft((prev) => ({ ...prev, phrase: { ...prev.phrase, speaker: speakerFromOptionId(factory, value)} }))}}
+                      onChange={(value) => { setDraft((prev) => ({ ...prev, phrase: { ...prev.phrase, speaker: speakerFromOptionId(factory, value) } })) }}
                       options={phraseSpeakerOptions}
                       placeholder="Selecciona emisor"
                       disabled={!phraseEnabled}

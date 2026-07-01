@@ -1,7 +1,7 @@
-import type { ID, Project, Hotspot, VarDef } from "@/domain/types";
+import type { ID, Project, Hotspot, VarDef, ItemInstance } from "@/domain/types";
 import type { Effect } from "@/domain/effects";
 import type { GameState, InventoryEntry } from "@/engine/state/runtimeState";
-import { ensureNodeRuntime } from "@/engine/state/runtimeState";
+import { ensureNodeRuntime, resolveRequiredInventoryPlayerId } from "@/engine/state/runtimeState";
 import { musicPlay, musicStop } from "@/engine/state/slices/musicSlice";
 import type { AudioAdapter } from "@/engine/adapters/SfxAdapter";
 import { publicPath } from "@/shared/helpers";
@@ -10,6 +10,7 @@ export type ApplyEffectCtx = {
   audio?: AudioAdapter;
   emitMessage?: (text: string, speaker: { kind: "narrator" | "player" | "npc"; speakerId?: ID }) => void;
   itemUsePair?: { sourceItemInstanceId: ID; targetItemInstanceId: ID };
+  inventoryPlayerId?: ID | null;
 };
 
 type RuntimeVarValue = boolean | number;
@@ -37,7 +38,7 @@ function getPlayerInventory(state: GameState, playerId: ID): InventoryEntry[] {
 }
 
 function setPlayerInventory(state: GameState, playerId: ID, inventory: InventoryEntry[]): GameState {
-  return { ...state, playerInventory: { ...state.playerInventory, [playerId]: inventory }};
+  return { ...state, playerInventory: { ...state.playerInventory, [playerId]: inventory } };
 }
 
 function addPlayerInventoryEntry(state: GameState, playerId: ID, entry: InventoryEntry): GameState {
@@ -83,6 +84,15 @@ function findDialogueInCurrentNode(state: GameState, dialogueId: ID) {
   return (node.dialogues ?? []).find((dialogue) => dialogue.id === dialogueId) ?? null;
 }
 
+function itemInstanceToInventoryEntry(item: ItemInstance): InventoryEntry {
+  return {
+    itemInstanceId: item.itemInstanceId,
+    itemId: item.itemId,
+    label: item.label,
+    ...(item.rules ? { rules: item.rules } : {}),
+  };
+}
+
 function findPlacedItemInProject(project: Project, itemInstanceId: ID) {
   for (const node of project.nodes ?? []) {
     for (const layer of node.layers ?? []) {
@@ -99,13 +109,13 @@ function findInventoryItemInProject(project: Project, itemInstanceId: ID): Inven
   for (const player of project.players ?? []) {
     const found = (player.initialInventory ?? []).find((item) => item.itemInstanceId === itemInstanceId);
 
-    if (found) return { itemInstanceId: found.itemInstanceId, itemId: found.itemId, label: found.label };
+    if (found) return itemInstanceToInventoryEntry(found);
   }
 
   for (const npc of project.npcs ?? []) {
     const found = (npc.initialInventory ?? []).find((item) => item.itemInstanceId === itemInstanceId);
 
-    if (found) return { itemInstanceId: found.itemInstanceId, itemId: found.itemId, label: found.label };
+    if (found) return itemInstanceToInventoryEntry(found);
   }
 
   return null;
@@ -114,7 +124,7 @@ function findInventoryItemInProject(project: Project, itemInstanceId: ID): Inven
 function findGameItemEntryInProject(project: Project, itemInstanceId: ID): InventoryEntry | null {
   const placedItem = findPlacedItemInProject(project, itemInstanceId);
 
-  if (placedItem) return { itemInstanceId: placedItem.itemInstanceId, itemId: placedItem.itemId, label: placedItem.label };
+  if (placedItem) return itemInstanceToInventoryEntry(placedItem);
 
   return findInventoryItemInProject(project, itemInstanceId);
 }
@@ -180,7 +190,7 @@ function updateRuntimeVar(varsByOwner: Record<ID, RuntimeVarMap>, ownerId: ID, v
   : Record<ID, RuntimeVarMap> {
   const previousVars = varsByOwner[ownerId] ?? {};
 
-  return { ...varsByOwner, [ownerId]: { ...previousVars, [varId]: updater(previousVars[varId]) }};
+  return { ...varsByOwner, [ownerId]: { ...previousVars, [varId]: updater(previousVars[varId]) } };
 }
 
 /* Asegura que las variables propias de un hotspot existen en runtime */
@@ -191,7 +201,7 @@ export function ensureHotspotVars(state: GameState, hotspot: Hotspot): GameState
 
   for (const variable of hotspot.vars ?? []) initialVars[variable.id] = variable.initial;
 
-  return { ...state, hotspotVars: { ...state.hotspotVars, [hotspot.id]: initialVars }};
+  return { ...state, hotspotVars: { ...state.hotspotVars, [hotspot.id]: initialVars } };
 }
 
 /* Estado visual de entidades */
@@ -381,9 +391,19 @@ export function applyEffect(state: GameState, effect: Effect, ctx: ApplyEffectCt
       const entry = findGameItemEntryInProject(state.project, effect.itemInstanceId);
       if (!entry) throw new Error(`addItem apunta a un itemInstanceId inexistente: "${effect.itemInstanceId}".`);
 
+      const playerId = resolveRequiredInventoryPlayerId(state, ctx.inventoryPlayerId);
+
       ctx.audio?.playSfxUrl(publicPath("sounds/add_item.wav"));
 
-      return addPlayerInventoryEntry(state, effect.playerId, entry);
+      return addPlayerInventoryEntry(state, playerId, entry);
+    }
+
+    case "removeItem": {
+      const found = findInventoryEntryInAnyPlayer(state, effect.itemInstanceId);
+
+      if (!found) return state;
+
+      return removePlayerInventoryEntry(state, found.playerId, effect.itemInstanceId);
     }
 
     case "transformItem": {
@@ -394,6 +414,7 @@ export function applyEffect(state: GameState, effect: Effect, ctx: ApplyEffectCt
         itemInstanceId: effect.resultItemInstanceId,
         itemId: effect.resultItemId,
         label: effect.resultItemLabel,
+        ...(effect.resultItemRules ? { rules: effect.resultItemRules } : {}),
       };
 
       const withoutSource = removeFromInventory(getPlayerInventory(state, found.playerId), effect.itemInstanceId);
@@ -404,9 +425,6 @@ export function applyEffect(state: GameState, effect: Effect, ctx: ApplyEffectCt
 
       return nextState;
     }
-
-    case "removeItem":
-      return removePlayerInventoryEntry(state, effect.playerId, effect.itemInstanceId);
 
     case "combineItems": {
       if (effect.itemAInstanceId === effect.itemBInstanceId) return state;
@@ -429,6 +447,7 @@ export function applyEffect(state: GameState, effect: Effect, ctx: ApplyEffectCt
         itemInstanceId: effect.resultItemInstanceId,
         itemId: effect.resultItemId,
         label: effect.resultItemLabel,
+        ...(effect.resultItemRules ? { rules: effect.resultItemRules } : {}),
       };
 
       ctx.audio?.playSfxUrl(publicPath("sounds/add_item.wav"));
@@ -477,8 +496,7 @@ export function applyEffect(state: GameState, effect: Effect, ctx: ApplyEffectCt
       const npc = findNpcInProject(state.project, effect.npcId);
       if (!npc) throw new Error(`receiveItemFromNpc apunta a un npc inexistente: "${effect.npcId}".`);
 
-      const playerId = state.project.players[0]?.id;
-      if (!playerId) throw new Error("receiveItemFromNpc no puede aplicarse porque el proyecto no tiene players.");
+      const playerId = resolveRequiredInventoryPlayerId(state, ctx.inventoryPlayerId);
 
       const currentNpcInventory = state.npcInventory[effect.npcId] ?? [];
 
@@ -655,9 +673,7 @@ export function applyEffect(state: GameState, effect: Effect, ctx: ApplyEffectCt
       return { ...state, music: musicPlay(state.music, effect.trackId, { startAt: effect.startAt }) };
 
     case "stopMusic":
-      if (state.music.currentTrackId !== effect.trackId) return state;
-
-      return { ...state, music: musicStop(state.music) };
+      return { ...state, music: musicStop(state.music, { trackId: effect.trackId }) };
 
     case "setMapRegionAvailable":
       return setMapRegionAvailable(state, effect.mapId, effect.regionId, effect.value);
@@ -665,6 +681,7 @@ export function applyEffect(state: GameState, effect: Effect, ctx: ApplyEffectCt
     case "endGame": {
       const ending = effect.ending;
       const lines = ending?.lines ?? [];
+      const endingMusicTrackId = ending?.musicTrackId?.trim();
 
       return {
         ...state,
@@ -672,7 +689,9 @@ export function applyEffect(state: GameState, effect: Effect, ctx: ApplyEffectCt
         activeDialogue: undefined,
         ending,
         endingLineIndex: lines.length > 0 ? 0 : lines.length,
-        music: ending?.musicTrackId ? musicPlay(state.music, ending.musicTrackId, { startAt: "restart" }) : state.music
+        music: endingMusicTrackId
+          ? musicPlay(state.music, endingMusicTrackId, { startAt: "restart" })
+          : musicStop(state.music),
       };
     }
   }

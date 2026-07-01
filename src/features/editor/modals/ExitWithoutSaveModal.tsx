@@ -1,4 +1,4 @@
-interface ExitWithoutSaveModalProps {
+type ExitWithoutSaveModalProps = {
     open: boolean;
     onCancel: () => void;
     onExit: () => void;

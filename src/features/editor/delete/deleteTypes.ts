@@ -1,4 +1,6 @@
 import type { ID } from "@/domain/types";
+import type { Condition } from "@/domain/conditions";
+import type { Effect } from "@/domain/effects";
 
 export type DeleteTarget =
   | { kind: "player"; playerId: ID }
@@ -33,40 +35,11 @@ export type DeleteTarget =
 
 export type DeleteImpactSeverity = "info" | "logic-change" | "blocking-risk";
 
-export type DeleteImpactAction =
-  | "delete-target"
-  | "remove-condition"
-  | "remove-effect"
-  | "remove-rule"
-  | "remove-phrase"
-  | "remove-dialogue"
-  | "remove-dialogue-line"
-  | "remove-placed-entity"
-  | "clear-field"
-  | "replace-reference";
+export type DeleteImpactAction = "delete-target" | "remove-condition" | "remove-effect" | "remove-rule" | "remove-phrase" | "remove-dialogue"
+  | "remove-dialogue-line" | "remove-placed-entity" | "clear-field" | "replace-reference";
 
-export type DeleteLocationKind =
-  | "project"
-  | "player"
-  | "npc"
-  | "item"
-  | "music"
-  | "sfx"
-  | "map"
-  | "map-region"
-  | "node"
-  | "layer"
-  | "text"
-  | "hotspot"
-  | "placed-item"
-  | "placed-npc"
-  | "placed-player"
-  | "rule"
-  | "phrase"
-  | "condition"
-  | "effect"
-  | "dialogue"
-  | "dialogue-line";
+export type DeleteLocationKind = "project" | "player" | "npc" | "item" | "music" | "sfx" | "map" | "map-region" | "node" | "layer" | "text"
+  | "hotspot" | "placed-item" | "placed-npc" | "placed-player" | "rule" | "phrase" | "condition" | "effect" | "dialogue" | "dialogue-line";
 
 export type DeleteLocation = {
   kind: DeleteLocationKind;
@@ -87,8 +60,8 @@ export type DeleteLocation = {
   dialogueLineId?: ID;
 
   ruleId?: ID;
-  conditionType?: string;
-  effectType?: string;
+  conditionType?: Condition["type"];
+  effectType?: Effect["type"];
 
   label: string;
 };
@@ -109,19 +82,9 @@ export type DeleteImpactReport = {
 
 export type DiagnosticSeverity = "error" | "warning";
 
-export type DiagnosticCode =
-  | "RULE_WITHOUT_EFFECTS"
-  | "DIALOGUE_WITH_INVALID_ROOT"
-  | "DIALOGUE_WITH_BROKEN_CHILD"
-  | "DIALOGUE_LINE_WITHOUT_TEXT"
-  | "NODE_WITHOUT_LAYERS"
-  | "LAYER_WITHOUT_IMAGE"
-  | "PLAYER_WITHOUT_IMAGES"
-  | "PLACED_PLAYER_WITH_INVALID_IMAGE"
-  | "BROKEN_CONDITION_REFERENCE"
-  | "BROKEN_EFFECT_REFERENCE"
-  | "BROKEN_MAP_REFERENCE"
-  | "BROKEN_ITEM_REFERENCE";
+export type DiagnosticCode = "RULE_WITHOUT_EFFECTS" | "DIALOGUE_WITH_INVALID_ROOT" | "DIALOGUE_WITH_BROKEN_CHILD" | "DIALOGUE_LINE_WITHOUT_TEXT"
+  | "NODE_WITHOUT_LAYERS" | "LAYER_WITHOUT_IMAGE" | "PLAYER_WITHOUT_IMAGES" | "PLACED_PLAYER_WITH_INVALID_IMAGE" | "BROKEN_CONDITION_REFERENCE" 
+  | "BROKEN_EFFECT_REFERENCE" | "BROKEN_MAP_REFERENCE" | "BROKEN_ITEM_REFERENCE" | "BROKEN_SPEAKER_REFERENCE";
 
 export type DiagnosticIssue = {
   id: string;

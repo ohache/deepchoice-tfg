@@ -13,8 +13,13 @@ type UseSceneInteractionRevealArgs = {
   revealMs?: number;
 };
 
-export function useSceneInteractionReveal({ resetKey, revealSignal, keyboardBlocked, gameEnded, isUsingItem, onCursorLeave, revealMs = DEFAULT_REVEAL_MS}: UseSceneInteractionRevealArgs) {
+export function useSceneInteractionReveal({ resetKey, revealSignal, keyboardBlocked, gameEnded, isUsingItem, onCursorLeave, revealMs = DEFAULT_REVEAL_MS }: UseSceneInteractionRevealArgs) {
   const revealTimerRef = useRef<number | null>(null);
+  const latestRevealSignalRef = useRef(revealSignal ?? 0);
+  const lastRevealSignalRef = useRef(revealSignal ?? 0);
+  const wasUsingItemRef = useRef(Boolean(isUsingItem));
+
+  latestRevealSignalRef.current = revealSignal ?? 0;
 
   const [revealHotspots, setRevealHotspots] = useState(false);
   const [hoveredHotspotId, setHoveredHotspotId] = useState<string | null>(null);
@@ -28,15 +33,19 @@ export function useSceneInteractionReveal({ resetKey, revealSignal, keyboardBloc
     revealTimerRef.current = null;
   }, []);
 
-  const resetInteractionReveal = useCallback(() => {
-    setRevealHotspots(false);
+  const clearHoveredTargets = useCallback(() => {
     setHoveredHotspotId(null);
     setHoveredPlacedItemId(null);
     setHoveredPlacedNpcId(null);
+  }, []);
+
+  const resetInteractionReveal = useCallback(() => {
+    setRevealHotspots(false);
+    clearHoveredTargets();
 
     clearRevealTimer();
     onCursorLeave?.();
-  }, [clearRevealTimer, onCursorLeave]);
+  }, [clearHoveredTargets, clearRevealTimer, onCursorLeave]);
 
   const triggerReveal = useCallback(() => {
     if (gameEnded) return;
@@ -58,29 +67,43 @@ export function useSceneInteractionReveal({ resetKey, revealSignal, keyboardBloc
   }, []);
 
   useEffect(() => {
+    lastRevealSignalRef.current = latestRevealSignalRef.current;
     resetInteractionReveal();
   }, [resetKey, resetInteractionReveal]);
 
   useEffect(() => {
-    return () => {clearRevealTimer() };
+    return () => { clearRevealTimer() };
   }, [clearRevealTimer]);
 
   useEffect(() => {
-    if (!revealSignal) return;
+    const currentSignal = revealSignal ?? 0;
+
+    if (currentSignal === lastRevealSignalRef.current) return;
+
+    lastRevealSignalRef.current = currentSignal;
+
+    if (!currentSignal) return;
     if (keyboardBlocked) return;
 
     triggerReveal();
   }, [revealSignal, keyboardBlocked, triggerReveal]);
 
   useEffect(() => {
-    if (!isUsingItem) return;
+    const wasUsingItem = wasUsingItemRef.current;
+    const nowUsingItem = Boolean(isUsingItem);
+
+    wasUsingItemRef.current = nowUsingItem;
+
+    if (!wasUsingItem && !nowUsingItem) return;
 
     setRevealHotspots(false);
+    clearHoveredTargets();
+
     clearRevealTimer();
-  }, [isUsingItem, clearRevealTimer]);
+  }, [isUsingItem, clearHoveredTargets, clearRevealTimer]);
 
   return {
     revealHotspots, hoveredHotspotId, hoveredPlacedItemId, hoveredPlacedNpcId, setHoveredHotspotId, setHoveredPlacedItemId,
-    setHoveredPlacedNpcId, triggerReveal, clearHoveredExcept, resetInteractionReveal,
+    setHoveredPlacedNpcId, triggerReveal, clearHoveredExcept, clearHoveredTargets, resetInteractionReveal,
   };
 }

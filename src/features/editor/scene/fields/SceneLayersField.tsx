@@ -25,9 +25,10 @@ type SceneLayersFieldProps = {
   onToggle: () => void;
   onTextPreview?: (text: string | null) => void;
   onClearTextPreview?: () => void;
+  onSaveSceneDraft?: () => boolean;
 };
 
-export function SceneLayersField({ active, onToggle, onTextPreview, onClearTextPreview }: SceneLayersFieldProps) {
+export function SceneLayersField({ active, onToggle, onTextPreview, onClearTextPreview, onSaveSceneDraft }: SceneLayersFieldProps) {
   const nodeDraft = useEditorStore((state) => state.nodeDraft);
   const project = useEditorStore((state) => state.project);
 
@@ -396,12 +397,12 @@ export function SceneLayersField({ active, onToggle, onTextPreview, onClearTextP
     const nextLabel = currentLabel.trim();
 
     if (!nextLabel) {
-      toast.error("Falta etiqueta", "La capa necesita una etiqueta.");
+      toast.error("Falta nombre", "La capa necesita un nombre.");
       return;
     }
 
     if (hasDuplicateCurrentLabel) {
-      toast.error("Etiqueta duplicada", "Ya existe una capa con esa etiqueta en esta escena.");
+      toast.error("Nombre duplicado", "Ya existe una capa con ese nombre en esta escena.");
       return;
     }
 
@@ -414,6 +415,7 @@ export function SceneLayersField({ active, onToggle, onTextPreview, onClearTextP
     if (!ensureLayerConditionIfRequired()) return;
 
     exitEdit();
+    onSaveSceneDraft?.();
   }
 
   function handleDelete() {
@@ -570,24 +572,28 @@ export function SceneLayersField({ active, onToggle, onTextPreview, onClearTextP
                     active={activeLayerField === "hotspots"}
                     onToggle={() => handleToggleLayerField("hotspots")}
                     layerId={editingLayer.id}
+                    onSaveSceneDraft={onSaveSceneDraft}
                   />
 
                   <ScenePlacedItemField
                     active={activeLayerField === "placedItems"}
                     onToggle={() => handleToggleLayerField("placedItems")}
                     layerId={editingLayer.id}
+                    onSaveSceneDraft={onSaveSceneDraft}
                   />
 
                   <ScenePlacedNpcField
                     active={activeLayerField === "placedNpcs"}
                     onToggle={() => handleToggleLayerField("placedNpcs")}
                     layerId={editingLayer.id}
+                    onSaveSceneDraft={onSaveSceneDraft}
                   />
 
                   <ScenePlacedPlayerField
                     active={activeLayerField === "placedPlayers"}
                     onToggle={() => handleToggleLayerField("placedPlayers")}
                     layerId={editingLayer.id}
+                    onSaveSceneDraft={onSaveSceneDraft}
                   />
 
                   <SceneMusicField

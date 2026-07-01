@@ -19,13 +19,13 @@ export const PlayerImageDraftSchema = z.object({
 const PlayerInventoryItemDraftSchema = z.object({
   itemInstanceId: IdSchema,
   itemId: IdSchema,
-  label: z.string().trim().min(1, "El item necesita una etiqueta").max(60, "La etiqueta no puede superar 60 caracteres"),
+  label: z.string().trim().min(1, "El objeto necesita una nombre").max(60, "El nombre no puede superar 60 caracteres"),
   rules: interactionRulesSchema.optional(),
 });
 
 /* Draft completo del player en el editor */
 export const PlayerDraftSchema = z.object({
-  name: z.string().trim().min(1, "El personaje necesita un nombre").max(60, "El nombre no puede superar 60 caracteres"),
+  name: z.string().trim().min(1, "El jugador necesita un nombre").max(60, "El nombre no puede superar 60 caracteres"),
   description: z.string().trim().max(200, "La descripción no puede superar 200 caracteres").optional(),
   images: z.array(PlayerImageDraftSchema).min(1, "Sube al menos una imagen"),
   defaultImageId: IdSchema,

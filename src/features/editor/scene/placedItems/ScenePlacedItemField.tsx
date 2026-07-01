@@ -412,7 +412,7 @@ export function ScenePlacedItemField({ label = "Objetos", active, onToggle, laye
                 toast.success("Orden actualizado", "Se ha actualizado la prioridad de las reglas.");
               }}
               onCloseRuleModal={closeRuleModal}
-              onSaveRule={(rule: { id: ID; when?: Condition; effects: Effect[] }) => saveRule(rule)}
+              onSaveRule={(rule: { id: ID; label: string; when?: Condition; effects: Effect[] }) => saveRule(rule)}
               panelError={panelError}
               useItemSourceOptions={useItemSourceOptions}
               onDelete={handleDeleteDraft}

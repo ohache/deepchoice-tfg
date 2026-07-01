@@ -363,7 +363,7 @@ export function SceneHotspotField({ label = "Hotspots", active, onToggle, layerI
     toast.success("Orden actualizado", "Se ha actualizado la prioridad de las reglas.");
   };
 
-  const handleSaveRule = (rule: { id: ID; when?: Condition; effects: Effect[] }) => {
+  const handleSaveRule = (rule: { id: ID; label: string; when?: Condition; effects: Effect[] }) => {
     if (hasBlockingVarEdit) {
       warnBlockingVarEdit();
       return;

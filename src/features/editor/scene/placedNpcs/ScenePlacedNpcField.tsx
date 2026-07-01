@@ -382,7 +382,7 @@ export function ScenePlacedNpcField({ label = "PNJs", active, onToggle, layerId,
                 toast.success("Orden actualizado", "Se ha actualizado la prioridad de las reglas.");
               }}
               onCloseRuleModal={closeRuleModal}
-              onSaveRule={(rule: { id: ID; when?: Condition; effects: Effect[] }) => saveRule(rule)}
+              onSaveRule={(rule: { id: ID; label: string; when?: Condition; effects: Effect[] }) => saveRule(rule)}
               panelError={panelError}
               showRulesRequiredError={showRulesRequiredError}
               useItemSourceOptions={useItemSourceOptions}

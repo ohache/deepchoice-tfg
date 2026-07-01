@@ -114,6 +114,7 @@ function buildDefaultPlacedItemRules(itemInstanceId: ID): InteractionRules {
     onClick: [
       {
         id: generateId.rule(),
+        label: "Añadir objeto",
         effects: [
           {
             type: "addItem",

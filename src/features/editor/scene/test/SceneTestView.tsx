@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
-import type { SceneTestInspectableEntry, SceneTestInspectableRef, SceneTestLayerEntry, SceneTestSceneEntry,
-  SceneTestTextVariantEntry } from "@/features/editor/scene/test/sceneTestTypes";
+import type {
+  SceneTestInspectableEntry, SceneTestInspectableRef, SceneTestLayerEntry, SceneTestSceneEntry,
+  SceneTestTextVariantEntry
+} from "@/features/editor/scene/test/sceneTestTypes";
 import { useEditorStore } from "@/store/editorStore";
 import { buildSceneTestViewModel } from "@/features/editor/scene/test/sceneTestViewModel";
 import { SceneTestToolbar } from "@/features/editor/scene/test/SceneTestToolbar";
@@ -230,7 +232,7 @@ export function SceneTestView() {
           />
         </div>
 
-        <aside className="min-w-0 space-y-3 xl:sticky xl:top-0 self-start -mt-0.5">
+        <aside className="min-w-0 space-y-3 xl:sticky xl:top-0 self-start xl:mt-[35px]">
           <SceneTestInfoCard
             target={infoTarget}
             pinned={Boolean(pinnedTarget)}

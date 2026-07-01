@@ -12,7 +12,7 @@ import { canRenderPreviewLabel } from "@/features/editor/scene/preview/previewRe
 import { useSceneTestTransition } from "@/features/editor/scene/test/useSceneTestTransition";
 
 const TOOLTIP_DELAY_MS = 350;
-export const HORIZONTAL_TEXT_DOCK_HEIGHT = 110;
+export const HORIZONTAL_TEXT_DOCK_HEIGHT = 140;
 export const VERTICAL_TEXT_DOCK_WIDTH = 250;
 
 type SceneTestVisualSnapshot = {
@@ -168,7 +168,7 @@ export function SceneTest({ title, imageAssetId, text, textLabel, textDock = "bo
   canGoNextText = false, onPrevText, onNextText, canGoPrevLayer = false, canGoNextLayer = false, onPrevLayer, onNextLayer, layerLabel,
   showLayerNav = false, hotspots = [], placedItems = [], placedNpcs = [], placedPlayers = [], hoveredRef = null, pinnedRef = null,
   onHoverTarget, onLeaveTarget, onSelectTarget }: SceneTestProps) {
-  const transitionKey = `${imageAssetId ?? ""}::${layerLabel ?? ""}::${textLabel ?? ""}`;
+  const transitionKey = `${imageAssetId ?? ""}::${layerLabel ?? ""}`;
 
   const visualSnapshot = useMemo<SceneTestVisualSnapshot>(() => ({
     imageAssetId, text, textLabel, textDock, layerLabel, hotspots, placedItems, placedNpcs, placedPlayers
@@ -284,24 +284,24 @@ export function SceneTest({ title, imageAssetId, text, textLabel, textDock = "bo
 
   const renderTextPanel = () => (
     <div
-      className={"relative z-20 overflow-hidden shrink-0 min-h-0 select-none flex items-center justify-center border-slate-700/70" +
+      className={
+        "relative z-20 shrink-0 min-h-0 select-none overflow-hidden border-slate-700/70 " +
+        "flex bg-slate-950/95 " +
+        (isVerticalTextDock ? "flex-col" : "flex-col") +
         (effectiveTextDock === "left" ? " h-full border-r" : effectiveTextDock === "right"
           ? " h-full border-l" : effectiveTextDock === "top"
-            ? " w-full border-b" : " w-full border-t")}
+            ? " w-full border-b" : " w-full border-t")
+      }
       style={{
         ...(isVerticalTextDock
           ? { width: VERTICAL_TEXT_DOCK_WIDTH }
           : { height: HORIZONTAL_TEXT_DOCK_HEIGHT }),
-        padding: isVerticalTextDock ? "22px 24px" : "24px 34px",
         background: "linear-gradient(180deg, rgba(15,23,42,0.98), rgba(2,6,23,0.98))",
         boxShadow: "inset 0 1px 0 rgba(255,255,255,0.05), 0 18px 48px rgba(0,0,0,0.45)",
       }}
     >
-      <div className="pointer-events-none absolute inset-x-8 top-3 h-px bg-linear-to-r from-transparent via-amber-200/20 to-transparent" />
-      <div className="pointer-events-none absolute inset-x-8 bottom-3 h-px bg-linear-to-r from-transparent via-cyan-200/10 to-transparent" />
-
-      {showTextHeader && (
-        <div className="absolute inset-x-5 top-5 z-20 grid grid-cols-[auto_1fr_auto] items-center gap-3">
+      {showTextHeader ? (
+        <div className="relative z-20 grid shrink-0 grid-cols-[auto_1fr_auto] items-center gap-3 border-b border-slate-700 bg-slate-950/80 px-5 py-2">
           <div className="justify-self-start">
             <InlineNavButton disabled={!canGoPrevText} onClick={onPrevText}>
               Anterior
@@ -309,7 +309,7 @@ export function SceneTest({ title, imageAssetId, text, textLabel, textDock = "bo
           </div>
 
           <div className="min-w-0 text-center">
-            <div className="text-sm font-semibold text-slate-100 truncate">
+            <div className="truncate text-sm font-semibold text-slate-100">
               {effectiveTextLabel}
             </div>
           </div>
@@ -320,37 +320,39 @@ export function SceneTest({ title, imageAssetId, text, textLabel, textDock = "bo
             </InlineNavButton>
           </div>
         </div>
-      )}
+      ) : null}
 
-      <div
-        className={`relative z-10 max-h-full w-full ${brokenCount > 0 || showTextHeader ? "pt-11" : ""
-          } editor-scroll overflow-y-auto pr-2`}
-      >
-        {brokenCount > 0 ? (
-          <div className="mb-2 rounded-md border border-rose-500/40 bg-rose-950/30 px-2 py-1 text-[11px] text-rose-200">
-            Hay {brokenCount} referencia{brokenCount === 1 ? "" : "s"} rota
-            {brokenCount === 1 ? "" : "s"} en el texto.
-          </div>
-        ) : null}
+      <div className="relative min-h-0 flex-1 overflow-hidden px-8 py-4">
+        <div className="pointer-events-none absolute inset-x-8 top-3 h-px bg-linear-to-r from-transparent via-amber-200/20 to-transparent" />
+        <div className="pointer-events-none absolute inset-x-8 bottom-3 h-px bg-linear-to-r from-transparent via-cyan-200/10 to-transparent" />
 
-        <div
-          lang="es"
-          className={`mx-auto select-none whitespace-pre-line font-light tracking-[0.01em] text-slate-100/95 
+        <div className="editor-scroll relative z-10 h-full min-h-0 overflow-y-auto pr-2">
+          {brokenCount > 0 ? (
+            <div className="mb-2 rounded-md border border-rose-500/40 bg-rose-950/30 px-2 py-1 text-[11px] text-rose-200">
+              Hay {brokenCount} referencia{brokenCount === 1 ? "" : "s"} rota
+              {brokenCount === 1 ? "" : "s"} en el texto.
+            </div>
+          ) : null}
+
+          <div
+            lang="es"
+            className={`mx-auto select-none whitespace-pre-line font-light tracking-[0.01em] text-slate-100/95 
             ${isVerticalTextDock ? "max-w-none text-xs leading-5" : "max-w-[78ch] text-sm leading-6"}`}
-          style={{
-            textAlign: "justify",
-            textAlignLast: "left",
-            hyphens: "auto",
-          }}
-        >
-          <ResolvedTextRenderer
-            parts={parts}
-            emptyText=""
-            wrapperClassName="contents"
-            resolvedTokenClassName="font-mono text-sm text-fuchsia-200"
-            brokenTokenClassName="font-mono text-sm text-red-200"
-            brokenTokenTitle="Referencia rota"
-          />
+            style={{
+              textAlign: "justify",
+              textAlignLast: "left",
+              hyphens: "auto",
+            }}
+          >
+            <ResolvedTextRenderer
+              parts={parts}
+              emptyText=""
+              wrapperClassName="contents"
+              resolvedTokenClassName="font-mono text-sm text-fuchsia-200"
+              brokenTokenClassName="font-mono text-sm text-red-200"
+              brokenTokenTitle="Referencia rota"
+            />
+          </div>
         </div>
       </div>
     </div>

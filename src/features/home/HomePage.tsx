@@ -135,7 +135,7 @@ export function HomePage() {
           <button
             type="button"
             onClick={handleCreate}
-            className="btn-home bg-emerald-700 hover:bg-emerald-600"
+            className="btn-home bg-emerald-600 hover:bg-emerald-500"
           >
             <LightbulbIcon className="btn-icon-left" />
             Crear
@@ -144,7 +144,7 @@ export function HomePage() {
           <button
             type="button"
             onClick={handleEdit}
-            className="btn-home bg-sky-700 hover:bg-sky-600"
+            className="btn-home bg-sky-600 hover:bg-sky-500"
           >
             <PencilSquareIcon className="btn-icon-left" />
             Editar
@@ -153,7 +153,7 @@ export function HomePage() {
           <button
             type="button"
             onClick={handlePlay}
-            className="btn-home bg-red-700 hover:bg-red-600"
+            className="btn-home bg-red-600 hover:bg-red-500"
           >
             <Joystick className="btn-icon-left" />
             Jugar

@@ -179,12 +179,14 @@ function serializeInteractionRules(rules?: InteractionRules) {
   return {
     onClick: rules.onClick?.map((rule) => ({
       id: rule.id,
+      label: rule.label,
       when: rule.when,
       phrase: serializeRulePhrase(rule.phrase),
       effects: rule.effects,
     })),
     onUseItem: rules.onUseItem?.map((rule) => ({
       id: rule.id,
+      label: rule.label,
       when: rule.when,
       phrase: serializeRulePhrase(rule.phrase),
       itemInstanceId: rule.itemInstanceId,

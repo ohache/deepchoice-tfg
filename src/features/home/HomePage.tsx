@@ -153,7 +153,7 @@ export function HomePage() {
           <button
             type="button"
             onClick={handlePlay}
-            className="btn-home bg-red-600 hover:bg-red-500"
+            className="btn-home bg-yellow-600 hover:bg-yellow-500"
           >
             <Joystick className="btn-icon-left" />
             Jugar
